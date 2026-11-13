@@ -71,6 +71,21 @@ TextureAsset::TextureAsset(const AssetMetadata& metadata,
   createTextureFromData();
 }
 
+#if USING(CH_EDITOR)
+/*
+ */
+Span<const uint8>
+TextureAsset::getRgba8Pixels() const
+{
+  const bool bRgba8 = m_format == Format::R8G8B8A8_UNORM || m_format == Format::R8G8B8A8_SRGB;
+  const SIZE_T size = static_cast<SIZE_T>(m_width) * m_height * 4;
+  if (!bRgba8 || m_textureData.size() < size) {
+    return {};
+  }
+  return Span<const uint8>(m_textureData.data(), size);
+}
+#endif // USING(CH_EDITOR)
+
 /*
  */
 bool

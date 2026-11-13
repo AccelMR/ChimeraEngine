@@ -23,7 +23,7 @@ class DataStream;
  */
 struct SpriteAtlasFrame
 {
-  String name;
+  String name{};
   // Top left corner in pixels, from the top left of the texture.
   Vector2 position = Vector2::ZERO;
   // Width and height in pixels.
@@ -47,8 +47,8 @@ struct SpriteAnimationFrame
  */
 struct CH_CORE_EXPORT SpriteAnimation
 {
-  String name;
-  Vector<SpriteAnimationFrame> frames;
+  String name{};
+  Vector<SpriteAnimationFrame> frames{};
   bool bLoop = true;
 
   /**

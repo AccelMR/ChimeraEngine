@@ -11,6 +11,7 @@
 #include "chAnimationClipAsset.h"
 #include "chAnimationGraphAsset.h"
 #include "chScriptAsset.h"
+#include "chSpriteAtlasAsset.h"
 
 #include <cstring>
 #include <type_traits>
@@ -49,13 +50,24 @@ constexpr const ANSICHAR* kPrefabPayload = "CH_PREFAB";
 constexpr const ANSICHAR* kAnimationPayload = "CH_ANIMATION";
 constexpr const ANSICHAR* kAnimationGraphPayload = "CH_ANIMATION_GRAPH";
 constexpr const ANSICHAR* kScriptPayload = "CH_SCRIPT";
+constexpr const ANSICHAR* kSpriteAtlasPayload = "CH_SPRITE_ATLAS";
+constexpr const ANSICHAR* kSpriteFramePayload = "CH_SPRITE_FRAME";
 constexpr const ANSICHAR* kOtherAssetPayload = "CH_ASSET";
 constexpr const ANSICHAR* kGameObjectPayload = "CH_GAMEOBJECT";
 constexpr const ANSICHAR* kFolderPayload = "CH_FOLDER";
 
-constexpr Array<const ANSICHAR*, 8> kAssetPayloads = {
-    kModelPayload,     kTexturePayload,        kMaterialPayload, kPrefabPayload,
-    kAnimationPayload, kAnimationGraphPayload, kScriptPayload,   kOtherAssetPayload};
+constexpr Array<const ANSICHAR*, 9> kAssetPayloads = {
+    kModelPayload,     kTexturePayload,        kMaterialPayload,    kPrefabPayload,
+    kAnimationPayload, kAnimationGraphPayload, kScriptPayload,      kSpriteAtlasPayload,
+    kOtherAssetPayload};
+
+// An atlas frame travels as the atlas UUID and the frame's index.
+struct SpriteFramePayload
+{
+  UUID atlas;
+  uint32 frame;
+};
+static_assert(std::is_trivially_copyable_v<SpriteFramePayload>);
 
 /*
  * Targets ask for the dragged object every frame of a drag, so the last one found is kept
@@ -116,6 +128,9 @@ getPayloadName(const IAsset& asset)
   }
   if (asset.isTypeOf<ScriptAsset>()) {
     return kScriptPayload;
+  }
+  if (asset.isTypeOf<SpriteAtlasAsset>()) {
+    return kSpriteAtlasPayload;
   }
   return kOtherAssetPayload;
 }
@@ -268,6 +283,45 @@ SPtr<ScriptAsset>
 AssetDragDrop::acceptScript()
 {
   return acceptAsset<ScriptAsset>(kScriptPayload);
+}
+
+/*
+ */
+SPtr<SpriteAtlasAsset>
+AssetDragDrop::acceptSpriteAtlas()
+{
+  return acceptAsset<SpriteAtlasAsset>(kSpriteAtlasPayload);
+}
+
+/*
+ */
+void
+AssetDragDrop::setSpriteFramePayload(const SpriteAtlasAsset& atlas, uint32 frame)
+{
+  const SpriteFramePayload payload{.atlas = atlas.getUUID(), .frame = frame};
+  ImGui::SetDragDropPayload(kSpriteFramePayload, &payload, sizeof(payload));
+}
+
+/*
+ */
+bool
+AssetDragDrop::acceptSpriteFrame(SPtr<SpriteAtlasAsset>& outAtlas, uint32& outFrame)
+{
+  const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kSpriteFramePayload);
+  if (!payload || payload->DataSize != static_cast<int32>(sizeof(SpriteFramePayload))) {
+    return false;
+  }
+  SpriteFramePayload frame;
+  std::memcpy(&frame, payload->Data, sizeof(frame));
+  AssetManager& assetManager = AssetManager::instance();
+  const SPtr<IAsset> asset = assetManager.getAsset(frame.atlas);
+  if (!asset || !asset->isTypeOf<SpriteAtlasAsset>() || !assetManager.syncLoadAsset(asset)) {
+    CH_LOG_WARNING(AssetDragDropLog, "The dropped atlas no longer exists.");
+    return false;
+  }
+  outAtlas = std::static_pointer_cast<SpriteAtlasAsset>(asset);
+  outFrame = frame.frame;
+  return true;
 }
 
 /*

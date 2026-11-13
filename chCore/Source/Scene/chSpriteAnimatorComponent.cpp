@@ -57,6 +57,18 @@ SpriteAnimatorComponent::setAtlas(const SPtr<SpriteAtlasAsset>& atlas)
   applyFrame(true);
 }
 
+#if USING(CH_EDITOR)
+/*
+ */
+void
+SpriteAnimatorComponent::refreshAtlas()
+{
+  const bool bPlaying = m_bPlaying;
+  setAtlas(m_atlas);
+  m_bPlaying = bPlaying && m_animation != NO_ANIMATION;
+}
+#endif // USING(CH_EDITOR)
+
 /*
  */
 bool

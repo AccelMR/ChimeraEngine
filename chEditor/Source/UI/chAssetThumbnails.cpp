@@ -34,6 +34,7 @@
 #include "chSceneRenderer.h"
 #include "chShapeComponent.h"
 #include "chStringUtils.h"
+#include "chSpriteAtlasAsset.h"
 #include "chTextureAsset.h"
 #include "chUIHelpers.h"
 
@@ -229,7 +230,11 @@ takeTexture(const SPtr<IAsset>& asset, Thumbnail& thumbnail)
     CH_LOG_ERROR(AssetThumbnailsLog, "Failed to load texture asset: {0}", asset->getName());
     return;
   }
-  const SPtr<TextureAsset> textureAsset = asset->as<TextureAsset>();
+  SPtr<TextureAsset> textureAsset = asset->as<TextureAsset>();
+  // An atlas shows its whole sheet.
+  if (const SPtr<SpriteAtlasAsset> atlas = asset->as<SpriteAtlasAsset>()) {
+    textureAsset = atlas->getTexture();
+  }
   SPtr<ITexture> texture = textureAsset ? textureAsset->getTexture() : nullptr;
   const uint64 textureId = texture ? ImGuiRenderer::getTextureId(*texture) : 0;
   if (textureId != 0) {
@@ -376,7 +381,8 @@ bool
 AssetThumbnails::canHaveThumbnail(const IAsset& asset)
 {
   return asset.isTypeOf<ModelAsset>() || asset.isTypeOf<MaterialAsset>() ||
-         asset.isTypeOf<PrefabAsset>() || asset.isTypeOf<TextureAsset>();
+         asset.isTypeOf<PrefabAsset>() || asset.isTypeOf<TextureAsset>() ||
+         asset.isTypeOf<SpriteAtlasAsset>();
 }
 
 /*
@@ -434,7 +440,7 @@ AssetThumbnails::update()
     return;
   }
   Thumbnail& thumbnail = state.thumbnails[asset->getUUID()];
-  if (asset->isTypeOf<TextureAsset>()) {
+  if (asset->isTypeOf<TextureAsset>() || asset->isTypeOf<SpriteAtlasAsset>()) {
     takeTexture(asset, thumbnail);
     return;
   }

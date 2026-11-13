@@ -45,6 +45,14 @@ class CH_CORE_EXPORT SpriteAnimatorComponent : public Component
   NODISCARD FORCEINLINE const UUID&
   getAtlasId() const noexcept { return m_atlasId; }
 
+#if USING(CH_EDITOR)
+  /**
+   * Finds the animation by its name again and shows its frame, after the atlas was edited.
+   */
+  void
+  refreshAtlas();
+#endif // USING(CH_EDITOR)
+
   /**
    * Plays the animation with that name (ignoring case) from its start; the one already
    * playing only resumes, unless bRestart, so calling it every frame is fine. False when the

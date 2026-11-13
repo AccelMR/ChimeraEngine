@@ -14,6 +14,7 @@
 #include "chUUID.h"
 
 namespace chEngineSDK {
+class TextureAsset;
 
 /**
  * Editor window that lists the project assets in a grid or a table, with search and
@@ -270,6 +271,13 @@ class ContentAssetUI
    */
   SPtr<IAsset>
   createAnimationGraph();
+
+  /**
+   * A new atlas in the current folder (texture's folder when one is given) showing the
+   * whole texture as one frame; opened in the Asset Inspector.
+   */
+  SPtr<IAsset>
+  createSpriteAtlas(const SPtr<TextureAsset>& texture);
 
   /**
    * Refreshes the list and starts renaming an asset just made.

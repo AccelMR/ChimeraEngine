@@ -28,6 +28,7 @@
 #include "chAnimationClipAsset.h"
 #include "chAnimationGraphAsset.h"
 #include "chScriptAsset.h"
+#include "chSpriteAtlasAsset.h"
 #include "chStringUtils.h"
 
 #include "../../Content/Fonts/IconsFontAwsome5.h"
@@ -204,6 +205,9 @@ UIHelpers::getIconFromAssetType(const SPtr<IAsset>& asset)
   }
   if (asset->isTypeOf<ScriptAsset>()) {
     return {AssetType::Script, ICON_FA_FILE_CODE};
+  }
+  if (asset->isTypeOf<SpriteAtlasAsset>()) {
+    return {AssetType::SpriteAtlas, ICON_FA_TH};
   }
   return {AssetType::Unknown, ICON_FA_FILE};
 }

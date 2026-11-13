@@ -18,6 +18,7 @@ class MaterialAsset;
 class ModelAsset;
 class PrefabAsset;
 class ScriptAsset;
+class SpriteAtlasAsset;
 class TextureAsset;
 
 /**
@@ -99,6 +100,25 @@ class AssetDragDrop
    */
   NODISCARD static SPtr<ScriptAsset>
   acceptScript();
+
+  /**
+   * Same as acceptModel, for sprite atlases.
+   */
+  NODISCARD static SPtr<SpriteAtlasAsset>
+  acceptSpriteAtlas();
+
+  /**
+   * Call between BeginDragDropSource and EndDragDropSource: drags one frame of an atlas.
+   */
+  static void
+  setSpriteFramePayload(const SpriteAtlasAsset& atlas, uint32 frame);
+
+  /**
+   * Call between BeginDragDropTarget and EndDragDropTarget. True, with the atlas (loaded) and
+   * the frame's index, when an atlas frame was dropped this frame.
+   */
+  NODISCARD static bool
+  acceptSpriteFrame(SPtr<SpriteAtlasAsset>& outAtlas, uint32& outFrame);
 
   /**
    * Makes the last ImGui item a drag source for gameObject, an object of the open scene. When

@@ -27,6 +27,7 @@ enum class AssetType
   Animation,
   AnimationGraph,
   Script,
+  SpriteAtlas,
   Unknown
 };
 

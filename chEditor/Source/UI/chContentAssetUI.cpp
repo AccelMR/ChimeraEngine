@@ -24,6 +24,9 @@
 #include "chAnimationGraph.h"
 #include "chAnimationGraphAsset.h"
 #include "chAnimationGraphEditorUI.h"
+#include "chSpriteAtlasAsset.h"
+#include "chSpriteAtlasEditorUI.h"
+#include "chTextureAsset.h"
 #include "chAssetManager.h"
 #include "chAssetThumbnails.h"
 #include "chLogger.h"
@@ -741,6 +744,7 @@ ContentAssetUI::renderDeleteConfirmationPopup()
 
         if (bRemovedCorrectly) {
           AssetInspectorUI::close(*m_assetToDelete);
+          SpriteAtlasEditorUI::close(*m_assetToDelete);
           AnimationPreviewUI::close(*m_assetToDelete);
           AnimationGraphEditorUI::close(*m_assetToDelete);
           if (EditorSelection::getSelectedAsset() == m_assetToDelete) {
@@ -806,6 +810,17 @@ ContentAssetUI::renderAssetContextMenu(const SPtr<IAsset>& asset)
     if (AnimationPreviewUI::canOpen(*asset) &&
         ImGui::MenuItem(ICON_FA_RUNNING "  Animation Preview")) {
       AnimationPreviewUI::open(asset);
+    }
+    ImGui::Separator();
+  }
+
+  if (const SPtr<TextureAsset> texture = asset->as<TextureAsset>()) {
+    if (ImGui::MenuItem(ICON_FA_TH "  Create Sprite Atlas")) {
+      const SPtr<IAsset> atlas = createSpriteAtlas(texture);
+      onAssetCreated(atlas);
+      if (atlas) {
+        AssetInspectorUI::open(atlas);
+      }
     }
     ImGui::Separator();
   }
@@ -1417,6 +1432,7 @@ ContentAssetUI::renderDeleteFolderPopup()
         continue;
       }
       AssetInspectorUI::close(*asset);
+      SpriteAtlasEditorUI::close(*asset);
       AnimationPreviewUI::close(*asset);
       AnimationGraphEditorUI::close(*asset);
       AssetThumbnails::forget(*asset);
@@ -1889,6 +1905,43 @@ ContentAssetUI::createAnimationGraph()
 }
 
 /*
+ * Saved at once, like a material, so a sprite can take it before anything is edited.
+ */
+SPtr<IAsset>
+ContentAssetUI::createSpriteAtlas(const SPtr<TextureAsset>& texture)
+{
+  AssetManager& assetManager = AssetManager::instance();
+  if (texture && !texture->isLoaded() && !assetManager.syncLoadAsset(texture)) {
+    CH_LOG_ERROR(ContentAssetUILog, "Failed to load the texture {0}.", texture->getName());
+    return nullptr;
+  }
+  const Path folder = texture ? Path(texture->getAssetPath()) : getCurrentFolderPath();
+  const String baseName = texture ? StringUtils::format("SA_{0}", texture->getName())
+                                  : String("SA_New");
+  const String name = assetManager.makeUniqueAssetName(folder, baseName);
+  const SPtr<SpriteAtlasAsset> asset =
+      assetManager.createAsset<SpriteAtlasAsset>(name, folder).lock();
+  if (!asset) {
+    CH_LOG_ERROR(ContentAssetUILog, "Failed to create a sprite atlas.");
+    return nullptr;
+  }
+  SpriteAtlas atlas;
+  if (texture && texture->getWidth() > 0 && texture->getHeight() > 0) {
+    atlas.getFrames().push_back(
+        {.name = StringUtils::format("{0}_0", texture->getName()),
+         .position = Vector2::ZERO,
+         .size = Vector2(static_cast<float>(texture->getWidth()),
+                         static_cast<float>(texture->getHeight()))});
+  }
+  asset->setAtlas(std::move(atlas), texture);
+  if (!assetManager.saveAsset(asset)) {
+    CH_LOG_ERROR(ContentAssetUILog, "Failed to save the sprite atlas {0}.", name);
+    return nullptr;
+  }
+  return asset;
+}
+
+/*
  */
 void
 ContentAssetUI::renderEmptyAreaContextMenu()
@@ -1956,6 +2009,13 @@ ContentAssetUI::renderEmptyAreaContextMenu()
     }
     if (ImGui::MenuItem(ICON_FA_PROJECT_DIAGRAM "  Animation Graph")) {
       onAssetCreated(createAnimationGraph());
+    }
+    if (ImGui::MenuItem(ICON_FA_TH "  Sprite Atlas")) {
+      const SPtr<IAsset> atlas = createSpriteAtlas(nullptr);
+      onAssetCreated(atlas);
+      if (atlas) {
+        AssetInspectorUI::open(atlas);
+      }
     }
     ImGui::EndMenu();
   }

@@ -28,6 +28,8 @@
 #include "chRotator.h"
 #include "chSkeleton.h"
 #include "chSkeletonAsset.h"
+#include "chSpriteAtlasAsset.h"
+#include "chSpriteAtlasEditorUI.h"
 #include "chTextureAsset.h"
 #include "chUIHelpers.h"
 
@@ -306,6 +308,9 @@ renderAsset(const SPtr<IAsset>& asset)
     if (clip->getClip()) {
       renderAnimationClip(*clip->getClip());
     }
+  }
+  else if (const SPtr<SpriteAtlasAsset> atlas = asset->as<SpriteAtlasAsset>()) {
+    SpriteAtlasEditorUI::render(atlas);
   }
   else {
     ImGui::TextDisabled("Nothing to show for this type.");

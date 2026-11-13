@@ -19,6 +19,7 @@ class AnimatorComponent;
 class CameraComponent;
 class ScriptComponent;
 class ShapeComponent;
+class SpriteAnimatorComponent;
 class SpriteComponent;
 class SkyLightComponent;
 
@@ -55,6 +56,12 @@ class InspectorUI
 
   void
   renderSpriteComponent(SpriteComponent& spriteComponent);
+
+  /**
+   * True when Remove was pressed; the caller removes it once the components are drawn.
+   */
+  NODISCARD bool
+  renderSpriteAnimatorComponent(SpriteAnimatorComponent& animator);
 
   void
   renderLightComponent(GameObject& gameObject);

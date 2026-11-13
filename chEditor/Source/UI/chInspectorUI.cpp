@@ -36,6 +36,10 @@
 #include "chRotator.h"
 #include "chScene.h"
 #include "chShapeComponent.h"
+#include "chAssetInspectorUI.h"
+#include "chSpriteAnimatorComponent.h"
+#include "chSpriteAtlasAsset.h"
+#include "chSpriteAtlasEditorUI.h"
 #include "chSpriteComponent.h"
 #include "chSkeleton.h"
 #include "chSkeletonAsset.h"
@@ -176,6 +180,18 @@ InspectorUI::renderInspectorUI()
   }
   if (SpriteComponent* spriteComponent = selected->getComponent<SpriteComponent>()) {
     renderSpriteComponent(*spriteComponent);
+    SpriteAnimatorComponent* spriteAnimator =
+        selected->getComponent<SpriteAnimatorComponent>();
+    if (spriteAnimator) {
+      if (renderSpriteAnimatorComponent(*spriteAnimator)) {
+        EditorScene::recordChange(*selected, "Remove Sprite Animator");
+        selected->removeComponent(*spriteAnimator);
+      }
+    }
+    else if (ImGui::Button(ICON_FA_PLUS "  Add Sprite Animator", ImVec2(-FLT_MIN, 0.0f))) {
+      EditorScene::recordChange(*selected, "Add Sprite Animator");
+      selected->addComponent<SpriteAnimatorComponent>().setAtlas(spriteComponent->getAtlas());
+    }
   }
   renderLightComponent(*selected);
   if (SkyLightComponent* skyLight = selected->getComponent<SkyLightComponent>()) {
@@ -560,11 +576,19 @@ InspectorUI::renderSpriteComponent(SpriteComponent& spriteComponent)
     spriteComponent.setEnabled(bEnabled);
   }
 
+  // A texture, an atlas or one of its frames dropped anywhere on the image or the names.
   constexpr ImVec2 kThumbnailSize(64.0f, 64.0f);
+  const SPtr<SpriteAtlasAsset>& atlas = spriteComponent.getAtlas();
   const SPtr<TextureAsset>& texture = spriteComponent.getTexture();
   const ITexture* gpuTexture = texture ? texture->getTexture().get() : nullptr;
   const uint64 textureId = gpuTexture ? ImGuiRenderer::getTextureId(*gpuTexture) : 0;
-  if (textureId != 0) {
+  if (atlas) {
+    ImGui::BeginGroup();
+    SpriteAtlasEditorUI::drawFrame(*atlas, spriteComponent.getFrame(), kThumbnailSize.x,
+                                   kThumbnailSize.y);
+    ImGui::EndGroup();
+  }
+  else if (textureId != 0) {
     ImGui::Image(static_cast<ImTextureID>(textureId), kThumbnailSize);
   }
   else {
@@ -574,33 +598,64 @@ InspectorUI::renderSpriteComponent(SpriteComponent& spriteComponent)
     if (!ImGui::BeginDragDropTarget()) {
       return;
     }
+    SPtr<SpriteAtlasAsset> droppedAtlas;
+    uint32 droppedFrame = 0;
     if (SPtr<TextureAsset> dropped = AssetDragDrop::acceptTexture()) {
       EditorScene::recordChange(gameObject, "Set Sprite Texture");
       spriteComponent.setTexture(dropped);
+    }
+    else if (SPtr<SpriteAtlasAsset> droppedSheet = AssetDragDrop::acceptSpriteAtlas()) {
+      EditorScene::recordChange(gameObject, "Set Sprite Atlas");
+      spriteComponent.setAtlasFrame(droppedSheet, 0);
+    }
+    else if (AssetDragDrop::acceptSpriteFrame(droppedAtlas, droppedFrame)) {
+      EditorScene::recordChange(gameObject, "Set Sprite Frame");
+      spriteComponent.setAtlasFrame(droppedAtlas, droppedFrame);
     }
     ImGui::EndDragDropTarget();
   };
   acceptDrop();
   ImGui::SameLine();
   ImGui::BeginGroup();
-  ImGui::TextUnformatted("Texture");
-  if (texture) {
-    ImGui::TextDisabled("%s (%u x %u)", texture->getName(), texture->getWidth(),
-                        texture->getHeight());
-  }
-  else if (!spriteComponent.getTextureId().isNull()) {
-    ImGui::TextDisabled("Missing texture");
+  if (atlas) {
+    ImGui::Text("Atlas: %s", atlas->getName());
+    uint32 frame = spriteComponent.getFrame();
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+    if (SpriteAtlasEditorUI::pickFrame("##spriteFrame", *atlas, frame)) {
+      EditorScene::recordChange(gameObject, "Set Sprite Frame");
+      spriteComponent.setFrame(frame);
+    }
+    if (ImGui::SmallButton(ICON_FA_TH "  Edit Atlas")) {
+      AssetInspectorUI::open(atlas);
+    }
+    ImGui::SameLine();
   }
   else {
-    ImGui::TextDisabled("None (drop a texture)");
+    ImGui::TextUnformatted("Texture");
+    if (texture) {
+      ImGui::TextDisabled("%s (%u x %u)", texture->getName(), texture->getWidth(),
+                          texture->getHeight());
+    }
+    else if (!spriteComponent.getAtlasId().isNull()) {
+      ImGui::TextDisabled("Missing atlas");
+    }
+    else if (!spriteComponent.getTextureId().isNull()) {
+      ImGui::TextDisabled("Missing texture");
+    }
+    else {
+      ImGui::TextDisabled("None (drop a texture, an atlas or a frame)");
+    }
   }
-  if (!spriteComponent.getTextureId().isNull() && ImGui::SmallButton("Clear##Sprite")) {
+  if ((!spriteComponent.getTextureId().isNull() || !spriteComponent.getAtlasId().isNull()) &&
+      ImGui::SmallButton("Clear##Sprite")) {
     EditorScene::recordChange(gameObject, "Clear Sprite Texture");
     spriteComponent.setTexture(nullptr);
   }
   ImGui::EndGroup();
   acceptDrop();
 
+  // An atlas frame brings its own rectangle and pivot.
+  ImGui::BeginDisabled(atlas != nullptr);
   Vector2 sourcePosition = spriteComponent.getSourcePosition();
   Vector2 sourceSize = spriteComponent.getSourceSize();
   bool bRectChanged = ImGui::DragFloat2("Source Position", &sourcePosition.x, 1.0f, 0.0f,
@@ -613,6 +668,7 @@ InspectorUI::renderSpriteComponent(SpriteComponent& spriteComponent)
     EditorScene::recordChange(gameObject, "Edit Source Rect");
     spriteComponent.setSourceRect(sourcePosition, sourceSize);
   }
+  ImGui::EndDisabled();
 
   float pixelsPerUnit = spriteComponent.getPixelsPerUnit();
   if (ImGui::DragFloat("Pixels Per Unit", &pixelsPerUnit, 0.5f,
@@ -622,10 +678,12 @@ InspectorUI::renderSpriteComponent(SpriteComponent& spriteComponent)
   }
 
   Vector2 pivot = spriteComponent.getPivot();
+  ImGui::BeginDisabled(atlas != nullptr);
   if (ImGui::DragFloat2("Pivot", &pivot.x, 0.01f, -10.0f, 10.0f, "%.2f")) {
     EditorScene::recordChange(gameObject, "Edit Pivot");
     spriteComponent.setPivot(pivot);
   }
+  ImGui::EndDisabled();
   ImGui::SetItemTooltip("(0, 0) is the bottom left corner, (1, 1) the top right one");
 
   LinearColor color = spriteComponent.getColor();
@@ -972,6 +1030,90 @@ InspectorUI::renderCameraComponent(CameraComponent& camera)
 
   ImGui::Separator();
   CameraPreviewUI::renderInspectorView(EditorSelection::getSelectedGameObject());
+}
+
+/*
+ * Changing the animation or the speed is an undo step; scrubbing the time is not, like the
+ * Animator's timeline.
+ */
+bool
+InspectorUI::renderSpriteAnimatorComponent(SpriteAnimatorComponent& animator)
+{
+  if (!ImGui::CollapsingHeader(ICON_FA_FILM "  Sprite Animator###SpriteAnimator",
+                               ImGuiTreeNodeFlags_DefaultOpen)) {
+    return false;
+  }
+  GameObject& gameObject = *animator.getOwner();
+  bool bEnabled = animator.isEnabled();
+  if (ImGui::Checkbox("Enabled##SpriteAnimator", &bEnabled)) {
+    EditorScene::recordChange(gameObject, "Edit Enabled");
+    animator.setEnabled(bEnabled);
+  }
+  ImGui::SameLine();
+  const bool bRemove = ImGui::SmallButton(ICON_FA_TRASH "  Remove##SpriteAnimator");
+
+  const SPtr<SpriteAtlasAsset>& atlas = animator.getAtlas();
+  const ANSICHAR* atlasName = "None (drop an atlas)";
+  if (atlas) {
+    atlasName = atlas->getName();
+  }
+  else if (!animator.getAtlasId().isNull()) {
+    atlasName = "Missing atlas";
+  }
+  ImGui::Button(atlasName, ImVec2(-FLT_MIN, 0.0f));
+  if (ImGui::BeginDragDropTarget()) {
+    if (SPtr<SpriteAtlasAsset> dropped = AssetDragDrop::acceptSpriteAtlas()) {
+      EditorScene::recordChange(gameObject, "Set Animator Atlas");
+      animator.setAtlas(dropped);
+    }
+    ImGui::EndDragDropTarget();
+  }
+  const SpriteComponent* sprite = gameObject.getComponent<SpriteComponent>();
+  if (sprite && sprite->getAtlas() && sprite->getAtlas() != atlas &&
+      ImGui::SmallButton("Use the Sprite's Atlas")) {
+    EditorScene::recordChange(gameObject, "Set Animator Atlas");
+    animator.setAtlas(sprite->getAtlas());
+  }
+  if (!atlas) {
+    return bRemove;
+  }
+
+  String animation = animator.getAnimationName();
+  if (SpriteAtlasEditorUI::pickAnimation("Animation", *atlas, animation)) {
+    EditorScene::recordChange(gameObject, "Set Animation");
+    static_cast<void>(animator.play(animation, true));
+  }
+  bool bPlaying = animator.isPlaying();
+  if (ImGui::Checkbox("Playing", &bPlaying)) {
+    EditorScene::recordChange(gameObject, bPlaying ? "Play Animation" : "Pause Animation");
+    if (bPlaying && animator.isFinished()) {
+      static_cast<void>(animator.play(animator.getAnimationName(), true));
+    }
+    else {
+      animator.setPlaying(bPlaying && !animator.getAnimationName().empty());
+    }
+  }
+  ImGui::SetItemTooltip("Saved with the scene: the animation plays when the scene starts");
+  ImGui::SameLine();
+  if (ImGui::SmallButton(ICON_FA_STOP "  Stop")) {
+    EditorScene::recordChange(gameObject, "Stop Animation");
+    animator.stop();
+  }
+
+  float speed = animator.getSpeed();
+  if (ImGui::DragFloat("Speed##SpriteAnimator", &speed, 0.01f, -10.0f, 10.0f, "%.2f")) {
+    EditorScene::recordChange(gameObject, "Edit Animation Speed");
+    animator.setSpeed(speed);
+  }
+  const uint32 index = atlas->getAtlas().findAnimation(animator.getAnimationName());
+  if (index != SpriteAtlas::NOT_FOUND) {
+    const float duration = atlas->getAtlas().getAnimations()[index].getDuration();
+    float time = animator.getTime();
+    if (ImGui::SliderFloat("Time##SpriteAnimator", &time, 0.0f, duration, "%.2f s")) {
+      animator.setTime(time);
+    }
+  }
+  return bRemove;
 }
 
 /*

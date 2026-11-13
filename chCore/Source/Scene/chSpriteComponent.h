@@ -69,6 +69,14 @@ class CH_CORE_EXPORT SpriteComponent : public Component
   NODISCARD FORCEINLINE uint32
   getFrame() const noexcept { return m_frame; }
 
+#if USING(CH_EDITOR)
+  /**
+   * Reads the atlas frame again, after the atlas was edited.
+   */
+  FORCEINLINE void
+  refreshAtlasFrame() { updateSpriteItem(); }
+#endif // USING(CH_EDITOR)
+
   NODISCARD FORCEINLINE const SPtr<TextureAsset>&
   getTexture() const noexcept { return m_texture; }
 

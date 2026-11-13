@@ -60,6 +60,7 @@
 #include "chSceneGraphUI.h"
 #include "chInspectorUI.h"
 #include "chAssetInspectorUI.h"
+#include "chSpriteAtlasEditorUI.h"
 #include "chAnimationPreviewUI.h"
 #include "chAnimationGraphEditorUI.h"
 #include "chAssetThumbnails.h"
@@ -184,6 +185,7 @@ EditorApplication::destroyModules()
 
   m_inspectorUI.reset();
   AssetInspectorUI::shutDown();
+  SpriteAtlasEditorUI::shutDown();
   ProjectSettingsUI::shutDown();
   AnimationPreviewUI::shutDown();
   CameraPreviewUI::shutDown();

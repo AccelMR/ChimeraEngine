@@ -68,6 +68,19 @@ class CH_CORE_EXPORT TextureAsset : public IAsset
   NODISCARD FORCEINLINE uint32
   getHeight() const noexcept { return m_height; }
 
+  NODISCARD FORCEINLINE Format
+  getFormat() const noexcept { return m_format; }
+
+#if USING(CH_EDITOR)
+  /**
+   * The pixels of the largest level as RGBA, 4 bytes each, for tools that read the image
+   * (finding the sprites of a sheet). Empty when the format is not 8-bit RGBA or the CPU copy
+   * is gone.
+   */
+  NODISCARD Span<const uint8>
+  getRgba8Pixels() const;
+#endif // USING(CH_EDITOR)
+
   /**
    * Whether a pixel of the largest level has an alpha below alpha (0 to 1). Only 8-bit
    * RGBA and BGRA formats are read; other formats give false. It scans the CPU copy, so it
