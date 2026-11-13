@@ -46,6 +46,7 @@
 #include "chUIHelpers.h"
 #include "chViewportGrid.h"
 #include "chViewportTools.h"
+#include "chIdeDebugSettingsUI.h"
 #include "chImportDialog.h"
 #include "chPackageDialog.h"
 #include "chProjectBrowserUI.h"
@@ -657,6 +658,7 @@ EditorApplication::renderUI()
   ProfilerUI::render(m_sceneRenderer->getLastFrameStats());
   ImportDialog::render();
   PackageDialog::render();
+  IdeDebugSettingsUI::render();
   ScriptDefinitionsUI::render();
   ProjectBrowserUI::renderPopup();
   EditorScene::render(m_contentAssetUI->getCurrentFolderPath());

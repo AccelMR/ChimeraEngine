@@ -19,6 +19,7 @@
 #include "chEditorTheme.h"
 #include "chEnginePaths.h"
 #include "chGraphicsSettings.h"
+#include "chIdeDebugSettingsUI.h"
 #include "chImportDialog.h"
 #include "chLinearColor.h"
 #include "chLogger.h"
@@ -514,6 +515,10 @@ MainMenuBarUI::renderFileMenu()
   if (ImGui::MenuItem(ICON_FA_BOX_OPEN "  Package Project...", nullptr, false,
                       !bEditingPrefab && !PackageDialog::isPackaging())) {
     PackageDialog::open();
+  }
+  if (ImGui::MenuItem(ICON_FA_BUG "  Generate IDE Debug Settings...", nullptr, false,
+                      EnginePaths::hasProject())) {
+    IdeDebugSettingsUI::open();
   }
   ImGui::Separator();
   if (ImGui::MenuItem(ICON_FA_SIGN_OUT_ALT "  Exit")) {
