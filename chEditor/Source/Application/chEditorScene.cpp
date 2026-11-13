@@ -928,17 +928,35 @@ EditorScene::initialize(EditorCamera& camera)
   EditorSceneState& state = getState();
   state.camera = &camera;
 
-  const String& startupScene = g_cvarStartupScene.get();
-  const SPtr<SceneAsset> asset = AssetManager::instance().findScene(startupScene);
-  const SPtr<Scene> scene = asset ? SceneManager::instance().loadScene(asset).lock() : nullptr;
-  if (scene) {
+  const auto tryOpen = [&state](const String& path) {
+    const SPtr<SceneAsset> asset = AssetManager::instance().findScene(path);
+    const SPtr<Scene> scene =
+        asset ? SceneManager::instance().loadScene(asset).lock() : nullptr;
+    if (!scene) {
+      return false;
+    }
     setCurrent(state, scene, asset);
-    CH_LOG_INFO(EditorSceneLog, "Opened scene {0}.", startupScene);
+    CH_LOG_INFO(EditorSceneLog, "Opened scene {0}.", path);
+    return true;
+  };
+
+  // The scene the editor saved last lives in /Saved, which is not shared, so a project
+  // just cloned has none: it opens the game's startup scene, as the game would.
+  const String& startupScene = g_cvarStartupScene.get();
+  const bool bChosen = g_cvarStartupScene.getSource() != ConsoleVariableSource::Default;
+  if (bChosen && tryOpen(startupScene)) {
+    return;
+  }
+  const String* gameScene = EngineConfig::getFile("Game").getValue("Game", "StartupScene");
+  if (gameScene && !gameScene->empty() && tryOpen(*gameScene)) {
+    return;
+  }
+  if (!bChosen && tryOpen(startupScene)) {
     return;
   }
 
   CH_LOG_WARNING(EditorSceneLog, "Could not open scene {0}; starting a new one.",
-                 startupScene);
+                 gameScene && !bChosen ? *gameScene : startupScene);
   setCurrent(state, makeNewScene(), nullptr);
 }
 
