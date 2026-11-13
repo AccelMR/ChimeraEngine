@@ -108,6 +108,12 @@ class CH_CORE_EXPORT EnginePaths
   getCodecDirectory();
 
   /**
+   * Real folder of the engine plugins a project enables in its .chproject.
+   */
+  NODISCARD static const Path&
+  getEnginePluginDirectory();
+
+  /**
    * Virtual folder of the project assets, "/Game".
    */
   NODISCARD static const Path&
@@ -163,6 +169,11 @@ class CH_CORE_EXPORT EnginePaths
    * Folder next to a packaged executable that holds the engine content.
    */
   static constexpr StringView PACKAGE_ENGINE_FOLDER = "Engine";
+
+  /**
+   * Folder next to the executable that holds the engine plugins.
+   */
+  static constexpr StringView ENGINE_PLUGIN_FOLDER = "Plugins";
 };
 
 } // namespace chEngineSDK

@@ -109,31 +109,12 @@ pushResult(lua_State* state, const T& value, const int32 outIndex)
 
 /*
  * World values are read now instead of from the last Scene::updateTransforms, so they are
- * right after a move in the same frame. The cached world matrix is used while nothing up
- * the chain changed.
+ * right after a move in the same frame.
  */
-NODISCARD bool
-isChainDirty(const GameObject& gameObject)
-{
-  for (const GameObject* current = &gameObject; current; current = current->getParent()) {
-    if (current->getTransform().isDirty()) {
-      return true;
-    }
-  }
-  return false;
-}
-
 Matrix4
 getWorldMatrixNow(const GameObject& gameObject)
 {
-  if (!isChainDirty(gameObject)) {
-    return gameObject.getTransform().getWorldMatrix();
-  }
-  Matrix4 world = gameObject.getTransform().getLocalMatrix();
-  for (const GameObject* parent = gameObject.getParent(); parent; parent = parent->getParent()) {
-    world = world * parent->getTransform().getLocalMatrix();
-  }
-  return world;
+  return gameObject.getCurrentWorldMatrix();
 }
 
 Vector3
@@ -1693,6 +1674,59 @@ ScriptBindings::checkPartOwner(lua_State* state, const int32 index, const ANSICH
   const PartHandle* handle =
       static_cast<const PartHandle*>(luaL_checkudata(state, index, typeName));
   return checkAlive(state, *handle->object);
+}
+
+/*
+ */
+void
+ScriptPartHandle::push(lua_State* state, GameObject& gameObject, const ANSICHAR* typeName)
+{
+  ScriptTraits<GameObject>::push(state, gameObject);
+  const int32 objectHandle = lua_gettop(state);
+  if (lua_getiuservalue(state, objectHandle, ScriptBindings::PLUGIN_PARTS_USER_VALUE) !=
+      LUA_TTABLE) {
+    lua_pop(state, 1);
+    lua_createtable(state, 0, 1);
+    lua_pushvalue(state, -1);
+    lua_setiuservalue(state, objectHandle, ScriptBindings::PLUGIN_PARTS_USER_VALUE);
+  }
+  const int32 parts = lua_gettop(state);
+  if (lua_getfield(state, parts, typeName) == LUA_TUSERDATA) {
+    lua_replace(state, objectHandle);
+    lua_settop(state, objectHandle);
+    return;
+  }
+  lua_pop(state, 1);
+
+  PartHandle* const handle =
+      static_cast<PartHandle*>(lua_newuserdatauv(state, sizeof(PartHandle), 1));
+  handle->object = &static_cast<GameObjectHandle*>(lua_touserdata(state, objectHandle))->object;
+  luaL_setmetatable(state, typeName);
+  // The part keeps the object handle alive, which keeps the part in its table in turn.
+  lua_pushvalue(state, objectHandle);
+  lua_setiuservalue(state, -2, 1);
+  lua_pushvalue(state, -1);
+  lua_setfield(state, parts, typeName);
+  lua_replace(state, objectHandle);
+  lua_settop(state, objectHandle);
+}
+
+/*
+ */
+GameObject&
+ScriptPartHandle::checkOwner(lua_State* state, const int32 index, const ANSICHAR* typeName)
+{
+  return ScriptBindings::checkPartOwner(state, index, typeName);
+}
+
+/*
+ */
+GameObject*
+ScriptPartHandle::testOwner(lua_State* state, const int32 index, const ANSICHAR* typeName)
+{
+  const PartHandle* handle =
+      static_cast<const PartHandle*>(luaL_testudata(state, index, typeName));
+  return handle && isAlive(*handle->object) ? *handle->object : nullptr;
 }
 
 /*

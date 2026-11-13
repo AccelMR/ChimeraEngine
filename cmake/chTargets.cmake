@@ -2,7 +2,7 @@
 # lists what is particular to it: its dependencies and its own defines.
 #
 #   ch_add_module(<name> EXPORT_DEFINE <macro> FOLDER <folder>)   engine shared library
-#   ch_add_plugin(<name> FOLDER <folder> [CODEC])                  library loaded at run time
+#   ch_add_plugin(<name> FOLDER <folder> [CODEC|ENGINE_PLUGIN])    library loaded at run time
 #   ch_add_executable(<name> FOLDER <folder> SOURCES <files...>)
 #   ch_add_test(<name> SOURCE <file> [PRIVATE_ACCESS <modules...>])
 #   ch_collect_sources(<out var>)       the Source/ files, for targets built by hand
@@ -124,9 +124,10 @@ function(ch_add_module TARGET_NAME)
 endfunction()
 
 # A shared library the engine loads at run time by name, so it has no "lib" prefix on Linux.
-# Codecs go to the Codecs folder, one level below the engine libraries they link to.
+# Codecs go to the Codecs folder and engine plugins (the ones a project enables) to the
+# Plugins folder, one level below the engine libraries they link to.
 function(ch_add_plugin TARGET_NAME)
-  cmake_parse_arguments(ARG "CODEC" "FOLDER" "" ${ARGN})
+  cmake_parse_arguments(ARG "CODEC;ENGINE_PLUGIN" "FOLDER" "" ${ARGN})
   ch_collect_sources(SOURCES)
   add_library(${TARGET_NAME} SHARED ${SOURCES})
   set_target_properties(${TARGET_NAME} PROPERTIES PREFIX "")
@@ -134,6 +135,11 @@ function(ch_add_plugin TARGET_NAME)
     set_target_properties(${TARGET_NAME} PROPERTIES
       LIBRARY_OUTPUT_DIRECTORY "${CH_CODEC_OUTPUT_DIR}"
       RUNTIME_OUTPUT_DIRECTORY "${CH_CODEC_OUTPUT_DIR}"
+      INSTALL_RPATH "$ORIGIN:$ORIGIN/..")
+  elseif(ARG_ENGINE_PLUGIN)
+    set_target_properties(${TARGET_NAME} PROPERTIES
+      LIBRARY_OUTPUT_DIRECTORY "${CH_PLUGIN_OUTPUT_DIR}"
+      RUNTIME_OUTPUT_DIRECTORY "${CH_PLUGIN_OUTPUT_DIR}"
       INSTALL_RPATH "$ORIGIN:$ORIGIN/..")
   endif()
   ch_include_subfolders(${TARGET_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")

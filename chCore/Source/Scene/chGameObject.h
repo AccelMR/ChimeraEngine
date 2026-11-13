@@ -75,6 +75,13 @@ class CH_CORE_EXPORT GameObject : public Object,
   NODISCARD FORCEINLINE const Transform&
   getTransform() const { return m_transform; }
 
+  /**
+   * The world matrix as of now, not as of the last Scene::updateTransforms: the cached one
+   * while nothing up the chain moved since, else the chain of local matrices.
+   */
+  NODISCARD Matrix4
+  getCurrentWorldMatrix() const;
+
   NODISCARD FORCEINLINE Scene*
   getScene() const { return m_scene; }
 

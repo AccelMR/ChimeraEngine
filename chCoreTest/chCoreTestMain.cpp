@@ -73,6 +73,7 @@
 #include "chScriptBinder.h"
 #include "chScriptComponent.h"
 #include "chScriptManager.h"
+#include "chScriptMathTypes.h"
 #include "chScriptObjectTypes.h"
 #include "chShadowRenderer.h"
 #include "chShapeComponent.h"
@@ -1835,6 +1836,7 @@ TEST_CASE("chCore - Project descriptor")
     REQUIRE(descriptor.name == "Old");
     REQUIRE(descriptor.engineVersion.empty());
     REQUIRE(descriptor.gameModules.empty());
+    REQUIRE(descriptor.plugins.empty());
     REQUIRE(ProjectDescriptor::findProjectFile(root.join(Path("Old"))) == file);
     REQUIRE(ProjectDescriptor::findProjectFile(root).empty());
   }
@@ -1846,6 +1848,7 @@ TEST_CASE("chCore - Project descriptor")
     descriptor.engineVersion = "1.2.3.4";
     descriptor.description = "A test";
     descriptor.gameModules = {"GameCode", "Tools"};
+    descriptor.plugins = {"chProjectiles"};
     const Path file = root.join(Path("Saved/Saved.chproject"));
     REQUIRE(descriptor.save(file));
 
@@ -1855,11 +1858,13 @@ TEST_CASE("chCore - Project descriptor")
     REQUIRE(loaded.engineVersion == "1.2.3.4");
     REQUIRE(loaded.description == "A test");
     REQUIRE(loaded.gameModules == Vector<String>{"GameCode", "Tools"});
+    REQUIRE(loaded.plugins == Vector<String>{"chProjectiles"});
 
-    writeTestFile(file, "[Modules]\nGameModules= A , ,B\n");
+    writeTestFile(file, "[Modules]\nGameModules= A , ,B\n[Plugins]\nEnabled=P1, P2\n");
     REQUIRE(loaded.load(file));
     REQUIRE(loaded.name == "Saved");
     REQUIRE(loaded.gameModules == Vector<String>{"A", "B"});
+    REQUIRE(loaded.plugins == Vector<String>{"P1", "P2"});
   }
 
   SECTION("Create makes the folders and the file")
@@ -2032,6 +2037,30 @@ TEST_CASE("chCore - Project packager")
     badName.gameName = "My:Game";
     REQUIRE_FALSE(ProjectPackager::package(badName).bSucceeded);
     REQUIRE_FALSE(FileSystem::exists(output));
+  }
+
+  SECTION("Only the plugins the project enables are copied, and a missing one stops it")
+  {
+    String plugin("chProjectiles");
+    plugin += DynamicLibrary::EXTENSION;
+    String otherPlugin("chOther");
+    otherPlugin += DynamicLibrary::EXTENSION;
+    writeTestFile(binaries.join(Path("Plugins")).join(Path(plugin)), "plugin");
+    writeTestFile(binaries.join(Path("Plugins")).join(Path(otherPlugin)), "plugin");
+    writeTestFile(project.join(Path("Project.chproject")),
+                  "[Modules]\nGameModules=GameCode\n[Plugins]\nEnabled=chProjectiles\n");
+    const PackageResult result = ProjectPackager::package(desc);
+    REQUIRE(result.bSucceeded);
+    REQUIRE(FileSystem::isFile(output.join(Path("Plugins")).join(Path(plugin))));
+    REQUIRE_FALSE(FileSystem::exists(output.join(Path("Plugins")).join(Path(otherPlugin))));
+    ProjectDescriptor packagedProject;
+    REQUIRE(packagedProject.load(output.join(Path("MyGame.chproject"))));
+    REQUIRE(packagedProject.plugins == Vector<String>{"chProjectiles"});
+
+    writeTestFile(project.join(Path("Project.chproject")), "[Plugins]\nEnabled=chMissing\n");
+    const PackageResult missing = ProjectPackager::package(desc);
+    REQUIRE_FALSE(missing.bSucceeded);
+    REQUIRE(missing.error.find("chMissing") != String::npos);
   }
 
   SECTION("Debug builds are told apart by the engine library")
@@ -7298,6 +7327,49 @@ TEST_CASE("chCore - Script allocator")
       REQUIRE(second == first);
       REQUIRE(ScriptAllocator::allocate(&allocator, second, 33, 0) == nullptr);
     }
+  }
+}
+
+namespace {
+int32
+pluginGreeting(lua_State* state)
+{
+  lua_pushliteral(state, "hello");
+  return 1;
+}
+
+/*
+ * What a plugin's loadPlugin hands to ScriptManager::addBindings.
+ */
+void
+registerPluginBindings(lua_State* state)
+{
+  ScriptClass<Vector2>(state).rawMethod("greet", &pluginGreeting, "fun(): string");
+  lua_pushinteger(state, 7);
+  lua_setglobal(state, "PluginValue");
+}
+} // namespace
+
+TEST_CASE("chCore - Script plugin bindings")
+{
+  SECTION("Bindings added before a state is made reach it, after the engine's")
+  {
+    ScriptManager::addBindings(&registerPluginBindings);
+    ScriptManager::addBindings(&registerPluginBindings);
+    ScriptManager scripts(true);
+    ScriptManager::removeBindings(&registerPluginBindings);
+    REQUIRE(scripts.runString(R"lua(
+      assert(PluginValue == 7)
+      -- The class grew: the engine's members, constructors and constants are still there.
+      local v = Vector2(3, 4)
+      assert(v:greet() == "hello")
+      assert(v.x == 3 and v:length() == 5)
+      assert(Vector2.ZERO.x == 0)
+    )lua"));
+
+    ScriptManager later(true);
+    REQUIRE(later.runString("assert(PluginValue == nil)"));
+    REQUIRE_FALSE(later.runString("Vector2(1, 2):greet()"));
   }
 }
 

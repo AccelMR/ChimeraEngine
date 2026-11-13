@@ -17,11 +17,13 @@ namespace chEngineSDK {
 
 /**
  * Exists so the .chproject file can say what a project is before any config is read: its
- * name, the engine version it was saved with and the game code it loads. Settings stay in
+ * name, the engine version it was saved with, the engine plugins it enables and the game code
+ * it loads. Settings stay in
  * the Config .ini files, so a player or a project can change them without touching it.
  *
  * The file is an .ini:
  *   [Project] Name, EngineVersion, Description
+ *   [Plugins] Enabled (comma list of engine plugins, from the Plugins folder)
  *   [Modules] GameModules (comma list of game code plugins)
  * An empty file is a valid project named after the file.
  */
@@ -67,6 +69,9 @@ struct CH_CORE_EXPORT ProjectDescriptor
   // CH_ENGINE_VERSION_STRING of the engine that wrote the file.
   String engineVersion{};
   String description{};
+  // Base names of the engine plugins the project uses (chProjectiles); only these are loaded
+  // and packaged.
+  Vector<String> plugins{};
   // Base names of the plugins with the project's game code, loaded like any plugin.
   Vector<String> gameModules{};
 };

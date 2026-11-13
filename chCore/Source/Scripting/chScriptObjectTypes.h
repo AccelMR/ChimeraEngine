@@ -62,6 +62,34 @@ struct ScriptSpriteAtlas
 };
 
 CH_SCRIPT_VALUE_TYPE(ScriptSpriteAtlas, "Atlas");
+
+/**
+ * Exists so what a sprite looks like is worked out once (Sprites.makeStyle) and then only
+ * placed: by Sprites.draw, or by a plugin that draws many sprites of one look. The texture's
+ * bindless index is read when the style is made.
+ */
+struct ScriptSpriteStyle
+{
+  UUID texture;
+  // As GpuSpriteInstance::uvRect: the part of the texture shown, negative sizes flip.
+  float uvRect[4];
+  // Width and height in world units.
+  float size[2];
+  // (0, 0) is the bottom left corner.
+  float pivot[2];
+  float color[4];
+  // World X.
+  float depth;
+  uint32 textureAndFlags;
+  int16 sortingLayer;
+  int16 order;
+  // A SpriteBlendMode and a SpriteFilter.
+  uint8 blendMode;
+  uint8 filter;
+  uint8 padding[2];
+};
+
+CH_SCRIPT_VALUE_TYPE(ScriptSpriteStyle, "SpriteStyle");
 CH_SCRIPT_HANDLE_TYPE(GameObject, "GameObject");
 CH_SCRIPT_HANDLE_TYPE(Transform, "Transform");
 CH_SCRIPT_HANDLE_TYPE(AnimatorComponent, "Animator");
@@ -138,6 +166,33 @@ struct CH_CORE_EXPORT ScriptTraits<AnimatorComponent>
    */
   NODISCARD static GameObject&
   checkOwner(lua_State* state, int32 index);
+};
+
+/**
+ * Exists so a plugin gives scripts a handle to its own component of a GameObject the way the
+ * engine does for Transform and Animator: the handle shares the object's, so it dies with
+ * it, and the same component of an object is always the same Lua value. Register typeName
+ * with ScriptClass first; its methods find the component through checkOwner at every call,
+ * so a removed component is an error, never a dangling pointer.
+ */
+struct CH_CORE_EXPORT ScriptPartHandle
+{
+  static void
+  push(lua_State* state, GameObject& gameObject, const ANSICHAR* typeName);
+
+  /**
+   * The object of the handle at index; raises when it is not one of typeName or the object
+   * was destroyed.
+   */
+  NODISCARD static GameObject&
+  checkOwner(lua_State* state, int32 index, const ANSICHAR* typeName);
+
+  /**
+   * The object of the handle at index, or null when it is not one of typeName or the object
+   * died. Never raises.
+   */
+  NODISCARD static GameObject*
+  testOwner(lua_State* state, int32 index, const ANSICHAR* typeName);
 };
 
 } // namespace chEngineSDK

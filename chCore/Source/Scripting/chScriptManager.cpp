@@ -9,6 +9,7 @@
 /************************************************************************/
 #include "chScriptManager.h"
 
+#include "chAlgorithm.h"
 #include "chAssetManager.h"
 #include "chConsoleVariable.h"
 #include "chInputManager.h"
@@ -40,6 +41,16 @@ ConsoleVariable<bool> g_cvarGenerationalGC("Script.GenerationalGC",
                                            "Generational garbage collection: objects that die "
                                            "young are freed in quick passes. Off uses Lua's "
                                            "incremental collector.");
+
+/*
+ * Built on first use: plugins add theirs from loadPlugin, before any ScriptManager starts.
+ */
+Vector<ScriptBindingsFunction>&
+getPluginBindings()
+{
+  static Vector<ScriptBindingsFunction> functions;
+  return functions;
+}
 
 /*
  * Message handler of every protected call: adds the traceback while the failing function is
@@ -755,6 +766,9 @@ ScriptManager::openLibraries()
   ScriptBindings::registerInput(m_state);
   ScriptBindings::registerDebugDraw(m_state);
   ScriptBindings::registerSprites(m_state);
+  for (const ScriptBindingsFunction function : getPluginBindings()) {
+    function(m_state);
+  }
 }
 
 /*
@@ -1077,6 +1091,42 @@ ScriptManager::callFunction(const int32 function, const int64 argument)
   lua_rawgeti(m_state, LUA_REGISTRYINDEX, function);
   lua_pushinteger(m_state, static_cast<lua_Integer>(argument));
   return protectedCall(1);
+}
+
+/*
+ */
+void
+ScriptManager::beginCall(const int32 function)
+{
+  lua_pushcfunction(m_state, &traceback);
+  lua_rawgeti(m_state, LUA_REGISTRYINDEX, function);
+}
+
+/*
+ */
+bool
+ScriptManager::endCall(const int32 argumentCount)
+{
+  return protectedCall(argumentCount);
+}
+
+/*
+ */
+void
+ScriptManager::addBindings(const ScriptBindingsFunction function)
+{
+  Vector<ScriptBindingsFunction>& functions = getPluginBindings();
+  if (!Algorithm::contains(functions, function)) {
+    functions.push_back(function);
+  }
+}
+
+/*
+ */
+void
+ScriptManager::removeBindings(const ScriptBindingsFunction function)
+{
+  Algorithm::removeFirst(getPluginBindings(), function);
 }
 
 /*

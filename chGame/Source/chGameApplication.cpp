@@ -13,6 +13,7 @@
 #include "chCameraComponent.h"
 #include "chConsoleVariable.h"
 #include "chEnginePaths.h"
+#include "chEnginePlugins.h"
 #include "chIGraphicsAPI.h"
 #include "chISwapChain.h"
 #include "chLinearColor.h"
@@ -53,6 +54,10 @@ GameApplication::~GameApplication() = default;
 void
 GameApplication::onPostInitialize()
 {
+  // Before the managers: plugins register the components scenes hold and the script
+  // bindings the state is made with.
+  EnginePlugins::loadEnabled();
+
   AssetManager::startUp();
   AssetManager& assetManager = AssetManager::instance();
   assetManager.initialize();

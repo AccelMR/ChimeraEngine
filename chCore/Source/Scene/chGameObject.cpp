@@ -81,6 +81,26 @@ GameObject::getLevel() const
 
 /*
  */
+Matrix4
+GameObject::getCurrentWorldMatrix() const
+{
+  bool bChainDirty = false;
+  for (const GameObject* current = this; current && !bChainDirty;
+       current = current->getParent()) {
+    bChainDirty = current->getTransform().isDirty();
+  }
+  if (!bChainDirty) {
+    return m_transform.getWorldMatrix();
+  }
+  Matrix4 world = m_transform.getLocalMatrix();
+  for (const GameObject* parent = getParent(); parent; parent = parent->getParent()) {
+    world = world * parent->getTransform().getLocalMatrix();
+  }
+  return world;
+}
+
+/*
+ */
 bool
 GameObject::getHierarchyWorldBounds(AABox& outBounds) const
 {

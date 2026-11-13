@@ -19,10 +19,34 @@ namespace chEngineSDK {
 namespace {
 constexpr StringView kProjectSection = "Project";
 constexpr StringView kModulesSection = "Modules";
+constexpr StringView kPluginsSection = "Plugins";
 constexpr StringView kNameKey = "Name";
 constexpr StringView kEngineVersionKey = "EngineVersion";
 constexpr StringView kDescriptionKey = "Description";
 constexpr StringView kGameModulesKey = "GameModules";
+constexpr StringView kEnabledPluginsKey = "Enabled";
+
+/*
+ * The names of a comma list, without the spaces around them and without empty ones.
+ */
+void
+readNameList(const ConfigFile& config,
+             const StringView section,
+             const StringView key,
+             Vector<String>& outNames)
+{
+  outNames.clear();
+  const String* value = config.getValue(section, key);
+  if (!value) {
+    return;
+  }
+  for (const String& name : StringUtils::splitString(*value, ',')) {
+    String trimmed = StringUtils::trim(name);
+    if (!trimmed.empty()) {
+      outNames.push_back(std::move(trimmed));
+    }
+  }
+}
 } // namespace
 
 /*
@@ -44,15 +68,8 @@ ProjectDescriptor::load(const Path& file)
     description = *value;
   }
 
-  gameModules.clear();
-  if (const String* value = config.getValue(kModulesSection, kGameModulesKey)) {
-    for (const String& module : StringUtils::splitString(*value, ',')) {
-      String trimmed = StringUtils::trim(module);
-      if (!trimmed.empty()) {
-        gameModules.push_back(std::move(trimmed));
-      }
-    }
-  }
+  readNameList(config, kPluginsSection, kEnabledPluginsKey, plugins);
+  readNameList(config, kModulesSection, kGameModulesKey, gameModules);
   return true;
 }
 
@@ -65,6 +82,7 @@ ProjectDescriptor::save(const Path& file) const
   config.setValue(kProjectSection, kNameKey, name);
   config.setValue(kProjectSection, kEngineVersionKey, engineVersion);
   config.setValue(kProjectSection, kDescriptionKey, description);
+  config.setValue(kPluginsSection, kEnabledPluginsKey, StringUtils::join(plugins, ","));
   config.setValue(kModulesSection, kGameModulesKey, StringUtils::join(gameModules, ","));
   return config.save(file);
 }

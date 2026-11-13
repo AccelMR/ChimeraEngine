@@ -62,6 +62,12 @@ struct ScriptClassInfo
  * traceback and never stops the engine. Script classes are compiled on first use and kept by
  * the UUID of their asset. Main thread only.
  */
+/**
+ * Adds a module's types and functions to a new script state (and to its description for
+ * code editors, when ScriptApiDescription::find(state) gives one).
+ */
+using ScriptBindingsFunction = void (*)(lua_State* state);
+
 class CH_CORE_EXPORT ScriptManager : public Module<ScriptManager>
 {
  public:
@@ -221,6 +227,27 @@ class CH_CORE_EXPORT ScriptManager : public Module<ScriptManager>
    */
   NODISCARD bool
   callFunction(int32 function, int64 argument);
+
+  /**
+   * For calls with arguments of the caller's own: beginCall pushes the function, the
+   * caller pushes argumentCount values, and endCall runs it protected (false when it raised
+   * an error, which is logged) and leaves the stack as it was before beginCall.
+   */
+  void
+  beginCall(int32 function);
+
+  NODISCARD bool
+  endCall(int32 argumentCount);
+
+  /**
+   * Called on every state made from now on, after the engine's own bindings, so a plugin
+   * calls it in its loadPlugin. A function added twice runs once.
+   */
+  static void
+  addBindings(ScriptBindingsFunction function);
+
+  static void
+  removeBindings(ScriptBindingsFunction function);
 
   /**
    * Sets Time.deltaTime and advances Time.time and Time.frameCount, once per frame before

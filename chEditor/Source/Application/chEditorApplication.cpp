@@ -19,6 +19,7 @@
 #include "chInputManager.h"
 #include "chDynamicLibManager.h"
 #include "chEnginePaths.h"
+#include "chEnginePlugins.h"
 #include "chFileSystem.h"
 #include "chGameObject.h"
 #include "chICommandList.h"
@@ -470,6 +471,9 @@ EditorApplication::initializeEditorComponents() {
   AssetCodecManager::instance().initialize();
   loadCodecs();
 #endif // USING(CH_CODECS)
+  // Before the managers: plugins register the components scenes hold and the script
+  // bindings the state is made with.
+  EnginePlugins::loadEnabled();
 
   AssetManager::startUp();
   AssetManager& assetManager = AssetManager::instance();

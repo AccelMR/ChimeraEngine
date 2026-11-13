@@ -86,7 +86,9 @@ class ScriptBindings
   static constexpr int32 ANIMATOR_USER_VALUE = 2;
   static constexpr int32 SPRITE_USER_VALUE = 3;
   static constexpr int32 SPRITE_ANIMATOR_USER_VALUE = 4;
-  static constexpr int32 USER_VALUE_COUNT = 4;
+  // A table of the handles ScriptPartHandle made, by type name.
+  static constexpr int32 PLUGIN_PARTS_USER_VALUE = 5;
+  static constexpr int32 USER_VALUE_COUNT = 5;
 };
 
 } // namespace chEngineSDK

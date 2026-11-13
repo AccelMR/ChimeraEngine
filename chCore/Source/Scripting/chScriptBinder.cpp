@@ -33,6 +33,12 @@ raiseMissingMember(lua_State* state, const int32 nameUpvalue, const ANSICHAR* wh
   const ANSICHAR* const key = luaL_tolstring(state, 2, nullptr);
   return luaL_error(state, "%s has no %s '%s'", typeName, what, key);
 }
+
+/*
+ * Where the metatable keeps the class's other tables, in ScriptClassSlot order.
+ */
+const ANSICHAR* const kClassTableKeys[] = {"__chMembers", "__chSetters", "__chClass",
+                                           "__chConstructors", "__chConstants"};
 } // namespace
 
 /*
@@ -143,7 +149,15 @@ indexConstant(lua_State* state)
 void
 beginValueClass(lua_State* state, const ANSICHAR* name)
 {
-  luaL_newmetatable(state, name);
+  if (luaL_newmetatable(state, name) == 0) {
+    // Registered before (a plugin adding methods to an engine type): the class grows.
+    const int32 metatable = lua_gettop(state);
+    for (const ANSICHAR* key : kClassTableKeys) {
+      lua_getfield(state, metatable, key);
+    }
+    return;
+  }
+
   lua_newtable(state); // Members: methods (functions) and getters (accessor userdata)
   lua_newtable(state); // Setters
   lua_newtable(state); // Class
@@ -184,6 +198,12 @@ beginValueClass(lua_State* state, const ANSICHAR* name)
 
   lua_pushvalue(state, classTable);
   lua_setglobal(state, name);
+
+  // Kept in the metatable, which scripts cannot reach, for a later ScriptClass of the type.
+  for (int32 i = 0; i < 5; ++i) {
+    lua_pushvalue(state, members + i);
+    lua_setfield(state, metatable, kClassTableKeys[i]);
+  }
 }
 
 } // namespace ScriptDetail

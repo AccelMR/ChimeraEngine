@@ -17,6 +17,7 @@ option(CH_BUILD_VULKAN "Build the Vulkan graphics plugin" ON)
 cmake_dependent_option(CH_BUILD_DX12 "Build the Direct3D 12 graphics plugin" ON "WIN32" OFF)
 option(CH_BUILD_TESTS "Build the unit tests" ON)
 option(CH_BUILD_GAME "Build chGame, the runtime that plays a project without the editor" ON)
+option(CH_BUILD_PLUGINS "Build the engine plugins a project can enable (chPlugins)" ON)
 set(CH_GAME_DEV_PROJECT "${CMAKE_SOURCE_DIR}/Examples/BaseExample" CACHE PATH
     "Project chGame opens in a development build when no -project is given")
 # Empty by default, so the editor started by hand asks for its project. Only the Visual
@@ -52,6 +53,7 @@ else()
   endif()
 endif()
 set(CH_CODEC_OUTPUT_DIR "${CH_OUTPUT_DIR}/Codecs")
+set(CH_PLUGIN_OUTPUT_DIR "${CH_OUTPUT_DIR}/Plugins")
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CH_OUTPUT_DIR})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CH_OUTPUT_DIR})
@@ -124,6 +126,11 @@ endif()
 
 if(CH_BUILD_CODECS)
   add_subdirectory(chCodecs)
+endif()
+
+# Before the editor and the game, which depend on them.
+if(CH_BUILD_PLUGINS)
+  add_subdirectory(chPlugins)
 endif()
 
 if(CH_BUILD_EDITOR)

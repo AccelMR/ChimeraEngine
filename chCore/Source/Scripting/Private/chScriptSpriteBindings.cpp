@@ -25,29 +25,6 @@
 #include "chTextureAsset.h"
 
 namespace chEngineSDK {
-namespace {
-/*
- * What a sprite looks like, resolved once by Sprites.makeStyle so each Sprites.draw only
- * places it. The texture's bindless index is read when the style is made.
- */
-struct ScriptSpriteStyle
-{
-  UUID texture;
-  float uvRect[4];
-  float size[2];
-  float pivot[2];
-  float color[4];
-  float depth;
-  uint32 textureAndFlags;
-  int16 sortingLayer;
-  int16 order;
-  uint8 blendMode;
-  uint8 filter;
-  uint8 padding[2];
-};
-} // namespace
-
-CH_SCRIPT_VALUE_TYPE(ScriptSpriteStyle, "SpriteStyle");
 CH_SCRIPT_HANDLE_TYPE(SpriteComponent, "Sprite");
 CH_SCRIPT_HANDLE_TYPE(SpriteAnimatorComponent, "SpriteAnimator");
 

@@ -146,7 +146,8 @@ addBinaries(const PackageDesc& desc, Vector<FileCopy>& outCopies, String& outErr
                        desc.outputDirectory.join(Path(std::move(executableName))),
                        CopyKind::Binary});
 
-  // Only the folder itself: codecs live in a subfolder and are editor only.
+  // Only the folder itself: codecs live in a subfolder and are editor only, plugins in
+  // another.
   Vector<Path> files;
   Vector<Path> directories;
   FileSystem::getChildren(desc.binaryDirectory, files, directories);
@@ -156,6 +157,32 @@ addBinaries(const PackageDesc& desc, Vector<FileCopy>& outCopies, String& outErr
       outCopies.push_back(
           {file, desc.outputDirectory.join(Path(std::move(fileName))), CopyKind::Binary});
     }
+  }
+
+  // Only the engine plugins the project enables, with the build's debug postfix.
+  ProjectDescriptor descriptor;
+  const Path projectFile = ProjectDescriptor::findProjectFile(desc.projectDirectory);
+  if (!projectFile.empty() && !descriptor.load(projectFile)) {
+    outError = "Could not read " + projectFile.toString() + ".";
+    return false;
+  }
+  const bool bDebugBuild = ProjectPackager::isDebugBuild(desc.binaryDirectory);
+  const Path pluginDirectory{String(EnginePaths::ENGINE_PLUGIN_FOLDER)};
+  for (const String& plugin : descriptor.plugins) {
+    String fileName = plugin;
+    if (bDebugBuild) {
+      fileName += 'd';
+    }
+    fileName += DynamicLibrary::EXTENSION;
+    const Path source = desc.binaryDirectory.join(pluginDirectory).join(Path(fileName));
+    if (!FileSystem::isFile(source)) {
+      outError = "The project enables the plugin " + plugin + ", but the build has no " +
+                 source.toString() + ".";
+      return false;
+    }
+    outCopies.push_back({source,
+                         desc.outputDirectory.join(pluginDirectory).join(Path(fileName)),
+                         CopyKind::Binary});
   }
 
   const Path shaders = desc.binaryDirectory.join(Path("Shaders"));

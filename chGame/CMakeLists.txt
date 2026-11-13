@@ -9,9 +9,9 @@ target_link_libraries(chGame PRIVATE chCore)
 # next to the executable, which wins over this.
 target_compile_definitions(chGame PRIVATE CH_GAME_DEV_PROJECT="${CH_GAME_DEV_PROJECT}")
 
-# Graphics plugins are loaded at run time, so nothing links them; building the game builds
-# them too.
-foreach(PLUGIN chVulkan chDX12)
+# Graphics and engine plugins are loaded at run time, so nothing links them; building the
+# game builds them too.
+foreach(PLUGIN chVulkan chDX12 ${CH_ENGINE_PLUGINS})
   if(TARGET ${PLUGIN})
     add_dependencies(chGame ${PLUGIN})
   endif()

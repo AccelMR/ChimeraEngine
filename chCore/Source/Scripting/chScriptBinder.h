@@ -693,7 +693,8 @@ indexConstant(lua_State* state);
 
 /*
  * Makes the tables of a value type and leaves them on the stack in the order of
- * ScriptClassSlot. Its global is set to the class table.
+ * ScriptClassSlot. Its global is set to the class table. A type registered before gets its
+ * existing tables, so a second ScriptClass adds to it.
  */
 CH_CORE_EXPORT void
 beginValueClass(lua_State* state, const ANSICHAR* name);
@@ -840,7 +841,8 @@ describeOperator(Vector<String>& outOperators)
  * that returns a reference to that value gives back the same Lua value, so in-place methods
  * chain without copies. Overloads and default arguments are invisible to templates: wrap them
  * in a free function, or write a raw one with each way to call it. The tables stay on the Lua
- * stack while the object lives, so make it, chain the calls and drop it.
+ * stack while the object lives, so make it, chain the calls and drop it. A ScriptClass of a
+ * type already registered adds to it, so a plugin can give GameObject methods of its own.
  */
 template<typename T>
   requires(ScriptValue<T> || ScriptHandle<T>)

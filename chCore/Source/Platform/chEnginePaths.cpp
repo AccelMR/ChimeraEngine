@@ -40,6 +40,7 @@ struct PathState
   Path projectFile;
   Path executableDirectory;
   Path codecDirectory;
+  Path enginePluginDirectory;
   Path engineRoot;
   Path engineContentDirectory;
   Path projectRoot;
@@ -196,6 +197,7 @@ EnginePaths::initialize(StringView defaultProject, bool bProjectOptional)
   FileSystem::setBaseDirectory(state.bHasProject ? state.projectRoot : savedDirectory);
 
   state.codecDirectory = state.executableDirectory.join(Path("Codecs"));
+  state.enginePluginDirectory = state.executableDirectory.join(Path(String(ENGINE_PLUGIN_FOLDER)));
   state.gameAssetDirectory = Path("/Game");
   state.engineAssetDirectory = Path("/Engine");
   state.shaderBinaryDirectory = state.executableDirectory.join(Path("Shaders"));
@@ -313,6 +315,13 @@ EnginePaths::getCodecDirectory()
 {
   initialize();
   return pathState().codecDirectory;
+}
+
+const Path&
+EnginePaths::getEnginePluginDirectory()
+{
+  initialize();
+  return pathState().enginePluginDirectory;
 }
 
 const Path&
