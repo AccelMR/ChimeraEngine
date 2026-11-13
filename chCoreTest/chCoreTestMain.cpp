@@ -9529,6 +9529,19 @@ TEST_CASE("chCore - Script definitions")
     CHECK(text.find("Script = {}") == String::npos);
   }
 
+  SECTION("2D")
+  {
+    contains("---@class SpriteStyle\n");
+    contains("---@class Texture\n");
+    contains("---@class Atlas\n");
+    contains("---@class Sprite\n");
+    contains("---@class SpriteAnimator\n");
+    contains("function Sprites.draw(look, x, y, rotation, scale, color) end\n");
+    contains("function Sprites.makeStyle(options) end\n");
+    contains("function SpriteAnimator:play(animation, restart) end\n");
+    contains("---@return Sprite?\nfunction GameObject:getSprite() end\n");
+  }
+
   SECTION("Every function has a signature and the file is Lua")
   {
     for (const UniquePtr<ScriptApiType>& type : description->getTypes()) {

@@ -1,0 +1,10 @@
+[Project]
+Name=Example2D
+EngineVersion=0.2.0.1
+Description=A small 2D shooter that shows sprites, atlas animation, the 2D view and the chProjectiles plugin
+
+[Plugins]
+Enabled=chProjectiles
+
+[Modules]
+GameModules=
