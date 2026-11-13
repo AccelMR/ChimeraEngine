@@ -44,6 +44,9 @@ struct GlyphRunPushConstants
   uint32 linearSamplerIndex;
   // A GpuOnly buffer is bound as writable storage, the frame's own buffer as read only.
   uint32 bWritableBuffer;
+  // GlyphRunBatch::motionIndex and time.
+  uint32 motionIndex;
+  float time;
 };
 
 // A few thousand sprites, so small scenes never make the buffer again.
@@ -172,7 +175,9 @@ SpritePass::addPass(RenderGraph& graph,
                                     .firstRun = 0,
                                     .pointSamplerIndex = spriteConstants.pointSamplerIndex,
                                     .linearSamplerIndex = spriteConstants.linearSamplerIndex,
-                                    .bWritableBuffer = 0};
+                                    .bWritableBuffer = 0,
+                                    .motionIndex = GlyphRunBatch::NO_MOTION,
+                                    .time = 0.0f};
         for (const SpriteRun& run : m_batcher.getRuns()) {
           const uint32 blend = static_cast<uint32>(run.blendMode);
           if (run.kind == SpriteRunKind::Sprites) {
@@ -185,6 +190,8 @@ SpritePass::addPass(RenderGraph& graph,
           const bool bBatch = run.kind == SpriteRunKind::GlyphRunBatch;
           glyph.runBufferIndex = bBatch ? run.bufferIndex : glyphRunBufferIndex;
           glyph.bWritableBuffer = bBatch ? 1u : 0u;
+          glyph.motionIndex = bBatch ? run.motionIndex : GlyphRunBatch::NO_MOTION;
+          glyph.time = run.time;
           glyph.firstRun = run.firstInstance;
           commandList.bindPipeline(*pipelines[blend + kBlendModes]);
           commandList.pushConstants(&glyph, sizeof(glyph));

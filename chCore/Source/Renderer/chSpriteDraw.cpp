@@ -125,17 +125,9 @@ SpriteDraw::appendTextSprites(Font& font,
   }
 
   const uint32 atlasIndex = font.prepareGpuAtlas();
-  const FontSettings& settings = font.getSettings();
-  const bool bSdf = settings.mode == FontRenderMode::Sdf;
+  const bool bSdf = font.getSettings().mode == FontRenderMode::Sdf;
   const SpriteTextureMode mode = bSdf ? SpriteTextureMode::Sdf : SpriteTextureMode::Coverage;
-  // The field falls by 128 over sdfSpread pixels, in 1/255 steps.
-  const uint32 outlineEdge =
-      bSdf ? static_cast<uint32>(Math::clamp(desc.outlineWidth * 128.0f /
-                                                 static_cast<float>(settings.sdfSpread),
-                                             0.0f,
-                                             static_cast<float>(GpuSpriteInstance::EDGE_MASK)) +
-                                 0.5f)
-           : 0u;
+  const uint32 outlineEdge = makeOutlineEdge(font, desc.outlineWidth);
   const uint32 fillFlags = GpuSpriteInstance::makeTextureFlags(atlasIndex, !bSdf, mode);
   const uint32 outlineFlags =
       GpuSpriteInstance::makeTextureFlags(atlasIndex, !bSdf, mode, outlineEdge);
@@ -228,14 +220,7 @@ SpriteDraw::makeGlyphRuns(Font& font,
   if (!makeGlyphRun(font, text, desc, fill)) {
     return 0;
   }
-  const bool bSdf = font.getSettings().mode == FontRenderMode::Sdf;
-  const uint32 outlineEdge =
-      bSdf ? static_cast<uint32>(Math::clamp(desc.outlineWidth * 128.0f /
-                                                 static_cast<float>(font.getSettings().sdfSpread),
-                                             0.0f,
-                                             static_cast<float>(GpuSpriteInstance::EDGE_MASK)) +
-                                 0.5f)
-           : 0u;
+  const uint32 outlineEdge = makeOutlineEdge(font, desc.outlineWidth);
   const bool bOutline = outlineEdge > 0 && desc.outlineColor.a > 0.0f;
   const bool bShadow = desc.shadowColor.a > 0.0f;
   const uint32 edgeFlags =
@@ -261,6 +246,22 @@ SpriteDraw::makeGlyphRuns(Font& font,
   }
   outItems[count++] = fill;
   return count;
+}
+
+/*
+ */
+uint32
+SpriteDraw::makeOutlineEdge(const Font& font, float width)
+{
+  const FontSettings& settings = font.getSettings();
+  if (settings.mode != FontRenderMode::Sdf) {
+    return 0;
+  }
+  // The field falls by 128 over sdfSpread pixels, in 1/255 steps.
+  return static_cast<uint32>(Math::clamp(width * 128.0f / static_cast<float>(settings.sdfSpread),
+                                         0.0f,
+                                         static_cast<float>(GpuSpriteInstance::EDGE_MASK)) +
+                             0.5f);
 }
 
 /*

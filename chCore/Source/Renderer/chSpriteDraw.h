@@ -194,6 +194,13 @@ class CH_CORE_EXPORT SpriteDraw
                 GlyphRunItem (&outItems)[MAX_RUNS_PER_TEXT]);
 
   /**
+   * The SDF edge offset (GpuSpriteInstance::EDGE_SHIFT bits) that moves the edge of font's
+   * glyphs out by width pixels of its raster size; 0 for pixel fonts.
+   */
+  NODISCARD static uint32
+  makeOutlineEdge(const Font& font, float width);
+
+  /**
    * Whether text can be one glyph run: at most GpuGlyphRun::MAX_GLYPHS characters, no line
    * break or tab, and no '<' when color tags are read. Reads the bytes once.
    */

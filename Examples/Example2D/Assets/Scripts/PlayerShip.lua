@@ -32,11 +32,12 @@ function PlayerShip:onStart()
   self.bullets:setLook(Sprites.makeStyle{ texture = "T_BulletPlayer", pixelsPerUnit = 32,
                                           blend = "Additive", layer = 2 })
   self.bullets:setHitTeams({ 2 })
-  self.bullets:onHit(function(target, damage)
+  self.bullets:onHit(function(target, damage, x, y)
     local enemy = target:getScript("Enemy")
     if enemy then
       enemy:damage(damage)
     end
+    Game:showDamage(x, y)
   end)
 
   self.lifeStyle = Sprites.makeStyle{ texture = "T_Ship", pixelsPerUnit = 64, layer = 10 }

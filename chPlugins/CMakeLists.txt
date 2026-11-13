@@ -4,5 +4,6 @@
 set(CH_ENGINE_PLUGINS "" PARENT_SCOPE)
 
 add_subdirectory(chProjectiles)
+add_subdirectory(chFloatingNumbers)
 
-set(CH_ENGINE_PLUGINS chProjectiles PARENT_SCOPE)
+set(CH_ENGINE_PLUGINS chProjectiles chFloatingNumbers PARENT_SCOPE)

@@ -37,8 +37,10 @@ struct SpriteRun
   uint32 firstInstance = 0;
   uint32 instanceCount = 0;
   SpriteRunKind kind = SpriteRunKind::Sprites;
-  // GlyphRunBatch only: the bindless index of its buffer.
+  // GlyphRunBatch only: the bindless index of its buffer, its motion and its time.
   uint32 bufferIndex = 0;
+  uint32 motionIndex = GlyphRunBatch::NO_MOTION;
+  float time = 0.0f;
 };
 
 /**

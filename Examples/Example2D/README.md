@@ -12,13 +12,14 @@ play it with `chGame -project=Examples/Example2D`.
 | Piece | Where |
 |---|---|
 | The Sprite2D render path | `Config/Engine.ini` (`[Renderer] Path=Sprite2D`) |
-| An engine plugin enabled by the project | `Example2D.chproject` (`[Plugins] Enabled=chProjectiles`) |
+| Engine plugins enabled by the project | `Example2D.chproject` (`[Plugins] Enabled=chProjectiles,chFloatingNumbers`) |
 | An orthographic camera looking along +X | `Camera` object in `Maps/Main` |
 | Sprite components and an animated atlas | `Player`, the `Enemy` prefab, `Sprites/SA_Enemy` (animation "Fly") |
 | Thousands of bullets without GameObjects | `GameManager.lua` and `PlayerShip.lua` (`addProjectiles`, `configure`, `fireRing`, `fireSpread`, homing with `spawn{turnRate}`) |
 | Hits reported to scripts | `onHit` in `PlayerShip.lua` and `GameManager.lua`, targets added with `addProjectileTarget` |
 | Sprites drawn every frame without GameObjects | `Background.lua` (star field), the lives in `PlayerShip.lua` (`Sprites.draw`) |
 | Text and numbers drawn every frame | the score and the game over screen in `GameManager.lua` (`Text.makeStyle`, `Text.draw` with a number) |
+| Damage numbers that fly, pop, shake and flash on the GPU | `showDamage` in `GameManager.lua`, called by the bullets' `onHit` in `PlayerShip.lua` (the chFloatingNumbers plugin: `addFloatingNumbers`, `configure`, `setTiers`, `spawn`) |
 | Spawning from a prefab property | `GameManager.lua` (`Scene.instantiate`, the `enemy` property) |
 | Opening a map again | `GameManager.lua` (`Scene.openMap("Main")`) |
 | Input actions | `Config/Input.ini` (Move, Fire, Restart) |

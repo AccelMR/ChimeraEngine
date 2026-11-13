@@ -140,7 +140,9 @@ SpriteBatcher::build(Span<const SpriteItem> sprites,
                         .firstInstance = batch.firstRun,
                         .instanceCount = batch.runCount,
                         .kind = SpriteRunKind::GlyphRunBatch,
-                        .bufferIndex = batch.bufferIndex});
+                        .bufferIndex = batch.bufferIndex,
+                        .motionIndex = batch.motionIndex,
+                        .time = batch.time});
       continue;
     }
 

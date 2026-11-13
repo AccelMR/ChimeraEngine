@@ -11,6 +11,14 @@ static const uint kCountMask = 0x1Fu;
 static const float kPenScale = 1024.0f;
 // Must match GpuGlyph in chFont.h.
 static const uint kGlyphStride = 32;
+// Must match GlyphRunBatch::NO_MOTION, GpuGlyphRun's motion bits and GpuGlyphRunMotion.
+static const uint kNoMotion = 0xFFFFFFFFu;
+static const uint kMotionTierMask = 0xFFu;
+static const uint kMotionOutlineBit = 0x100u;
+static const uint kMotionSeedShift = 16;
+static const uint kMotionHeaderSize = 32;
+static const uint kTierStride = 80;
+static const float kTwoPi = 6.28318530718f;
 
 // Must match GlyphRunPushConstants in chSpritePass.cpp.
 struct PushConstants
@@ -22,6 +30,9 @@ struct PushConstants
   uint linearSamplerIndex;
   // Buffers made GpuOnly are bound as writable storage; the frame's own one is read only.
   uint bWritableBuffer;
+  // A GpuGlyphRunMotion, or kNoMotion; the time the runs' ages are taken from.
+  uint motionIndex;
+  float time;
 };
 
 [[vk::push_constant]] ConstantBuffer<PushConstants> g_push : register(b0);
@@ -39,6 +50,7 @@ struct GlyphRun
   uint glyphCount;
   uint glyph;
   float pen;
+  uint4 userData;
 };
 
 template<typename Buffer>
@@ -60,6 +72,7 @@ loadRun(Buffer runs, uint address, uint glyphIndex)
   const uint word = (glyphIndex >> 1) * 4;
   run.glyph = (runs.Load(address + 64 + word) >> shift) & 0xFFFF;
   run.pen = (float)((runs.Load(address + 96 + word) >> shift) & 0xFFFF) / kPenScale;
+  run.userData = runs.Load4(address + 48);
   return run;
 }
 
@@ -100,19 +113,77 @@ VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
   // Left and bottom from the pen, width and height, in font heights.
   const float4 box = asfloat(glyphs.Load4(glyphAddress + 16));
 
+  float4 color = float4(unpackHalves(run.colorRG), unpackHalves(run.colorBA));
+  float3 origin = run.position;
+  float scale = 1.0f;
+  if (g_push.motionIndex != kNoMotion) {
+    RWByteAddressBuffer motion = ResourceDescriptorHeap[g_push.motionIndex];
+    const float age = g_push.time - asfloat(run.userData.x);
+    const float lifetime = asfloat(run.userData.z);
+    if (age < 0.0f || age >= lifetime) {
+      output.position = float4(0.0f, 0.0f, 0.0f, 1.0f);
+      return output;
+    }
+    const float4 header = asfloat(motion.Load4(0));
+    const float4 header2 = asfloat(motion.Load4(16));
+    const float2 gravity = header.xy;
+    const float drag = header.z;
+    const float fadeIn = header.w;
+    const float fadeOut = header2.x;
+    const uint tierCount = asuint(header2.y);
+    const uint tierIndex = min(run.userData.w & kMotionTierMask, max(tierCount, 1u) - 1u);
+    const uint tierAddress = kMotionHeaderSize + tierIndex * kTierStride;
+    const float4 tierColor = asfloat(motion.Load4(tierAddress));
+    const float4 flashColor = asfloat(motion.Load4(tierAddress + 16));
+    const float4 outlineColor = asfloat(motion.Load4(tierAddress + 32));
+    // scale, popScale, popDuration, shakeAmplitude
+    const float4 sizeAndShake = asfloat(motion.Load4(tierAddress + 48));
+    // shakeFrequency, shakeDuration, flashDuration, flashRate
+    const float4 timing = asfloat(motion.Load4(tierAddress + 64));
+
+    // An arc: the velocity, slowed by drag, plus gravity.
+    const float2 velocity = unpackHalves(run.userData.y);
+    const float travel = drag > 0.0f ? (1.0f - exp(-drag * age)) / drag : age;
+    float2 offset = velocity * travel + 0.5f * gravity * age * age;
+
+    // Born at popScale times its size, settling quickly with an ease out.
+    const float pop = sizeAndShake.z > 0.0f ? saturate(age / sizeAndShake.z) : 1.0f;
+    const float settle = 1.0f - pop;
+    scale = sizeAndShake.x * lerp(1.0f, sizeAndShake.y, settle * settle * settle);
+
+    const float phase = (float)(run.userData.w >> kMotionSeedShift) * (kTwoPi / 65536.0f);
+    if (age < timing.y && timing.y > 0.0f) {
+      const float strength = sizeAndShake.w * (1.0f - age / timing.y);
+      const float angle = age * timing.x * kTwoPi + phase;
+      offset += strength * float2(sin(angle), cos(angle * 1.37f + phase));
+    }
+    origin += float3(0.0f, offset.x, offset.y);
+
+    const bool bOutline = (run.userData.w & kMotionOutlineBit) != 0;
+    float4 look = bOutline ? outlineColor : tierColor;
+    if (!bOutline && age < timing.z) {
+      const float blink = 0.5f + 0.5f * sin(age * timing.w * kTwoPi);
+      look = lerp(tierColor, flashColor, blink);
+    }
+    color *= look;
+    const float fade = (fadeIn > 0.0f ? saturate(age / fadeIn) : 1.0f) *
+                       (fadeOut > 0.0f ? saturate((lifetime - age) / fadeOut) : 1.0f);
+    color.a *= fade;
+  }
+
   // v grows down the image while y goes up.
   const float2 local = run.offset + float2(run.pen + box.x + corner.x * box.z,
                                            box.y + (1.0f - corner.y) * box.w);
-  const float2 scaled = local * run.size;
+  const float2 scaled = local * run.size * scale;
   const float2 rotation = unpackHalves(run.rotation);
   // Right is +Y and up is +Z; the rotation is counterclockwise on screen.
   const float3 position =
-      run.position + float3(0.0f,
-                            scaled.x * rotation.x - scaled.y * rotation.y,
-                            scaled.x * rotation.y + scaled.y * rotation.x);
+      origin + float3(0.0f,
+                      scaled.x * rotation.x - scaled.y * rotation.y,
+                      scaled.x * rotation.y + scaled.y * rotation.x);
 
   output.position = mul(float4(position, 1.0f), g_push.viewProjection);
-  output.color = float4(unpackHalves(run.colorRG), unpackHalves(run.colorBA));
+  output.color = color;
   output.texCoord = uvRect.xy + corner * uvRect.zw;
   output.textureAndFlags = run.textureAndFlags;
   return output;

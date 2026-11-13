@@ -63,6 +63,43 @@ function GameManager:onStart()
                                     shadowOffset = Vector2(0.1, -0.1) }
   self.hintStyle = Text.makeStyle{ size = 0.6, pivot = Vector2(0.5, 0.5), layer = 10,
                                    outlineWidth = 2 }
+
+  -- Damage numbers: each one is written once and the GPU flies it along an arc, pops,
+  -- shakes, flashes and fades it, so thousands cost nothing per frame. Bigger numbers reach
+  -- higher tiers: another color, bigger, and more animation.
+  self.damageNumbers = self.gameObject:addFloatingNumbers()
+  self.damageNumbers:configure{ size = 0.45, capacity = 20000, angle = 90, spread = 35,
+                                speed = 6, speedVariance = 2, gravity = Vector2(0, -14),
+                                lifetime = 0.9, lifetimeVariance = 0.2, fadeOut = 0.35,
+                                layer = 11, notation = "Suffix", decimals = 1 }
+  self.damageNumbers:setTiers{
+    { min = 0, color = Color(1, 1, 1, 1), outline = 2, outlineColor = Color(0, 0, 0, 1),
+      pop = 1.3, popDuration = 0.12 },
+    { min = 1000, color = Color(1, 0.8, 0.15, 1), outline = 3,
+      outlineColor = Color(0.35, 0.12, 0, 1), scale = 1.3, pop = 1.8, popDuration = 0.15 },
+    { min = 10000, color = Color(1, 0.4, 0.08, 1), outline = 3,
+      outlineColor = Color(0.3, 0, 0, 1), scale = 1.7, pop = 2.4, popDuration = 0.18,
+      flash = 0.25, flashColor = Color(1, 1, 0.6, 1), flashRate = 12 },
+    { min = 100000, color = Color(1, 0.12, 0.18, 1), outline = 4,
+      outlineColor = Color(0.15, 0, 0.05, 1), scale = 2.3, pop = 3, popDuration = 0.2,
+      shake = 0.12, shakeFrequency = 25, shakeDuration = 0.35, flash = 0.4,
+      flashColor = Color(1, 1, 1, 1), flashRate = 14 },
+  }
+end
+
+-- The damage is made up: most hits are small, some are criticals and a few are huge, so
+-- every tier shows.
+function GameManager:showDamage(x, y)
+  local damage = math.random(40, 900)
+  local roll = math.random()
+  if roll < 0.03 then
+    damage = damage * math.random(150, 400)
+  elseif roll < 0.15 then
+    damage = damage * math.random(12, 40)
+  elseif roll < 0.4 then
+    damage = damage * math.random(2, 5)
+  end
+  self.damageNumbers:spawn(damage, x, y + 0.3)
 end
 
 function GameManager:drawHud()
