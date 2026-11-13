@@ -301,7 +301,9 @@ ModelPreview::update(float deltaTime)
   if (!m_renderer) {
     // Lit always, whatever the main viewport shows; the main renderer times the GPU.
     m_renderer = chMakeUnique<SceneRenderer>(
-        SceneRendererDesc{.bProfileGpu = false, .viewMode = ViewMode::Lit});
+        SceneRendererDesc{.bProfileGpu = false,
+                          .viewMode = ViewMode::Lit,
+                          .renderPath = RenderPathType::Deferred});
     m_grid = chMakeUnique<ViewportGrid>();
   }
 

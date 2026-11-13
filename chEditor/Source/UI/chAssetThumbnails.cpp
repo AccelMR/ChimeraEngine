@@ -326,7 +326,9 @@ prepareAsset(ThumbnailsState& state, const SPtr<IAsset>& asset)
     // The thumbnails are Lit whatever the main viewport shows, and the main renderer times
     // the GPU.
     state.renderer = chMakeUnique<SceneRenderer>(
-        SceneRendererDesc{.bProfileGpu = false, .viewMode = ViewMode::Lit});
+        SceneRendererDesc{.bProfileGpu = false,
+                          .viewMode = ViewMode::Lit,
+                          .renderPath = RenderPathType::Deferred});
   }
 
   state.asset = asset;

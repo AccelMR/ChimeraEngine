@@ -58,6 +58,15 @@ RenderFrame::extract(const Scene& scene,
     }
   }
 
+  // One pass of 80-byte copies; the instance inside each is already what the GPU reads.
+  m_sprites.clear();
+  m_sprites.reserve(scene.getSpriteCount());
+  for (const SpriteItem& sprite : scene.getSpriteSlots()) {
+    if (sprite.bInUse) {
+      m_sprites.push_back(sprite);
+    }
+  }
+
   const SkyLightItem* skyLight = scene.getActiveSkyLight();
   m_bHasSkyLight = skyLight != nullptr;
   if (skyLight) {

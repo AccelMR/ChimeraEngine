@@ -27,6 +27,7 @@ class ImageBasedLighting;
 class ShadowRenderer;
 class SkinningPass;
 class SkyPass;
+class SpritePass;
 class TonemapPass;
 
 /**
@@ -39,6 +40,7 @@ struct RenderFrameStats
   CommandListStats commands;
   uint32 visibleItems = 0;
   uint32 visibleLights = 0;
+  uint32 visibleSprites = 0;
 };
 
 /**
@@ -51,6 +53,8 @@ struct SceneRendererDesc
   bool bProfileGpu = true;
   // Drawn instead of what Renderer.ViewMode names, for views that always show one mode.
   Optional<ViewMode> viewMode;
+  // Used instead of what Renderer.Path names, for views of 3D assets in a 2D project.
+  Optional<RenderPathType> renderPath{};
 };
 
 /**
@@ -58,7 +62,8 @@ struct SceneRendererDesc
  * owns the frame's render graph, the textures the graph makes, and the render path that
  * draws a scene. Lit view modes draw the shadow maps first, then the scene (with the sky
  * light's image behind it) into an HDR scene color that a tonemap pass takes to the output;
- * the debug views write the output directly. A frame is beginFrame(), imports and
+ * with the Sprite2D path they draw only the sprites, then only encode the colors. The debug
+ * views write the output directly. A frame is beginFrame(), imports and
  * addScenePasses() (plus any passes of the application, the editor UI), then execute().
  * The scene passes draw what extract() copied at the end of the update, never the Scene,
  * so the scene can change while the frame is built.
@@ -159,7 +164,8 @@ class CH_CORE_EXPORT SceneRenderer
     return {.passes = m_graph.getExecutedPassStats(),
             .commands = m_frameCommandStats,
             .visibleItems = static_cast<uint32>(m_visibleItems.size()),
-            .visibleLights = static_cast<uint32>(m_visibleLights.size())};
+            .visibleLights = static_cast<uint32>(m_visibleLights.size()),
+            .visibleSprites = m_visibleSprites};
   }
 
  private:
@@ -177,6 +183,13 @@ class CH_CORE_EXPORT SceneRenderer
   addLitPasses(const RenderView& view, RGTextureHandle output);
 
   /**
+   * The sprites into a linear scene color, then its colors encoded into output. Returns no
+   * depth: sprites sort instead of testing it.
+   */
+  RGTextureHandle
+  addSpritePasses(const RenderView& view, RGTextureHandle output);
+
+  /**
    * Drops the visible lights of the types the Renderer.*Lights settings turn off.
    */
   void
@@ -192,8 +205,10 @@ class CH_CORE_EXPORT SceneRenderer
   TransientTexturePool m_texturePool;
   UniquePtr<ForwardRenderPath> m_forwardRenderPath;
   UniquePtr<DeferredRenderPath> m_deferredRenderPath;
-  // The one of the two above that draws the Lit view modes.
+  // The one of the two above that draws the Lit view modes, unless m_bSpritePath.
   IRenderPath* m_renderPath = nullptr;
+  UniquePtr<SpritePass> m_spritePass;
+  bool m_bSpritePath = false;
   UniquePtr<DebugRenderPath> m_debugRenderPath;
 #if USING(CH_DEBUG_DRAW)
   UniquePtr<DebugLinePass> m_debugLinePass;
@@ -218,6 +233,7 @@ class CH_CORE_EXPORT SceneRenderer
   // Kept between frames, so gathering the visible items and lights does not allocate.
   Vector<const RenderItem*> m_visibleItems;
   Vector<const LightItem*> m_visibleLights;
+  uint32 m_visibleSprites = 0;
   CommandListStats m_frameCommandStats;
   GpuProfiler m_gpuProfiler;
 };

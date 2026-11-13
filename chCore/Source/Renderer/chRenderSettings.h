@@ -41,12 +41,14 @@ enum class ViewMode : uint32
 };
 
 /**
- * How the Lit view modes light the scene.
+ * How the Lit view modes draw the scene.
  */
 enum class RenderPathType : uint32
 {
   Forward,
   Deferred,
+  // Sprites only, sorted and blended, without lights, shadows or the tonemap curve.
+  Sprite2D,
   COUNT
 };
 
@@ -76,6 +78,10 @@ extern CH_CORE_EXPORT ConsoleVariable<String> g_cvarViewMode;
 
 // Name of a RenderPathType (-RenderPath=Forward).
 extern CH_CORE_EXPORT ConsoleVariable<String> g_cvarRenderPath;
+
+// Inside one sorting layer and order, sprites higher on screen draw first (top-down games),
+// instead of the farther ones.
+extern CH_CORE_EXPORT ConsoleVariable<bool> g_cvarSpriteYSort;
 
 // Light that reaches every surface from all sides until image based lighting exists.
 extern CH_CORE_EXPORT ConsoleVariable<float> g_cvarAmbient;

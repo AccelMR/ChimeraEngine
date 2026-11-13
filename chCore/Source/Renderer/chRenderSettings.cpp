@@ -32,7 +32,7 @@ constexpr StringView kViewModeNames[] = {"Lit",
 static_assert(sizeof(kViewModeNames) / sizeof(kViewModeNames[0]) ==
               static_cast<SIZE_T>(ViewMode::COUNT));
 
-constexpr StringView kRenderPathNames[] = {"Forward", "Deferred"};
+constexpr StringView kRenderPathNames[] = {"Forward", "Deferred", "Sprite2D"};
 static_assert(sizeof(kRenderPathNames) / sizeof(kRenderPathNames[0]) ==
               static_cast<SIZE_T>(RenderPathType::COUNT));
 
@@ -60,9 +60,15 @@ ConsoleVariable<String> g_cvarViewMode(
 
 ConsoleVariable<String> g_cvarRenderPath("Renderer.Path",
                                          "Deferred",
-                                         "How the Lit view modes light the scene: Forward or "
-                                         "Deferred.",
+                                         "How the Lit view modes draw the scene: Forward or "
+                                         "Deferred, or Sprite2D for sprites only.",
                                          "RenderPath");
+
+ConsoleVariable<bool> g_cvarSpriteYSort(
+    "Renderer.SpriteYSort",
+    false,
+    "Inside one sorting layer and order, sprites higher on screen draw first, so lower ones "
+    "cover them (top-down games); off draws the farther ones first.");
 
 ConsoleVariable<float> g_cvarAmbient(
     "Renderer.Ambient",

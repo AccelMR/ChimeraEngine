@@ -60,6 +60,15 @@ class CH_CORE_EXPORT TextureAsset : public IAsset
   getTexture() const { return m_texture; }
 
   /**
+   * Size of the largest level in pixels; zero until the texture is loaded.
+   */
+  NODISCARD FORCEINLINE uint32
+  getWidth() const noexcept { return m_width; }
+
+  NODISCARD FORCEINLINE uint32
+  getHeight() const noexcept { return m_height; }
+
+  /**
    * Whether a pixel of the largest level has an alpha below alpha (0 to 1). Only 8-bit
    * RGBA and BGRA formats are read; other formats give false. It scans the CPU copy, so it
    * is meant for import time.

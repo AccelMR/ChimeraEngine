@@ -14,6 +14,7 @@
 #include "chFrustum.h"
 #include "chMath.h"
 #include "chMesh.h"
+#include "chPlane.h"
 #include "chRay.h"
 #include "chRayCast.h"
 #include "chRenderCulling.h"
@@ -548,6 +549,41 @@ Scene::raycast(const Ray& ray,
               .normal = worldNormal};
     bHit = true;
   }
+
+  for (const SpriteItem& sprite : m_sprites) {
+    if (!sprite.bInUse) {
+      continue;
+    }
+    const GpuSpriteInstance& quad = sprite.instance;
+    const float uLengthSquared = quad.halfAxisU.sqrMagnitude();
+    const float vLengthSquared = quad.halfAxisV.sqrMagnitude();
+    Vector3 normal = quad.halfAxisU.cross(quad.halfAxisV);
+    if (uLengthSquared <= 0.0f || vLengthSquared <= 0.0f || !normal.normalize()) {
+      continue;
+    }
+    float distance = 0.0f;
+    if (!RayCast::plane(ray, Plane(quad.center, normal), distance) || distance > maxDistance ||
+        (bHit && distance >= outHit.distance)) {
+      continue;
+    }
+    // Where the point lands along each half axis; inside the quad both are within 1. Exact
+    // while the axes are square to each other, which only shear from a parent breaks.
+    const Vector3 point = ray.getPoint(distance);
+    const Vector3 fromCenter = point - quad.center;
+    if (Math::abs(fromCenter.dot(quad.halfAxisU)) > uLengthSquared ||
+        Math::abs(fromCenter.dot(quad.halfAxisV)) > vLengthSquared) {
+      continue;
+    }
+    if (ignore && isUnder(sprite.owner, ignore)) {
+      continue;
+    }
+    outHit = {.gameObject = sprite.owner,
+              .item = nullptr,
+              .distance = distance,
+              .point = point,
+              .normal = normal.dot(ray.direction) > 0.0f ? -normal : normal};
+    bHit = true;
+  }
   return bHit;
 }
 
@@ -581,6 +617,38 @@ Scene::removeLight(uint32 id)
   m_lights[id] = LightItem{};
   m_freeLights.push_back(id);
   --m_lightCount;
+}
+
+/*
+ */
+uint32
+Scene::addSprite(const SpriteItem& sprite)
+{
+  ++m_spriteCount;
+
+  uint32 id = 0;
+  if (!m_freeSprites.empty()) {
+    id = m_freeSprites.back();
+    m_freeSprites.pop_back();
+    m_sprites[id] = sprite;
+  }
+  else {
+    id = static_cast<uint32>(m_sprites.size());
+    m_sprites.push_back(sprite);
+  }
+  m_sprites[id].bInUse = true;
+  return id;
+}
+
+/*
+ */
+void
+Scene::removeSprite(uint32 id)
+{
+  CH_ASSERT(id < m_sprites.size() && m_sprites[id].bInUse);
+  m_sprites[id] = SpriteItem{};
+  m_freeSprites.push_back(id);
+  --m_spriteCount;
 }
 
 /*

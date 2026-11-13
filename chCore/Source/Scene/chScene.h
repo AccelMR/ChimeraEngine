@@ -17,6 +17,7 @@
 #include "chLightItem.h"
 #include "chMath.h"
 #include "chSkyLightItem.h"
+#include "chSpriteItem.h"
 #include "chRenderItem.h"
 
 namespace chEngineSDK {
@@ -24,11 +25,13 @@ class CameraComponent;
 class Frustum;
 
 /**
- * What a ray hit in a scene: the nearest render item along it and the object it draws for.
+ * What a ray hit in a scene: the nearest render item or sprite along it and the object it
+ * draws for.
  */
 struct SceneRayHit
 {
   GameObject* gameObject = nullptr;
+  // Null when the hit is a sprite.
   const RenderItem* item = nullptr;
   // Along the ray, in world units.
   float distance = 0.0f;
@@ -197,10 +200,11 @@ class CH_CORE_EXPORT Scene : public Object
   gatherRenderItems(const Frustum& frustum, Vector<const RenderItem*>& outItems) const;
 
   /**
-   * Nearest render item the ray hits, by its triangles. Tests every item's bounds first,
-   * then the triangles of those the ray reaches, all on the CPU: meant for picking, not
-   * for every frame. ray.direction must be unit length. Hits farther than maxDistance and
-   * the items of ignore and of every object under it are skipped.
+   * Nearest render item the ray hits, by its triangles, or sprite, by its quad (transparent
+   * texels count). Tests every item's bounds first, then the triangles of those the ray
+   * reaches, all on the CPU: meant for picking, not for every frame. ray.direction must be
+   * unit length. Hits farther than maxDistance and the items of ignore and of every object
+   * under it are skipped.
    */
   NODISCARD bool
   raycast(const Ray& ray,
@@ -230,6 +234,28 @@ class CH_CORE_EXPORT Scene : public Object
    */
   void
   gatherLights(const Frustum& frustum, Vector<const LightItem*>& outLights) const;
+
+  /**
+   * Returns an id that stays valid until removeSprite.
+   */
+  NODISCARD uint32
+  addSprite(const SpriteItem& sprite);
+
+  NODISCARD FORCEINLINE SpriteItem&
+  getSprite(uint32 id) { return m_sprites[id]; }
+
+  void
+  removeSprite(uint32 id);
+
+  NODISCARD FORCEINLINE uint32
+  getSpriteCount() const { return m_spriteCount; }
+
+  /**
+   * Every slot, free ones included (bInUse false), in the order the renderer keeps for
+   * sprites that sort equal.
+   */
+  NODISCARD FORCEINLINE Span<const SpriteItem>
+  getSpriteSlots() const { return m_sprites; }
 
   /**
    * Returns an id that stays valid until removeSkyLight.
@@ -417,6 +443,9 @@ class CH_CORE_EXPORT Scene : public Object
   Vector<LightItem> m_lights;
   Vector<uint32> m_freeLights;
   uint32 m_lightCount = 0;
+  Vector<SpriteItem> m_sprites;
+  Vector<uint32> m_freeSprites;
+  uint32 m_spriteCount = 0;
   Vector<SkyLightItem> m_skyLights;
   Vector<uint32> m_freeSkyLights;
   uint32 m_nextSkyLightOrder = 0;

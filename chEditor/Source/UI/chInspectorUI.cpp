@@ -36,6 +36,7 @@
 #include "chRotator.h"
 #include "chScene.h"
 #include "chShapeComponent.h"
+#include "chSpriteComponent.h"
 #include "chSkeleton.h"
 #include "chSkeletonAsset.h"
 #include "chScriptAsset.h"
@@ -172,6 +173,9 @@ InspectorUI::renderInspectorUI()
   }
   if (ShapeComponent* shapeComponent = selected->getComponent<ShapeComponent>()) {
     renderShapeComponent(*shapeComponent);
+  }
+  if (SpriteComponent* spriteComponent = selected->getComponent<SpriteComponent>()) {
+    renderSpriteComponent(*spriteComponent);
   }
   renderLightComponent(*selected);
   if (SkyLightComponent* skyLight = selected->getComponent<SkyLightComponent>()) {
@@ -535,6 +539,143 @@ InspectorUI::renderLightComponent(GameObject& gameObject)
       spotLight->setConeAngles(Degree(inner), Degree(outer));
     }
   }
+}
+
+/*
+ * Every field is one undo step per edit; a drag records once, when it starts, because the
+ * open history entry already holds the object.
+ */
+void
+InspectorUI::renderSpriteComponent(SpriteComponent& spriteComponent)
+{
+  if (!ImGui::CollapsingHeader(ICON_FA_IMAGE "  Sprite###Sprite",
+                               ImGuiTreeNodeFlags_DefaultOpen)) {
+    return;
+  }
+  GameObject& gameObject = *spriteComponent.getOwner();
+
+  bool bEnabled = spriteComponent.isEnabled();
+  if (ImGui::Checkbox("Visible##Sprite", &bEnabled)) {
+    EditorScene::recordChange(gameObject, "Edit Visible");
+    spriteComponent.setEnabled(bEnabled);
+  }
+
+  constexpr ImVec2 kThumbnailSize(64.0f, 64.0f);
+  const SPtr<TextureAsset>& texture = spriteComponent.getTexture();
+  const ITexture* gpuTexture = texture ? texture->getTexture().get() : nullptr;
+  const uint64 textureId = gpuTexture ? ImGuiRenderer::getTextureId(*gpuTexture) : 0;
+  if (textureId != 0) {
+    ImGui::Image(static_cast<ImTextureID>(textureId), kThumbnailSize);
+  }
+  else {
+    ImGui::Button("##noSpriteTexture", kThumbnailSize);
+  }
+  const auto acceptDrop = [&]() {
+    if (!ImGui::BeginDragDropTarget()) {
+      return;
+    }
+    if (SPtr<TextureAsset> dropped = AssetDragDrop::acceptTexture()) {
+      EditorScene::recordChange(gameObject, "Set Sprite Texture");
+      spriteComponent.setTexture(dropped);
+    }
+    ImGui::EndDragDropTarget();
+  };
+  acceptDrop();
+  ImGui::SameLine();
+  ImGui::BeginGroup();
+  ImGui::TextUnformatted("Texture");
+  if (texture) {
+    ImGui::TextDisabled("%s (%u x %u)", texture->getName(), texture->getWidth(),
+                        texture->getHeight());
+  }
+  else if (!spriteComponent.getTextureId().isNull()) {
+    ImGui::TextDisabled("Missing texture");
+  }
+  else {
+    ImGui::TextDisabled("None (drop a texture)");
+  }
+  if (!spriteComponent.getTextureId().isNull() && ImGui::SmallButton("Clear##Sprite")) {
+    EditorScene::recordChange(gameObject, "Clear Sprite Texture");
+    spriteComponent.setTexture(nullptr);
+  }
+  ImGui::EndGroup();
+  acceptDrop();
+
+  Vector2 sourcePosition = spriteComponent.getSourcePosition();
+  Vector2 sourceSize = spriteComponent.getSourceSize();
+  bool bRectChanged = ImGui::DragFloat2("Source Position", &sourcePosition.x, 1.0f, 0.0f,
+                                        100000.0f, "%.0f");
+  ImGui::SetItemTooltip("Top left corner of the part of the texture shown, in pixels");
+  bRectChanged |=
+      ImGui::DragFloat2("Source Size", &sourceSize.x, 1.0f, 0.0f, 100000.0f, "%.0f");
+  ImGui::SetItemTooltip("In pixels; 0 shows the whole texture");
+  if (bRectChanged) {
+    EditorScene::recordChange(gameObject, "Edit Source Rect");
+    spriteComponent.setSourceRect(sourcePosition, sourceSize);
+  }
+
+  float pixelsPerUnit = spriteComponent.getPixelsPerUnit();
+  if (ImGui::DragFloat("Pixels Per Unit", &pixelsPerUnit, 0.5f,
+                       SpriteComponent::MIN_PIXELS_PER_UNIT, 100000.0f, "%.2f")) {
+    EditorScene::recordChange(gameObject, "Edit Pixels Per Unit");
+    spriteComponent.setPixelsPerUnit(pixelsPerUnit);
+  }
+
+  Vector2 pivot = spriteComponent.getPivot();
+  if (ImGui::DragFloat2("Pivot", &pivot.x, 0.01f, -10.0f, 10.0f, "%.2f")) {
+    EditorScene::recordChange(gameObject, "Edit Pivot");
+    spriteComponent.setPivot(pivot);
+  }
+  ImGui::SetItemTooltip("(0, 0) is the bottom left corner, (1, 1) the top right one");
+
+  LinearColor color = spriteComponent.getColor();
+  if (ImGui::ColorEdit4("Color##Sprite", &color.r, ImGuiColorEditFlags_Float)) {
+    EditorScene::recordChange(gameObject, "Edit Color");
+    spriteComponent.setColor(color);
+  }
+
+  bool bFlipX = spriteComponent.isFlippedX();
+  bool bFlipY = spriteComponent.isFlippedY();
+  bool bFlipChanged = ImGui::Checkbox("Flip X", &bFlipX);
+  ImGui::SameLine();
+  bFlipChanged |= ImGui::Checkbox("Flip Y", &bFlipY);
+  if (bFlipChanged) {
+    EditorScene::recordChange(gameObject, "Edit Flip");
+    spriteComponent.setFlip(bFlipX, bFlipY);
+  }
+
+  int32 sortingLayer = spriteComponent.getSortingLayer();
+  int32 order = spriteComponent.getOrder();
+  bool bSortingChanged = ImGui::DragInt("Sorting Layer", &sortingLayer, 0.1f, INT16_MIN,
+                                        INT16_MAX, "%d", ImGuiSliderFlags_AlwaysClamp);
+  bSortingChanged |= ImGui::DragInt("Order in Layer", &order, 0.1f, INT16_MIN, INT16_MAX,
+                                    "%d", ImGuiSliderFlags_AlwaysClamp);
+  ImGui::SetItemTooltip("Lower layers and orders draw first, so higher ones cover them");
+  if (bSortingChanged) {
+    EditorScene::recordChange(gameObject, "Edit Sorting");
+    spriteComponent.setSorting(static_cast<int16>(sortingLayer), static_cast<int16>(order));
+  }
+
+  constexpr const ANSICHAR* kBlendNames[] = {"Alpha", "Additive"};
+  static_assert(sizeof(kBlendNames) / sizeof(kBlendNames[0]) ==
+                static_cast<SIZE_T>(SpriteBlendMode::COUNT));
+  int32 blendMode = static_cast<int32>(spriteComponent.getBlendMode());
+  if (ImGui::Combo("Blend", &blendMode, kBlendNames,
+                   static_cast<int32>(SpriteBlendMode::COUNT))) {
+    EditorScene::recordChange(gameObject, "Edit Blend");
+    spriteComponent.setBlendMode(static_cast<SpriteBlendMode>(blendMode));
+  }
+
+  constexpr const ANSICHAR* kFilterNames[] = {"Point", "Linear"};
+  static_assert(sizeof(kFilterNames) / sizeof(kFilterNames[0]) ==
+                static_cast<SIZE_T>(SpriteFilter::COUNT));
+  int32 filter = static_cast<int32>(spriteComponent.getFilter());
+  if (ImGui::Combo("Filter", &filter, kFilterNames,
+                   static_cast<int32>(SpriteFilter::COUNT))) {
+    EditorScene::recordChange(gameObject, "Edit Filter");
+    spriteComponent.setFilter(static_cast<SpriteFilter>(filter));
+  }
+  ImGui::SetItemTooltip("Point keeps pixel art sharp; Linear smooths scaled images");
 }
 
 /*

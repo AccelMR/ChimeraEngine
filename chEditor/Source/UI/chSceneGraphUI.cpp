@@ -19,6 +19,7 @@
 #include "chGameObject.h"
 #include "chLightComponent.h"
 #include "chShapeComponent.h"
+#include "chSpriteComponent.h"
 #include "chSkyLightComponent.h"
 #include "chCameraComponent.h"
 #include "chMath.h"
@@ -103,6 +104,9 @@ getObjectIcon(const GameObject& gameObject)
     else if (typeId == TypeTraits<ShapeComponent>::getTypeId()) {
       icon = ICON_FA_SHAPES;
     }
+    else if (typeId == TypeTraits<SpriteComponent>::getTypeId()) {
+      icon = ICON_FA_IMAGE;
+    }
   }
   return icon;
 }
@@ -137,6 +141,16 @@ renderCreateCameraItem(Scene& scene, GameObject* parent)
 {
   if (ImGui::MenuItem(ICON_FA_VIDEO "  Create Camera")) {
     createWithComponent<CameraComponent>(scene, "Camera", parent);
+  }
+}
+
+/*
+ */
+void
+renderCreateSpriteItem(Scene& scene, GameObject* parent)
+{
+  if (ImGui::MenuItem(ICON_FA_IMAGE "  Create Sprite")) {
+    createWithComponent<SpriteComponent>(scene, "Sprite", parent);
   }
 }
 
@@ -548,6 +562,7 @@ SceneGraphUI::renderObjectContextMenu(Scene& scene,
   }
   if (!bLocked) {
     renderCreateShapeItems(scene, gameObject.get());
+    renderCreateSpriteItem(scene, gameObject.get());
     renderCreateLightItems(scene, gameObject.get());
     renderCreateCameraItem(scene, gameObject.get());
   }
@@ -620,6 +635,7 @@ SceneGraphUI::renderEmptyAreaContextMenu(Scene& scene)
       EditorScene::recordCreated(*scene.createGameObject("GameObject", parent), "Create");
     }
     renderCreateShapeItems(scene, parent);
+    renderCreateSpriteItem(scene, parent);
     renderCreateLightItems(scene, parent);
     renderCreateCameraItem(scene, parent);
     if (ImGui::MenuItem(ICON_FA_PASTE "  Paste", "Ctrl+V", false, EditorScene::canPaste())) {

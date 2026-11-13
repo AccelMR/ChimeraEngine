@@ -50,19 +50,22 @@ TonemapPass::~TonemapPass() = default;
 /*
  */
 void
-TonemapPass::addPass(RenderGraph& graph, RGTextureHandle sceneColor, RGTextureHandle output)
+TonemapPass::addPass(RenderGraph& graph,
+                     RGTextureHandle sceneColor,
+                     RGTextureHandle output,
+                     bool bEncodeOnly)
 {
   updatePipeline(graph.getTextureDesc(output).format);
 
   graph.addPass("Tonemap")
       .read(sceneColor)
       .writeColor(output, LoadOp::DontCare)
-      .setExecute([this, sceneColor](RenderPassContext& context) {
+      .setExecute([this, sceneColor, bEncodeOnly](RenderPassContext& context) {
         ICommandList& commandList = context.getCommandList();
         const TonemapPushConstants pushConstants{
             .sceneColorIndex = context.getView(sceneColor).getBindlessIndex(),
-            .exposure = g_cvarExposure.get(),
-            .applyCurve = g_cvarTonemap.get() ? 1u : 0u};
+            .exposure = bEncodeOnly ? 1.0f : g_cvarExposure.get(),
+            .applyCurve = !bEncodeOnly && g_cvarTonemap.get() ? 1u : 0u};
         commandList.bindPipeline(*m_pipeline);
         commandList.pushConstants(&pushConstants, sizeof(pushConstants));
         commandList.draw(3);

@@ -19,6 +19,7 @@ class AnimatorComponent;
 class CameraComponent;
 class ScriptComponent;
 class ShapeComponent;
+class SpriteComponent;
 class SkyLightComponent;
 
 /**
@@ -51,6 +52,9 @@ class InspectorUI
 
   void
   renderShapeComponent(ShapeComponent& shapeComponent);
+
+  void
+  renderSpriteComponent(SpriteComponent& spriteComponent);
 
   void
   renderLightComponent(GameObject& gameObject);

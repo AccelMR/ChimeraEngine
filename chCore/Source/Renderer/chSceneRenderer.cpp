@@ -22,6 +22,7 @@
 #include "chShadowRenderer.h"
 #include "chSkinningPass.h"
 #include "chSkyPass.h"
+#include "chSpritePass.h"
 #include "chStringUtils.h"
 #include "chTonemapPass.h"
 
@@ -41,6 +42,7 @@ SceneRenderer::SceneRenderer(const SceneRendererDesc& desc)
     m_forwardRenderPath(new ForwardRenderPath()),
     m_deferredRenderPath(new DeferredRenderPath()),
     m_renderPath(m_deferredRenderPath.get()),
+    m_spritePass(new SpritePass()),
     m_debugRenderPath(new DebugRenderPath()),
 #if USING(CH_DEBUG_DRAW)
     m_debugLinePass(new DebugLinePass()),
@@ -119,11 +121,15 @@ SceneRenderer::addScenePasses(RGTextureHandle output)
 RGTextureHandle
 SceneRenderer::addViewModePasses(const RenderView& view, RGTextureHandle output)
 {
+  m_visibleSprites = 0;
   switch (m_viewMode) {
     case ViewMode::Lit:
     case ViewMode::ShadowCascades:
-      return addLitPasses(view, output);
+      return m_bSpritePath ? addSpritePasses(view, output) : addLitPasses(view, output);
     case ViewMode::LitWireframe: {
+      if (m_bSpritePath) {
+        return addSpritePasses(view, output);
+      }
       const RGTextureHandle depth = addLitPasses(view, output);
       if (depth.isValid()) {
         m_debugRenderPath->addWireframeOverlay(m_graph, view, output, depth);
@@ -211,6 +217,24 @@ SceneRenderer::addLitPasses(const RenderView& view, RGTextureHandle output)
 
 /*
  */
+RGTextureHandle
+SceneRenderer::addSpritePasses(const RenderView& view, RGTextureHandle output)
+{
+  // Blending happens in linear values, at more than 8 bits, so additive sprites that pile up
+  // still look right once encoded.
+  const RGTextureDesc outputDesc = m_graph.getTextureDesc(output);
+  const RGTextureHandle sceneColor = m_graph.createTexture(
+      "SceneColor",
+      {.format = kSceneColorFormat, .width = outputDesc.width, .height = outputDesc.height});
+  m_spritePass->addPass(
+      m_graph, view.camera, m_frame.getSprites(), view.clearColor, sceneColor);
+  m_visibleSprites = m_spritePass->getLastInstanceCount();
+  m_tonemapPass->addPass(m_graph, sceneColor, output, true);
+  return {};
+}
+
+/*
+ */
 void
 SceneRenderer::filterLightTypes()
 {
@@ -266,16 +290,20 @@ SceneRenderer::updateSettings()
     m_viewMode = mode.value_or(ViewMode::Lit);
   }
 
+  Optional<RenderPathType> path = m_desc.renderPath;
   const String& renderPathText = g_cvarRenderPath.get();
-  if (renderPathText != m_renderPathText) {
+  if (!path && renderPathText != m_renderPathText) {
     m_renderPathText = renderPathText;
-    const Optional<RenderPathType> path =
-        RenderSettingsUtils::renderPathFromName(renderPathText);
+    path = RenderSettingsUtils::renderPathFromName(renderPathText);
     if (!path) {
       CH_LOG_WARNING(SceneRendererLog, "Unknown render path '{0}', using Deferred.",
                      renderPathText);
+      path = RenderPathType::Deferred;
     }
-    if (path.value_or(RenderPathType::Deferred) == RenderPathType::Forward) {
+  }
+  if (path) {
+    m_bSpritePath = *path == RenderPathType::Sprite2D;
+    if (*path == RenderPathType::Forward) {
       m_renderPath = m_forwardRenderPath.get();
     }
     else {

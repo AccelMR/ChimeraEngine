@@ -31,10 +31,15 @@ class CH_CORE_EXPORT TonemapPass
   ~TonemapPass();
 
   /**
-   * Reads sceneColor and overwrites output, which must have the same size.
+   * Reads sceneColor and overwrites output, which must have the same size. bEncodeOnly
+   * skips the exposure and the curve and only clamps, for images whose colors must come out
+   * as they were authored (sprites).
    */
   void
-  addPass(RenderGraph& graph, RGTextureHandle sceneColor, RGTextureHandle output);
+  addPass(RenderGraph& graph,
+          RGTextureHandle sceneColor,
+          RGTextureHandle output,
+          bool bEncodeOnly = false);
 
  private:
   void

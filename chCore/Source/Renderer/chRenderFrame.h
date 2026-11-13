@@ -16,13 +16,15 @@
 #include "chLinearColor.h"
 #include "chRenderItem.h"
 #include "chSkyLightItem.h"
+#include "chSpriteItem.h"
 
 namespace chEngineSDK {
 
 /**
  * Exists so the renderer never reads a Scene: at the end of the update the camera and the
- * scene's render items, lights, sky light and debug lines are copied here, and the frame is
- * built only from this copy. The game can then change the scene while the copy is drawn;
+ * scene's render items, lights, sprites, sky light and debug lines are copied here, and the
+ * frame is built only from this copy. The game can then change the scene while the copy is
+ * drawn;
  * with a render thread, two copies would let the game fill the next frame while the last
  * one is drawn.
  *
@@ -86,6 +88,15 @@ class CH_CORE_EXPORT RenderFrame
   }
 
   /**
+   * The sprites in use, in the order of the scene's slots.
+   */
+  NODISCARD FORCEINLINE Span<const SpriteItem>
+  getSprites() const
+  {
+    return m_sprites;
+  }
+
+  /**
    * The sky light that lights the scene, null when there is none.
    */
   NODISCARD FORCEINLINE const SkyLightItem*
@@ -124,6 +135,7 @@ class CH_CORE_EXPORT RenderFrame
   // The skin matrices of every skinned item one after the other.
   Vector<Matrix4> m_skinMatrices;
   Vector<LightItem> m_lights;
+  Vector<SpriteItem> m_sprites;
   SkyLightItem m_skyLight;
   bool m_bHasSkyLight = false;
   DebugDraw m_sceneLines;
