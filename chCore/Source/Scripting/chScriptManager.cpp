@@ -279,6 +279,17 @@ toPropertyValue(lua_State* state,
       }
       return texture != nullptr;
     }
+    case ScriptPropertyType::Font: {
+      if (lua_isnil(state, index)) {
+        return true;
+      }
+      const auto* font = static_cast<const ScriptFont*>(
+          luaL_testudata(state, index, ScriptValueType<ScriptFont>::NAME));
+      if (font) {
+        outValue.object = font->font;
+      }
+      return font != nullptr;
+    }
     case ScriptPropertyType::Scene: {
       if (lua_isnil(state, index)) {
         return true;
@@ -395,6 +406,10 @@ pushPropertyValue(lua_State* state, const ScriptPropertyValue& value, const Scen
         ScriptTraits<ScriptTexture>::push(state, ScriptTexture{value.object});
       }
       break;
+    case ScriptPropertyType::Font:
+      // No font picked is the default font, which is a Font value too.
+      ScriptTraits<ScriptFont>::push(state, ScriptFont{value.object});
+      break;
     case ScriptPropertyType::Scene: {
       // Its path, which the Scene functions take; nil once the scene was deleted.
       const SPtr<IAsset> sceneAsset = value.object.isNull() || !AssetManager::isStarted()
@@ -498,7 +513,7 @@ readProperty(lua_State* state, const lua_Integer position, ScriptClassInfo& info
         !ScriptPropertyUtils::fromTypeName(lua_tostring(state, -1), type)) {
       luaL_error(state,
                  "property '%s' has an unknown type '%s' (number, integer, boolean, string, "
-                 "Vector2, Vector3, Vector4, Color, GameObject, Prefab, Scene, Texture)",
+                 "Vector2, Vector3, Vector4, Color, GameObject, Prefab, Scene, Texture, Font)",
                  name, luaL_tolstring(state, -1, nullptr));
     }
   }
@@ -512,7 +527,8 @@ readProperty(lua_State* state, const lua_Integer position, ScriptClassInfo& info
   lua_pop(state, 1);
 
   if ((type == ScriptPropertyType::GameObject || type == ScriptPropertyType::Prefab ||
-       type == ScriptPropertyType::Scene || type == ScriptPropertyType::Texture) &&
+       type == ScriptPropertyType::Scene || type == ScriptPropertyType::Texture ||
+       type == ScriptPropertyType::Font) &&
       !lua_isnil(state, defaultIndex)) {
     luaL_error(state, "property '%s' is a %s: it is picked in the editor and has no default",
                name, ScriptPropertyUtils::getTypeName(type));
@@ -747,7 +763,7 @@ ScriptManager::openLibraries()
     m_apiDescription->addAlias("ScriptPropertyType",
                                "\"number\"|\"integer\"|\"boolean\"|\"string\"|\"Vector2\"|"
                                "\"Vector3\"|\"Vector4\"|\"Color\"|\"GameObject\"|\"Prefab\"|"
-                               "\"Scene\"|\"Texture\"");
+                               "\"Scene\"|\"Texture\"|\"Font\"");
     ScriptApiType& entry =
         m_apiDescription->addType("ScriptPropertyEntry", ScriptApiTypeKind::Shape);
     entry.description = "One value the editor shows for each object using the script: "
@@ -766,6 +782,7 @@ ScriptManager::openLibraries()
   ScriptBindings::registerInput(m_state);
   ScriptBindings::registerDebugDraw(m_state);
   ScriptBindings::registerSprites(m_state);
+  ScriptBindings::registerText(m_state);
   for (const ScriptBindingsFunction function : getPluginBindings()) {
     function(m_state);
   }

@@ -93,6 +93,8 @@ struct GlyphRunDesc
   LinearColor color = LinearColor::WHITE;
   // Every digit takes the width of the widest, so numbers that change do not move.
   bool bMonospaceDigits = false;
+  // Added after every glyph, in world units.
+  float letterSpacing = 0.0f;
   int16 sortingLayer = 0;
   int16 order = 0;
   SpriteBlendMode blendMode = SpriteBlendMode::Alpha;
@@ -117,6 +119,9 @@ struct GlyphRunDesc
 class CH_CORE_EXPORT SpriteDraw
 {
  public:
+  // Shadow, outline and fill; declared first because makeGlyphRuns takes an array of it.
+  static constexpr uint32 MAX_RUNS_PER_TEXT = 3;
+
   void
   quad(const SpriteQuad& quad);
 
@@ -177,6 +182,23 @@ class CH_CORE_EXPORT SpriteDraw
    */
   NODISCARD static bool
   makeGlyphRun(Font& font, StringView text, const GlyphRunDesc& desc, GlyphRunItem& outItem);
+
+  /**
+   * The shadow, outline and fill runs glyphRun adds, in that order, for callers that keep
+   * them between frames. Gives how many were written (0 when makeGlyphRun fails).
+   */
+  NODISCARD static uint32
+  makeGlyphRuns(Font& font,
+                StringView text,
+                const GlyphRunDesc& desc,
+                GlyphRunItem (&outItems)[MAX_RUNS_PER_TEXT]);
+
+  /**
+   * Whether text can be one glyph run: at most GpuGlyphRun::MAX_GLYPHS characters, no line
+   * break or tab, and no '<' when color tags are read. Reads the bytes once.
+   */
+  NODISCARD static bool
+  fitsGlyphRun(StringView text, bool bRichText) noexcept;
 
   NODISCARD FORCEINLINE Span<const GlyphRunItem>
   getGlyphRuns() const noexcept

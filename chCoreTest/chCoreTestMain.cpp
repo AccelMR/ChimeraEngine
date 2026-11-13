@@ -96,6 +96,7 @@
 #include "chSpriteComponent.h"
 #include "chSpriteDraw.h"
 #include "chStringUtils.h"
+#include "chTextComponent.h"
 #include "chTextLayout.h"
 #include "chTextureMips.h"
 #include "chTransientTexturePool.h"
@@ -10512,4 +10513,333 @@ TEST_CASE("chCore - Glyph run benchmark", "[.]")
               total / (kFrames - 2),
               batcher.getGlyphRuns().size());
   REQUIRE(batcher.getGlyphRuns().size() == kNumbers);
+}
+
+namespace {
+NODISCARD SPtr<FontAsset>
+makeTestFontAsset()
+{
+  AssetMetadata metadata;
+  metadata.uuid = chEngineSDK::UUID::createRandom();
+  metadata.assetType = AssetTypeTraits<FontAsset>::getTypeId();
+  StringUtils::copyToBuffer(metadata.name, "TestFont");
+  SPtr<FontAsset> asset = chMakeShared<FontAsset>(metadata, readTestFont(), FontSettings{});
+  REQUIRE(asset->getFont());
+  return asset;
+}
+
+/**
+ * Makes the test font the default one while it lives, so texts without a font draw in tests
+ * (where /Engine is not mounted).
+ */
+struct DefaultFontGuard
+{
+  explicit DefaultFontGuard(const SPtr<Font>& font) { Font::setDefault(font); }
+  ~DefaultFontGuard() { Font::setDefault(nullptr); }
+};
+} // namespace
+
+TEST_CASE("chCore - Text component")
+{
+  const SPtr<FontAsset> font = makeTestFontAsset();
+  Scene scene("Text", chEngineSDK::UUID::createRandom());
+  const SPtr<GameObject> gameObject = scene.createGameObject("Label");
+  gameObject->getTransform().setLocalPosition(Vector3(1.0f, 2.0f, 3.0f));
+  TextComponent& text = gameObject->addComponent<TextComponent>("Score 12", font);
+  scene.updateTransforms();
+
+  const auto getItem = [&scene]() -> const TextItem& {
+    for (const TextItem& item : scene.getTextSlots()) {
+      if (item.bInUse) {
+        return item;
+      }
+    }
+    FAIL("no text in the scene");
+    return scene.getTextSlots()[0];
+  };
+
+  SECTION("A short text is one glyph run at its object")
+  {
+    REQUIRE(text.isDrawnAsGlyphRuns());
+    const TextItem& item = getItem();
+    REQUIRE(item.owner == gameObject.get());
+    REQUIRE(item.runCount == 1);
+    REQUIRE(item.sprites.empty());
+    REQUIRE(item.runs[0].run.glyphCount == 8);
+    REQUIRE(item.runs[0].run.position.nearEqual(Vector3(1.0f, 2.0f, 3.0f)));
+    REQUIRE(text.getTextSize().x > 0.0f);
+    REQUIRE(text.getTextSize().y == Approx(1.0f));
+
+    AABox bounds;
+    REQUIRE(text.getWorldBounds(bounds));
+    REQUIRE(ShapeOverlap::pointBox(Vector3(1.0f, 2.0f, 3.0f), bounds));
+  }
+
+  SECTION("It follows the object after the transforms are rebuilt")
+  {
+    gameObject->getTransform().setLocalPosition(Vector3(0.0f, -4.0f, 5.0f));
+    gameObject->getTransform().setLocalScale(Vector3(2.0f, 2.0f, 2.0f));
+    scene.updateTransforms();
+    REQUIRE(getItem().runs[0].run.position.nearEqual(Vector3(0.0f, -4.0f, 5.0f)));
+    REQUIRE(getItem().runs[0].run.size == Approx(2.0f));
+  }
+
+  SECTION("Long, broken or tagged texts are laid out glyph by glyph")
+  {
+    text.setText("First line\nSecond line");
+    text.update(0.0f);
+    REQUIRE_FALSE(text.isDrawnAsGlyphRuns());
+    REQUIRE(getItem().runCount == 0);
+    // 19 glyphs with an image: the two spaces and the line break have none.
+    REQUIRE(getItem().sprites.size() == 19);
+    REQUIRE(text.getTextSize().y > 1.5f);
+
+    text.setText("<color=#ff0000>red</color>");
+    text.update(0.0f);
+    REQUIRE_FALSE(text.isDrawnAsGlyphRuns());
+    REQUIRE(getItem().sprites.size() == 3);
+
+    text.setText("This one has more than sixteen characters");
+    text.update(0.0f);
+    REQUIRE_FALSE(text.isDrawnAsGlyphRuns());
+
+    // Short again: back to a run.
+    text.setText("OK");
+    text.update(0.0f);
+    REQUIRE(text.isDrawnAsGlyphRuns());
+    REQUIRE(getItem().sprites.empty());
+  }
+
+  SECTION("A run wider than the wrap width is laid out")
+  {
+    text.setText("WWWWWWWWWWWW");
+    text.setWrapWidth(1.0f);
+    text.update(0.0f);
+    REQUIRE_FALSE(text.isDrawnAsGlyphRuns());
+    REQUIRE(getItem().sprites.size() == 12);
+  }
+
+  SECTION("Outline and shadow")
+  {
+    text.setOutline(2.0f, LinearColor::BLACK);
+    text.setShadow(LinearColor(0.0f, 0.0f, 0.0f, 0.5f), Vector2(0.1f, -0.1f));
+    text.update(0.0f);
+    REQUIRE(getItem().runCount == 3);
+    text.setText("Two\nlines");
+    text.update(0.0f);
+    // A sprite per glyph and pass.
+    REQUIRE(getItem().sprites.size() == 8 * 3);
+  }
+
+  SECTION("Numbers")
+  {
+    text.setNumberFormat({.notation = NumberNotation::Suffix, .decimals = 1});
+    text.setNumber(1234.0);
+    REQUIRE(text.getText() == "1.2K");
+    text.update(0.0f);
+    const uint16 firstGlyph = getItem().runs[0].run.glyphs[0];
+    text.setNumber(1240.0);
+    REQUIRE(text.getText() == "1.2K");
+    text.setNumber(5.5e6);
+    REQUIRE(text.getText() == "5.5M");
+    text.update(0.0f);
+    REQUIRE(getItem().runs[0].run.glyphs[0] != firstGlyph);
+  }
+
+  SECTION("Disabled, it leaves the scene")
+  {
+    text.setEnabled(false);
+    for (const TextItem& item : scene.getTextSlots()) {
+      REQUIRE_FALSE(item.bInUse);
+    }
+    text.setEnabled(true);
+    REQUIRE(getItem().runCount == 1);
+  }
+
+  SECTION("The frame copies the runs and sprites")
+  {
+    const SPtr<GameObject> second = scene.createGameObject("Paragraph");
+    second->addComponent<TextComponent>("A\nB", font);
+    scene.updateTransforms();
+    RenderFrame frame;
+    Camera camera = createSpriteTestCamera();
+    frame.extract(scene, camera, LinearColor::BLACK);
+    REQUIRE(frame.getGlyphRuns().size() == 1);
+    REQUIRE(frame.getSprites().size() == 2);
+  }
+
+  SECTION("Saving keeps every setting and the font reference")
+  {
+    text.setSize(0.5f);
+    text.setColor(LinearColor(1.0f, 0.5f, 0.25f, 1.0f));
+    text.setAlign(TextAlign::Right);
+    text.setWrapWidth(7.0f);
+    text.setPivot(Vector2(1.0f, 0.0f));
+    text.setMonospaceDigits(true);
+    text.setRichText(false);
+    text.setSorting(4, -3);
+    text.setBlendMode(SpriteBlendMode::Additive);
+    text.setOutline(1.5f, LinearColor(0.0f, 0.0f, 1.0f, 1.0f));
+    text.setNumberFormat({.notation = NumberNotation::Scientific, .decimals = 3});
+
+    MemoryDataStream stream;
+    text.serialize(stream);
+    stream.seek(0);
+    TextComponent loaded;
+    REQUIRE(loaded.deserialize(stream));
+    REQUIRE(loaded.getText() == "Score 12");
+    // No AssetManager in tests, so the font is not found, but its id is kept.
+    REQUIRE(loaded.getFontId() == font->getUUID());
+    REQUIRE(loaded.getSize() == Approx(0.5f));
+    REQUIRE(loaded.getColor().g == Approx(0.5f));
+    REQUIRE(loaded.getAlign() == TextAlign::Right);
+    REQUIRE(loaded.getWrapWidth() == Approx(7.0f));
+    REQUIRE(loaded.getPivot().x == Approx(1.0f));
+    REQUIRE(loaded.isMonospaceDigits());
+    REQUIRE_FALSE(loaded.isRichText());
+    REQUIRE(loaded.getSortingLayer() == 4);
+    REQUIRE(loaded.getOrder() == -3);
+    REQUIRE(loaded.getBlendMode() == SpriteBlendMode::Additive);
+    REQUIRE(loaded.getOutlineWidth() == Approx(1.5f));
+    REQUIRE(loaded.getNumberFormat().notation == NumberNotation::Scientific);
+    REQUIRE(loaded.getNumberFormat().decimals == 3);
+
+    Vector<chEngineSDK::UUID> references;
+    loaded.collectReferences(references);
+    REQUIRE(references.size() == 1);
+
+    // Cut short, it is refused.
+    Vector<uint8> bytes(stream.size() - 4);
+    stream.seek(0);
+    REQUIRE(stream.read(bytes.data(), bytes.size()) == bytes.size());
+    MemoryDataStream cut;
+    REQUIRE(cut.write(bytes.data(), bytes.size()) == bytes.size());
+    cut.seek(0);
+    TextComponent broken;
+    REQUIRE_FALSE(broken.deserialize(cut));
+  }
+}
+
+TEST_CASE("chCore - Script text")
+{
+  const SPtr<FontAsset> font = makeTestFontAsset();
+  const DefaultFontGuard defaultFont(font->getFont());
+  ScriptManager& scripts = getTestScriptManager();
+  Scene scene("Texts", chEngineSDK::UUID::createRandom());
+  struct SceneGuard
+  {
+    ScriptManager& scripts;
+    ~SceneGuard() { scripts.setCurrentScene(nullptr); }
+  } guard{scripts};
+  scripts.setCurrentScene(&scene);
+  scripts.beginUpdate(0.0f);
+
+  SECTION("Short texts and numbers are glyph runs, long ones are laid out")
+  {
+    REQUIRE(scripts.runString(R"lua(
+      local style = Text.makeStyle{ size = 2, color = Color(1, 0, 0, 1), layer = 5, order = 1,
+                                    pivot = Vector2(0, 0), monospaceDigits = true,
+                                    notation = "Suffix", decimals = 1, depth = 3 }
+      Text.draw(style, "Hello", 1, 2)
+      Text.draw(style, 1234, 0, 0)
+      Text.draw(nil, "Two\nlines", 0, 0)
+      Text.draw(Font.getDefault(), "<color=#00ff00>tag</color>", 0, 0)
+    )lua"));
+    const Span<const GlyphRunItem> runs = scene.getSpriteDraw().getGlyphRuns();
+    REQUIRE(runs.size() == 2);
+    REQUIRE(runs[0].run.glyphCount == 5);
+    REQUIRE(runs[0].run.position.nearEqual(Vector3(3.0f, 1.0f, 2.0f)));
+    REQUIRE(runs[0].run.size == Approx(2.0f));
+    REQUIRE(runs[0].sortingLayer == 5);
+    REQUIRE(runs[0].order == 1);
+    REQUIRE(Float16::toFloat(static_cast<uint16>(runs[0].run.colorRG & 0xFFFF)) == 1.0f);
+    // 1234 with one decimal and a suffix is "1.2K".
+    REQUIRE(runs[1].run.glyphCount == 4);
+    // "Two lines" and "tag" go glyph by glyph.
+    REQUIRE(scene.getSpriteDraw().getSprites().size() == 8 + 3);
+  }
+
+  SECTION("Outline and shadow add runs behind")
+  {
+    REQUIRE(scripts.runString(R"lua(
+      local style = Text.makeStyle{ outlineWidth = 2, shadowColor = Color(0, 0, 0, 0.5) }
+      Text.draw(style, "12", 0, 0, 45, 2, Color(0, 0, 1, 1))
+    )lua"));
+    REQUIRE(scene.getSpriteDraw().getGlyphRuns().size() == 3);
+  }
+
+  SECTION("Measure, format and styles")
+  {
+    REQUIRE(scripts.runString(R"lua(
+      local w, h = Text.measure(nil, "Hello")
+      assert(w > 0 and math.abs(h - 1) < 1e-4)
+      local w2 = Text.measure(Text.makeStyle{ size = 2 }, "Hello")
+      assert(math.abs(w2 - 2 * w) < 1e-3)
+      assert(Text.formatNumber(1500) == "1.5K")
+      assert(Text.formatNumber(123456, "Scientific", 1) == "1.2e5")
+      local style = Text.makeStyle{ size = 3 }
+      local copy = style:copy()
+      copy:setSize(4)
+      assert(style:getSize() == 3 and copy:getSize() == 4)
+      assert(tostring(Font.getDefault()) == "Font(Default)")
+      assert(Font.getDefault():isValid())
+    )lua"));
+  }
+
+  SECTION("A text component through its handle")
+  {
+    const SPtr<GameObject> label = scene.createGameObject("Label");
+    TextComponent& text = label->addComponent<TextComponent>("Start");
+    scene.updateTransforms();
+    REQUIRE(scripts.runString(R"lua(
+      local object = Scene.find("Label")
+      local text = object:getText()
+      assert(text == object:getText())
+      assert(text:getText() == "Start")
+      text:setNumberFormat("Plain")
+      text:setText(42)
+      assert(text:getText() == "42")
+      text:setColor(Color(0, 1, 0, 1))
+      text:setSize(3)
+      text:setSorting(2, 7)
+      text:setOutline(1)
+      text:setShadow(Color(0, 0, 0, 1), Vector2(0.1, -0.1))
+      assert(text:getSize() == 3)
+      local layer, order = text:getSorting()
+      assert(layer == 2 and order == 7)
+      assert(text:getGameObject() == object)
+      assert(text:getFont() == Font.getDefault())
+      assert(Scene.find("Label"):getText():isVisible())
+    )lua"));
+    REQUIRE(text.getText() == "42");
+    REQUIRE(text.getSize() == Approx(3.0f));
+    REQUIRE(text.getSortingLayer() == 2);
+    REQUIRE(text.getShadowColor().a == Approx(1.0f));
+
+    const SPtr<GameObject> plain = scene.createGameObject("Plain");
+    REQUIRE(scripts.runString(R"lua(
+      local plain = Scene.find("Plain")
+      assert(plain:getText() == nil)
+      local added = plain:addText("Hi")
+      assert(added == plain:getText() and added:getText() == "Hi")
+      assert(plain:addText(7) == added and added:getText() == "7")
+    )lua"));
+    REQUIRE(plain->getComponent<TextComponent>() != nullptr);
+  }
+
+  SECTION("Mistakes raise")
+  {
+    REQUIRE_FALSE(scripts.runString("Text.makeStyle{ sise = 2 }"));
+    REQUIRE_FALSE(scripts.runString("Text.makeStyle{ align = 'Middle' }"));
+    REQUIRE_FALSE(scripts.runString("Text.makeStyle{ decimals = 12 }"));
+    REQUIRE_FALSE(scripts.runString("Text.draw(5, 'x', 0, 0)"));
+    REQUIRE_FALSE(scripts.runString("Text.formatNumber(1, 'Roman')"));
+  }
+
+  SECTION("Without a scene nothing is drawn")
+  {
+    scripts.setCurrentScene(nullptr);
+    REQUIRE(scripts.runString("Text.draw(nil, 'x', 0, 0)"));
+    REQUIRE(scene.getSpriteDraw().getGlyphRuns().empty());
+  }
 }

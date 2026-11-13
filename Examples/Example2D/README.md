@@ -18,6 +18,7 @@ play it with `chGame -project=Examples/Example2D`.
 | Thousands of bullets without GameObjects | `GameManager.lua` and `PlayerShip.lua` (`addProjectiles`, `configure`, `fireRing`, `fireSpread`, homing with `spawn{turnRate}`) |
 | Hits reported to scripts | `onHit` in `PlayerShip.lua` and `GameManager.lua`, targets added with `addProjectileTarget` |
 | Sprites drawn every frame without GameObjects | `Background.lua` (star field), the lives in `PlayerShip.lua` (`Sprites.draw`) |
+| Text and numbers drawn every frame | the score and the game over screen in `GameManager.lua` (`Text.makeStyle`, `Text.draw` with a number) |
 | Spawning from a prefab property | `GameManager.lua` (`Scene.instantiate`, the `enemy` property) |
 | Opening a map again | `GameManager.lua` (`Scene.openMap("Main")`) |
 | Input actions | `Config/Input.ini` (Move, Fire, Restart) |

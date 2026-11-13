@@ -54,6 +54,12 @@ class ScriptBindings
   registerSprites(lua_State* state);
 
   /**
+   * Font, TextStyle, Text (texts drawn each frame) and the Text handle of a GameObject.
+   */
+  static void
+  registerText(lua_State* state);
+
+  /**
    * Pushes the handle of one part of gameObject (its transform, a component), kept in the
    * GameObject handle's user value userValue and made on first use, so the same part is
    * always the same Lua value and dies with the object.

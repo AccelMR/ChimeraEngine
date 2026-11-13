@@ -76,6 +76,13 @@ RenderFrame::extract(const Scene& scene,
   m_glyphRuns.assign(frameDraw.getGlyphRuns().begin(), frameDraw.getGlyphRuns().end());
   m_glyphRuns.insert(
       m_glyphRuns.end(), fixedDraw.getGlyphRuns().begin(), fixedDraw.getGlyphRuns().end());
+  for (const TextItem& text : scene.getTextSlots()) {
+    if (!text.bInUse) {
+      continue;
+    }
+    m_sprites.insert(m_sprites.end(), text.sprites.begin(), text.sprites.end());
+    m_glyphRuns.insert(m_glyphRuns.end(), text.runs, text.runs + text.runCount);
+  }
   m_glyphRunBatches.assign(frameDraw.getGlyphRunBatches().begin(),
                            frameDraw.getGlyphRunBatches().end());
   m_glyphRunBatches.insert(m_glyphRunBatches.end(),

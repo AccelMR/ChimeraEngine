@@ -262,6 +262,13 @@ class CH_CORE_EXPORT Font
   getDefault();
 
   /**
+   * Replaces the font texts without one use (a game's own, or a test's); null goes back to
+   * reading Inter on the next getDefault().
+   */
+  static void
+  setDefault(const SPtr<Font>& font);
+
+  /**
    * Called before the graphics API shuts down, since the default font keeps a texture.
    */
   static void

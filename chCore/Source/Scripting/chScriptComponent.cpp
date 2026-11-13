@@ -359,7 +359,7 @@ ScriptComponent::collectReferences(Vector<UUID>& outReferences) const
   for (const ScriptPropertyOverride& entry : m_overrides) {
     const ScriptPropertyType type = entry.value.type;
     if ((type == ScriptPropertyType::Prefab || type == ScriptPropertyType::Scene ||
-         type == ScriptPropertyType::Texture) &&
+         type == ScriptPropertyType::Texture || type == ScriptPropertyType::Font) &&
         !entry.value.object.isNull()) {
       outReferences.push_back(entry.value.object);
     }

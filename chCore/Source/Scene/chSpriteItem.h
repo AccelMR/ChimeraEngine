@@ -144,6 +144,8 @@ struct GlyphRunItem
   GpuGlyphRun run{};
   // Distance from the position that holds every glyph, for culling.
   float radius = 0.0f;
+  // From the first pen to the end of the last glyph's advance, in world units.
+  float width = 0.0f;
   int16 sortingLayer = 0;
   int16 order = 0;
   SpriteBlendMode blendMode = SpriteBlendMode::Alpha;
@@ -179,6 +181,26 @@ struct SpriteItem
   int16 order = 0;
   SpriteBlendMode blendMode = SpriteBlendMode::Alpha;
   // The object the sprite belongs to, so the editor can find it from the sprite.
+  GameObject* owner = nullptr;
+  // False marks a free slot of the scene.
+  bool bInUse = false;
+};
+
+/**
+ * Exists so a text component's sprites reach the renderer like a sprite component's: it
+ * keeps them here, in a slot of its Scene, rebuilt only when the text, its look or its
+ * placement change. A text drawn as glyph runs keeps them in runs, one drawn glyph by glyph
+ * keeps its sprites.
+ */
+struct TextItem
+{
+  // Shadow, outline and fill, as SpriteDraw::makeGlyphRuns gives them.
+  static constexpr uint32 MAX_RUNS = 3;
+
+  Vector<SpriteItem> sprites;
+  GlyphRunItem runs[MAX_RUNS];
+  uint32 runCount = 0;
+  // The object the text belongs to.
   GameObject* owner = nullptr;
   // False marks a free slot of the scene.
   bool bInUse = false;

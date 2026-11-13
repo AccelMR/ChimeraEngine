@@ -32,6 +32,7 @@ enum class ScriptPropertyType : uint8
   Prefab = 9,
   Scene = 10,
   Texture = 11,
+  Font = 12,
   COUNT
 };
 

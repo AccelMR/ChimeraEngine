@@ -12,6 +12,7 @@
 #include "chAssetManager.h"
 #include "chEditorScene.h"
 #include "chEditorSelection.h"
+#include "chFontAsset.h"
 #include "chGameObject.h"
 #include "chMath.h"
 #include "chPrefabAsset.h"
@@ -400,6 +401,14 @@ renderValue(const PropertyWidgetDesc& desc, ScriptPropertyValue& value,
                                       "Content Browser. Textures picked here go into "
                                       "packages.",
                            .emptyListText = "The project has no textures"});
+  case ScriptPropertyType::Font:
+    return renderAssetRow(desc, value,
+                          {.typeId = AssetTypeTraits<FontAsset>::getTypeId(),
+                           .noneText = "Default font (drop a font)",
+                           .missingText = "Missing font",
+                           .tooltip = "Click to pick a font, or drop one from the Content "
+                                      "Browser. Without one the engine's font is used.",
+                           .emptyListText = "The project has no fonts"});
   default:
     return renderVectorRow(desc, value);
   }

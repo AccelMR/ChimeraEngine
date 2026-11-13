@@ -351,6 +351,15 @@ Font::getDefault()
 /*
  */
 void
+Font::setDefault(const SPtr<Font>& font)
+{
+  getDefaultStorage() = font;
+  getDefaultTried() = font != nullptr;
+}
+
+/*
+ */
+void
 Font::releaseDefault()
 {
   getDefaultStorage().reset();

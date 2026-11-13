@@ -90,6 +90,63 @@ struct ScriptSpriteStyle
 };
 
 CH_SCRIPT_VALUE_TYPE(ScriptSpriteStyle, "SpriteStyle");
+
+/**
+ * Exists so scripts hold a font as a plain value (Font.find and Font properties give one;
+ * Text.makeStyle and Text:setFont take it). Only the asset's UUID is kept; a null one is the
+ * default font.
+ */
+struct ScriptFont
+{
+  NODISCARD bool
+  operator==(const ScriptFont& other) const { return font == other.font; }
+
+  UUID font;
+};
+
+CH_SCRIPT_VALUE_TYPE(ScriptFont, "Font");
+
+/**
+ * Exists so what a text looks like is worked out once (Text.makeStyle) and then only placed
+ * by Text.draw. The font is kept by UUID and found again at each draw (one hash lookup), so
+ * an unloaded font never dangles.
+ */
+struct ScriptTextStyle
+{
+  static constexpr uint8 MONOSPACE_DIGITS_BIT = 0x1u;
+  static constexpr uint8 RICH_TEXT_BIT = 0x2u;
+  static constexpr uint8 TRIM_ZEROS_BIT = 0x4u;
+
+  UUID font;
+  // Height of the font in world units.
+  float size;
+  float color[4];
+  // (0, 0) is the bottom left corner.
+  float pivot[2];
+  float wrapWidth;
+  float lineSpacing;
+  float letterSpacing;
+  // World X.
+  float depth;
+  float outlineWidth;
+  float outlineColor[4];
+  float shadowColor[4];
+  float shadowOffset[2];
+  // How numbers given to Text.draw are written (NumberFormatDesc).
+  double plainBelow;
+  int16 sortingLayer;
+  int16 order;
+  // A TextAlign, a SpriteBlendMode, the bits above and a NumberNotation.
+  uint8 align;
+  uint8 blendMode;
+  uint8 flags;
+  uint8 notation;
+  int8 decimals;
+  int8 plainDecimals;
+  uint8 padding[6];
+};
+
+CH_SCRIPT_VALUE_TYPE(ScriptTextStyle, "TextStyle");
 CH_SCRIPT_HANDLE_TYPE(GameObject, "GameObject");
 CH_SCRIPT_HANDLE_TYPE(Transform, "Transform");
 CH_SCRIPT_HANDLE_TYPE(AnimatorComponent, "Animator");

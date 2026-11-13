@@ -259,6 +259,24 @@ class CH_CORE_EXPORT Scene : public Object
   getSpriteSlots() const { return m_sprites; }
 
   /**
+   * A slot for the sprites of one text; the id stays valid until removeText.
+   */
+  NODISCARD uint32
+  addText(GameObject* owner);
+
+  NODISCARD FORCEINLINE TextItem&
+  getText(uint32 id) { return m_texts[id]; }
+
+  void
+  removeText(uint32 id);
+
+  /**
+   * Every slot, free ones included (bInUse false).
+   */
+  NODISCARD FORCEINLINE Span<const TextItem>
+  getTextSlots() const { return m_texts; }
+
+  /**
    * Returns an id that stays valid until removeSkyLight.
    */
   NODISCARD uint32
@@ -467,6 +485,8 @@ class CH_CORE_EXPORT Scene : public Object
   Vector<SpriteItem> m_sprites;
   Vector<uint32> m_freeSprites;
   uint32 m_spriteCount = 0;
+  Vector<TextItem> m_texts;
+  Vector<uint32> m_freeTexts;
   Vector<SkyLightItem> m_skyLights;
   Vector<uint32> m_freeSkyLights;
   uint32 m_nextSkyLightOrder = 0;

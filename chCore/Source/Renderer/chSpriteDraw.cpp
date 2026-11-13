@@ -20,6 +20,8 @@
 #include "chUnicode.h"
 
 namespace chEngineSDK {
+static_assert(SpriteDraw::MAX_RUNS_PER_TEXT == TextItem::MAX_RUNS,
+              "A text component keeps the runs makeGlyphRuns gives");
 
 CH_LOG_DECLARE_STATIC(SpriteDrawLog, All);
 
@@ -206,9 +208,25 @@ SpriteDraw::appendTextSprites(Font& font,
 void
 SpriteDraw::glyphRun(Font& font, StringView text, const GlyphRunDesc& desc)
 {
+  GlyphRunItem items[MAX_RUNS_PER_TEXT];
+  const uint32 count = makeGlyphRuns(font, text, desc, items);
+  if (count == 0 || !hasRoom(m_glyphRuns.size(), count)) {
+    return;
+  }
+  m_glyphRuns.insert(m_glyphRuns.end(), items, items + count);
+}
+
+/*
+ */
+uint32
+SpriteDraw::makeGlyphRuns(Font& font,
+                          StringView text,
+                          const GlyphRunDesc& desc,
+                          GlyphRunItem (&outItems)[MAX_RUNS_PER_TEXT])
+{
   GlyphRunItem fill;
   if (!makeGlyphRun(font, text, desc, fill)) {
-    return;
+    return 0;
   }
   const bool bSdf = font.getSettings().mode == FontRenderMode::Sdf;
   const uint32 outlineEdge =
@@ -220,28 +238,47 @@ SpriteDraw::glyphRun(Font& font, StringView text, const GlyphRunDesc& desc)
            : 0u;
   const bool bOutline = outlineEdge > 0 && desc.outlineColor.a > 0.0f;
   const bool bShadow = desc.shadowColor.a > 0.0f;
-  if (!hasRoom(m_glyphRuns.size(), 1 + (bOutline ? 1 : 0) + (bShadow ? 1 : 0))) {
-    return;
-  }
-
   const uint32 edgeFlags =
       (fill.run.textureAndFlags &
        ~(GpuSpriteInstance::EDGE_MASK << GpuSpriteInstance::EDGE_SHIFT)) |
       (outlineEdge << GpuSpriteInstance::EDGE_SHIFT);
+
   // Same layer, order and depth, so the stable sort keeps them in this order.
+  uint32 count = 0;
   if (bShadow) {
-    GlyphRunItem& shadow = m_glyphRuns.emplace_back(fill);
+    GlyphRunItem& shadow = outItems[count++];
+    shadow = fill;
     shadow.run.position += Vector3(0.0f, desc.shadowOffset.x, desc.shadowOffset.y);
     shadow.run.textureAndFlags = bOutline ? edgeFlags : fill.run.textureAndFlags;
     packColor(desc.shadowColor, shadow.run.colorRG, shadow.run.colorBA);
     shadow.radius += Math::abs(desc.shadowOffset.x) + Math::abs(desc.shadowOffset.y);
   }
   if (bOutline) {
-    GlyphRunItem& outline = m_glyphRuns.emplace_back(fill);
+    GlyphRunItem& outline = outItems[count++];
+    outline = fill;
     outline.run.textureAndFlags = edgeFlags;
     packColor(desc.outlineColor, outline.run.colorRG, outline.run.colorBA);
   }
-  m_glyphRuns.push_back(fill);
+  outItems[count++] = fill;
+  return count;
+}
+
+/*
+ */
+bool
+SpriteDraw::fitsGlyphRun(StringView text, bool bRichText) noexcept
+{
+  uint32 characters = 0;
+  for (const ANSICHAR byte : text) {
+    if (byte == '\n' || byte == '\r' || byte == '\t' || (bRichText && byte == '<')) {
+      return false;
+    }
+    // Continuation bytes of UTF-8 are 10xxxxxx; every other byte starts a character.
+    if ((static_cast<uint8>(byte) & 0xC0u) != 0x80u && ++characters > GpuGlyphRun::MAX_GLYPHS) {
+      return false;
+    }
+  }
+  return characters > 0;
 }
 
 /*
@@ -277,6 +314,7 @@ SpriteDraw::makeGlyphRun(Font& font,
   const float inverseHeight = 1.0f / height;
   const float digitAdvance =
       desc.bMonospaceDigits ? font.getDigitAdvance() * inverseHeight : 0.0f;
+  const float letterSpacing = desc.size != 0.0f ? desc.letterSpacing / desc.size : 0.0f;
 
   GpuGlyphRun& run = outItem.run;
   uint32 count = 0;
@@ -304,13 +342,15 @@ SpriteDraw::makeGlyphRun(Font& font,
     run.pens[count] = static_cast<uint16>(
         Math::clamp(glyphPen * GpuGlyphRun::PEN_SCALE + 0.5f, 0.0f, 65535.0f));
     ++count;
-    pen += bFixedDigit ? digitAdvance : advance;
+    pen += (bFixedDigit ? digitAdvance : advance) + letterSpacing;
     previousSlot = slot;
     bPreviousFixed = bFixedDigit;
   }
   if (count == 0) {
     return false;
   }
+  // The last glyph needs no space after it.
+  pen -= letterSpacing;
   for (uint32 i = count; i < GpuGlyphRun::MAX_GLYPHS; ++i) {
     run.glyphs[i] = 0;
     run.pens[i] = 0;
@@ -344,6 +384,7 @@ SpriteDraw::makeGlyphRun(Font& font,
   const float extentY =
       Math::max(Math::abs(run.offset[1] + descent), Math::abs(run.offset[1] + ascent));
   outItem.radius = Math::sqrt(extentX * extentX + extentY * extentY) * Math::abs(desc.size);
+  outItem.width = pen * desc.size;
   outItem.sortingLayer = desc.sortingLayer;
   outItem.order = desc.order;
   outItem.blendMode = desc.blendMode;

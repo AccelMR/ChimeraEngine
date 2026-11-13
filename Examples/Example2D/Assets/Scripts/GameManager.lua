@@ -1,7 +1,7 @@
 -- chimera-uuid: 18ae49fd-5b21-4824-bd14-0b07e2899437
 -- Runs the shooter: spawns enemies, owns the enemy bullets and the explosion sparks, keeps
--- the score and opens the map again after a game over. Other scripts reach it through the
--- global Game, set when it starts.
+-- the score (drawn in the top right corner) and opens the map again after a game over. Other
+-- scripts reach it through the global Game, set when it starts.
 ---@class GameManager : Script
 ---@field enemy Prefab
 ---@field spawnInterval number
@@ -49,9 +49,35 @@ function GameManager:onStart()
   self.sparks:setLook(Sprites.makeStyle{ texture = "T_Spark", pixelsPerUnit = 32,
                                          blend = "Additive", layer = 4 }, false)
   self.sparks:setHitTeams({})
+
+  -- Styles are made once; drawing one each frame is a single C call. The score is given as a
+  -- number, so it is written in C without making a Lua string every frame.
+  self.scoreStyle = Text.makeStyle{ size = 0.8, pivot = Vector2(1, 1), monospaceDigits = true,
+                                    layer = 10, outlineWidth = 3, notation = "Suffix",
+                                    plainBelow = 1000000 }
+  self.labelStyle = Text.makeStyle{ size = 0.4, pivot = Vector2(1, 1), layer = 10,
+                                    color = Color(0.7, 0.8, 1, 1) }
+  self.titleStyle = Text.makeStyle{ size = 2, pivot = Vector2(0.5, 0.5), layer = 10,
+                                    color = Color(1, 0.35, 0.3, 1), outlineWidth = 4,
+                                    shadowColor = Color(0, 0, 0, 0.8),
+                                    shadowOffset = Vector2(0.1, -0.1) }
+  self.hintStyle = Text.makeStyle{ size = 0.6, pivot = Vector2(0.5, 0.5), layer = 10,
+                                   outlineWidth = 2 }
+end
+
+function GameManager:drawHud()
+  local right = self.halfWidth - 0.3
+  local top = self.halfHeight - 0.2
+  Text.draw(self.labelStyle, "SCORE", right, top)
+  Text.draw(self.scoreStyle, self.score, right, top - 0.45)
+  if self.over then
+    Text.draw(self.titleStyle, "GAME OVER", 0, 1)
+    Text.draw(self.hintStyle, "Press R (or Start) to play again", 0, -0.6)
+  end
 end
 
 function GameManager:update(dt)
+  self:drawHud()
   if self.over then
     if Input.wasActionPressed("Restart") then
       Scene.openMap("Main")
@@ -85,9 +111,6 @@ function GameManager:enemyKilled(y, z, points)
   self.score = self.score + points
   self.kills = self.kills + 1
   self:explode(y, z, 20)
-  if self.kills % 10 == 0 then
-    Log.info("Score " .. self.score)
-  end
 end
 
 function GameManager:gameOver()

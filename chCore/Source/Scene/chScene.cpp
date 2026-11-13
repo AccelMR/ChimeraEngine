@@ -655,6 +655,41 @@ Scene::removeSprite(uint32 id)
 
 /*
  */
+uint32
+Scene::addText(GameObject* owner)
+{
+  uint32 id = 0;
+  if (!m_freeTexts.empty()) {
+    id = m_freeTexts.back();
+    m_freeTexts.pop_back();
+  }
+  else {
+    id = static_cast<uint32>(m_texts.size());
+    m_texts.emplace_back();
+  }
+  TextItem& text = m_texts[id];
+  text.owner = owner;
+  text.bInUse = true;
+  return id;
+}
+
+/*
+ */
+void
+Scene::removeText(uint32 id)
+{
+  CH_ASSERT(id < m_texts.size() && m_texts[id].bInUse);
+  // The sprites keep their memory, so a slot used again does not allocate.
+  TextItem& text = m_texts[id];
+  text.sprites.clear();
+  text.runCount = 0;
+  text.owner = nullptr;
+  text.bInUse = false;
+  m_freeTexts.push_back(id);
+}
+
+/*
+ */
 void
 Scene::gatherLights(const Frustum& frustum, Vector<const LightItem*>& outLights) const
 {
