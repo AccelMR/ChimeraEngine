@@ -109,6 +109,7 @@ TextLayout::build(Font& font, StringView text, const TextLayoutDesc& desc)
   float breakPen = 0.0f;
   float breakWidth = 0.0f;
   uint32 previousSlot = Font::INVALID_SLOT;
+  bool bPreviousFixed = false;
 
   SIZE_T position = 0;
   while (position < text.size()) {
@@ -161,10 +162,12 @@ TextLayout::build(Font& font, StringView text, const TextLayoutDesc& desc)
     if (bTab) {
       advance *= kTabSpaces;
     }
-    if (!bFixedDigit && previousSlot != Font::INVALID_SLOT) {
+    // A fixed cell keeps its width, so it never kerns with its neighbors.
+    if (!bFixedDigit && !bPreviousFixed && previousSlot != Font::INVALID_SLOT) {
       pen += font.getKerning(previousSlot, slot) * scale;
     }
     previousSlot = slot;
+    bPreviousFixed = bFixedDigit;
 
     if (character == ' ' || bTab) {
       pen += advance + desc.letterSpacing;

@@ -23,6 +23,49 @@ constexpr uint32 kLetterCount = 26;
 
 constexpr double kPowersOfTen[NumberFormat::MAX_DECIMALS + 1] = {
     1.0, 10.0, 100.0, 1000.0, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9};
+constexpr uint64 kIntegerPowersOfTen[NumberFormat::MAX_DECIMALS + 1] = {
+    1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000};
+// Below 2^53, so the scaled number is an exact integer and the fast path can write it.
+constexpr double kMaxExactInteger = 9007199254740992.0;
+
+// Every power of ten a double reaches, from the smallest subnormal to the largest value.
+constexpr int32 kLowestExponent = -330;
+constexpr int32 kHighestExponent = 310;
+constexpr int32 kExponentCount = kHighestExponent - kLowestExponent + 1;
+
+/**
+ * pow(10, exponent) for any exponent a double holds, from a table made on first use: the
+ * formatting of every number needs two, and pow costs more than the rest of the work.
+ */
+NODISCARD double
+powerOfTen(int32 exponent) noexcept
+{
+  static const Array<double, kExponentCount> s_powers = [] {
+    Array<double, kExponentCount> powers{};
+    for (int32 i = 0; i < kExponentCount; ++i) {
+      powers[i] = std::pow(10.0, static_cast<double>(i + kLowestExponent));
+    }
+    return powers;
+  }();
+  return s_powers[Math::clamp(exponent, kLowestExponent, kHighestExponent) - kLowestExponent];
+}
+
+/**
+ * floor(log10(value)) for a positive finite value, from its binary exponent and one compare.
+ */
+NODISCARD int32
+decimalExponent(double value) noexcept
+{
+  int32 binaryExponent = 0;
+  CH_PARAMETER_UNUSED(std::frexp(value, &binaryExponent));
+  // value is in [2^(e-1), 2^e), so the guess is the right exponent or one too low.
+  int32 exponent =
+      static_cast<int32>(std::floor(static_cast<double>(binaryExponent - 1) * 0.30102999566398));
+  if (value >= powerOfTen(exponent + 1)) {
+    ++exponent;
+  }
+  return exponent;
+}
 
 NODISCARD double
 roundTo(double value, int32 decimals) noexcept
@@ -38,12 +81,35 @@ roundTo(double value, int32 decimals) noexcept
 NODISCARD ANSICHAR*
 writeFixed(ANSICHAR* begin, ANSICHAR* end, double value, int32 decimals, bool bTrimZeros)
 {
-  const std::to_chars_result result =
-      std::to_chars(begin, end, value, std::chars_format::fixed, decimals);
-  if (result.ec != std::errc()) {
-    return nullptr;
+  ANSICHAR* last = nullptr;
+  const double scaled = std::round(value * kPowersOfTen[decimals]);
+  if (scaled < kMaxExactInteger) {
+    // Integer digits are much cheaper to write than a double with a precision.
+    const uint64 number = static_cast<uint64>(scaled);
+    const uint64 divisor = kIntegerPowersOfTen[decimals];
+    const std::to_chars_result whole = std::to_chars(begin, end, number / divisor);
+    if (whole.ec != std::errc() || end - whole.ptr < decimals + 1) {
+      return nullptr;
+    }
+    last = whole.ptr;
+    if (decimals > 0) {
+      *last++ = '.';
+      uint64 fraction = number % divisor;
+      for (int32 digit = decimals - 1; digit >= 0; --digit) {
+        last[digit] = static_cast<ANSICHAR>('0' + fraction % 10);
+        fraction /= 10;
+      }
+      last += decimals;
+    }
   }
-  ANSICHAR* last = result.ptr;
+  else {
+    const std::to_chars_result result =
+        std::to_chars(begin, end, value, std::chars_format::fixed, decimals);
+    if (result.ec != std::errc()) {
+      return nullptr;
+    }
+    last = result.ptr;
+  }
   if (bTrimZeros && decimals > 0) {
     while (last > begin && last[-1] == '0') {
       --last;
@@ -78,10 +144,10 @@ floorDivide(int32 value, int32 divisor) noexcept
 NODISCARD ANSICHAR*
 writeExponent(ANSICHAR* out, ANSICHAR* end, double value, int32 step, int32 decimals, bool bTrim)
 {
-  int32 exponent = floorDivide(static_cast<int32>(std::floor(std::log10(value))), step) * step;
+  int32 exponent = floorDivide(decimalExponent(value), step) * step;
   const double limit = kPowersOfTen[step];
-  double mantissa = value / std::pow(10.0, exponent);
-  // log10 can be one off near exact powers of ten.
+  double mantissa = value / powerOfTen(exponent);
+  // Division rounding can leave it one step off near exact powers of ten.
   if (mantissa >= limit) {
     exponent += step;
     mantissa /= limit;
@@ -112,8 +178,8 @@ NODISCARD ANSICHAR*
 writeSuffixed(ANSICHAR* out, ANSICHAR* end, double value, int32 decimals, bool bTrim)
 {
   // At least K: a number that is not written plainly always gets a suffix, so 999.6 is 1K.
-  int32 thousands = Math::max(static_cast<int32>(std::floor(std::log10(value) / 3.0)), 1);
-  double mantissa = value / std::pow(10.0, thousands * 3);
+  int32 thousands = Math::max(floorDivide(decimalExponent(value), 3), 1);
+  double mantissa = value / powerOfTen(thousands * 3);
   if (mantissa >= 1000.0) {
     ++thousands;
     mantissa /= 1000.0;

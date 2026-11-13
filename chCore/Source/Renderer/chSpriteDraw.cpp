@@ -17,6 +17,7 @@
 #include "chRenderSettings.h"
 #include "chTextLayout.h"
 #include "chTextureAsset.h"
+#include "chUnicode.h"
 
 namespace chEngineSDK {
 
@@ -43,7 +44,7 @@ scaleHighHalf(uint32 packed, float factor)
 void
 SpriteDraw::quad(const SpriteQuad& quad)
 {
-  if (!hasRoom()) {
+  if (!hasRoom(m_sprites.size(), 1)) {
     return;
   }
 
@@ -84,7 +85,7 @@ SpriteDraw::instance(const GpuSpriteInstance& instance,
                      int16 order,
                      SpriteBlendMode blendMode)
 {
-  if (!hasRoom()) {
+  if (!hasRoom(m_sprites.size(), 1)) {
     return;
   }
   m_sprites.push_back({.instance = instance,
@@ -102,7 +103,7 @@ SpriteDraw::text(Font& font, const TextLayout& layout, const TextDrawDesc& desc)
 {
   // A text is drawn whole or not at all, so a full list never shows half a word.
   const SIZE_T passes = 1 + (desc.outlineWidth > 0.0f ? 1 : 0) + (desc.shadowColor.a > 0.0f ? 1 : 0);
-  if (!hasRoom(layout.getGlyphs().size() * passes)) {
+  if (!hasRoom(m_sprites.size(), layout.getGlyphs().size() * passes)) {
     return;
   }
   appendTextSprites(font, layout, desc, m_sprites);
@@ -203,8 +204,159 @@ SpriteDraw::appendTextSprites(Font& font,
 /*
  */
 void
+SpriteDraw::glyphRun(Font& font, StringView text, const GlyphRunDesc& desc)
+{
+  GlyphRunItem fill;
+  if (!makeGlyphRun(font, text, desc, fill)) {
+    return;
+  }
+  const bool bSdf = font.getSettings().mode == FontRenderMode::Sdf;
+  const uint32 outlineEdge =
+      bSdf ? static_cast<uint32>(Math::clamp(desc.outlineWidth * 128.0f /
+                                                 static_cast<float>(font.getSettings().sdfSpread),
+                                             0.0f,
+                                             static_cast<float>(GpuSpriteInstance::EDGE_MASK)) +
+                                 0.5f)
+           : 0u;
+  const bool bOutline = outlineEdge > 0 && desc.outlineColor.a > 0.0f;
+  const bool bShadow = desc.shadowColor.a > 0.0f;
+  if (!hasRoom(m_glyphRuns.size(), 1 + (bOutline ? 1 : 0) + (bShadow ? 1 : 0))) {
+    return;
+  }
+
+  const uint32 edgeFlags =
+      (fill.run.textureAndFlags &
+       ~(GpuSpriteInstance::EDGE_MASK << GpuSpriteInstance::EDGE_SHIFT)) |
+      (outlineEdge << GpuSpriteInstance::EDGE_SHIFT);
+  // Same layer, order and depth, so the stable sort keeps them in this order.
+  if (bShadow) {
+    GlyphRunItem& shadow = m_glyphRuns.emplace_back(fill);
+    shadow.run.position += Vector3(0.0f, desc.shadowOffset.x, desc.shadowOffset.y);
+    shadow.run.textureAndFlags = bOutline ? edgeFlags : fill.run.textureAndFlags;
+    packColor(desc.shadowColor, shadow.run.colorRG, shadow.run.colorBA);
+    shadow.radius += Math::abs(desc.shadowOffset.x) + Math::abs(desc.shadowOffset.y);
+  }
+  if (bOutline) {
+    GlyphRunItem& outline = m_glyphRuns.emplace_back(fill);
+    outline.run.textureAndFlags = edgeFlags;
+    packColor(desc.outlineColor, outline.run.colorRG, outline.run.colorBA);
+  }
+  m_glyphRuns.push_back(fill);
+}
+
+/*
+ */
+void
+SpriteDraw::glyphRun(const GlyphRunItem& item)
+{
+  if (hasRoom(m_glyphRuns.size(), 1)) {
+    m_glyphRuns.push_back(item);
+  }
+}
+
+/*
+ */
+void
+SpriteDraw::glyphRunBatch(const GlyphRunBatch& batch)
+{
+  m_glyphRunBatches.push_back(batch);
+}
+
+/*
+ */
+bool
+SpriteDraw::makeGlyphRun(Font& font,
+                         StringView text,
+                         const GlyphRunDesc& desc,
+                         GlyphRunItem& outItem)
+{
+  const float height = font.isValid() ? font.getHeight() : 0.0f;
+  if (height <= 0.0f) {
+    return false;
+  }
+  const float inverseHeight = 1.0f / height;
+  const float digitAdvance =
+      desc.bMonospaceDigits ? font.getDigitAdvance() * inverseHeight : 0.0f;
+
+  GpuGlyphRun& run = outItem.run;
+  uint32 count = 0;
+  float pen = 0.0f;
+  uint32 previousSlot = Font::INVALID_SLOT;
+  bool bPreviousFixed = false;
+  SIZE_T position = 0;
+  while (position < text.size() && count < GpuGlyphRun::MAX_GLYPHS) {
+    const WCHAR32 character = UTF8::decodeNext(text, position);
+    if (character == '\n' || character == '\r') {
+      continue;
+    }
+    uint32 slot = font.findGlyph(character);
+    if (slot > 0xFFFFu) {
+      slot = font.findGlyph('?');
+    }
+    const float advance = font.getGlyph(slot).advance * inverseHeight;
+    const bool bFixedDigit = desc.bMonospaceDigits && character >= '0' && character <= '9';
+    // A fixed cell keeps its width, so it never kerns with its neighbors.
+    if (!bFixedDigit && !bPreviousFixed && previousSlot != Font::INVALID_SLOT) {
+      pen += font.getKerning(previousSlot, slot) * inverseHeight;
+    }
+    const float glyphPen = bFixedDigit ? pen + (digitAdvance - advance) * 0.5f : pen;
+    run.glyphs[count] = static_cast<uint16>(slot);
+    run.pens[count] = static_cast<uint16>(
+        Math::clamp(glyphPen * GpuGlyphRun::PEN_SCALE + 0.5f, 0.0f, 65535.0f));
+    ++count;
+    pen += bFixedDigit ? digitAdvance : advance;
+    previousSlot = slot;
+    bPreviousFixed = bFixedDigit;
+  }
+  if (count == 0) {
+    return false;
+  }
+  for (uint32 i = count; i < GpuGlyphRun::MAX_GLYPHS; ++i) {
+    run.glyphs[i] = 0;
+    run.pens[i] = 0;
+  }
+
+  // After the glyphs were found, so the atlas and the table hold every one of them.
+  const bool bSdf = font.getSettings().mode == FontRenderMode::Sdf;
+  run.textureAndFlags = GpuSpriteInstance::makeTextureFlags(
+      font.prepareGpuAtlas(),
+      !bSdf,
+      bSdf ? SpriteTextureMode::Sdf : SpriteTextureMode::Coverage);
+  run.glyphTableIndex = font.prepareGpuGlyphTable();
+
+  float sine = 0.0f;
+  float cosine = 1.0f;
+  Math::sinCos(desc.rotation.valueRadian(), sine, cosine);
+  const float descent = font.getDescent() * inverseHeight;
+  const float ascent = font.getAscent() * inverseHeight;
+  run.position = Vector3(desc.depth, desc.position.x, desc.position.y);
+  run.size = desc.size;
+  run.offset[0] = -desc.pivot.x * pen;
+  run.offset[1] = -descent - desc.pivot.y;
+  run.rotation = packHalves(cosine, sine);
+  packColor(desc.color, run.colorRG, run.colorBA);
+  run.glyphCount = count;
+  for (uint32& value : run.userData) {
+    value = 0;
+  }
+
+  const float extentX = Math::max(Math::abs(run.offset[0]), Math::abs(run.offset[0] + pen));
+  const float extentY =
+      Math::max(Math::abs(run.offset[1] + descent), Math::abs(run.offset[1] + ascent));
+  outItem.radius = Math::sqrt(extentX * extentX + extentY * extentY) * Math::abs(desc.size);
+  outItem.sortingLayer = desc.sortingLayer;
+  outItem.order = desc.order;
+  outItem.blendMode = desc.blendMode;
+  return true;
+}
+
+/*
+ */
+void
 SpriteDraw::clear() noexcept
 {
+  m_glyphRuns.clear();
+  m_glyphRunBatches.clear();
   m_sprites.clear();
   m_bWarnedFull = false;
 }
@@ -267,10 +419,10 @@ SpriteDraw::packColor(const LinearColor& color, uint32& outRG, uint32& outBA)
 /*
  */
 bool
-SpriteDraw::hasRoom(SIZE_T count)
+SpriteDraw::hasRoom(SIZE_T used, SIZE_T count)
 {
   const SIZE_T maxSprites = static_cast<SIZE_T>(Math::max(g_cvarSpriteDrawMax.get(), 1));
-  if (m_sprites.size() + count <= maxSprites) {
+  if (used + count <= maxSprites) {
     return true;
   }
   if (!m_bWarnedFull) {

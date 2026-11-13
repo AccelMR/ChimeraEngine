@@ -34,19 +34,56 @@ struct SpritePushConstants
   uint32 linearSamplerIndex;
 };
 
+// Must match PushConstants in glyphrun.hlsl.
+struct GlyphRunPushConstants
+{
+  Matrix4 viewProjection;
+  uint32 runBufferIndex;
+  uint32 firstRun;
+  uint32 pointSamplerIndex;
+  uint32 linearSamplerIndex;
+  // A GpuOnly buffer is bound as writable storage, the frame's own buffer as read only.
+  uint32 bWritableBuffer;
+};
+
 // A few thousand sprites, so small scenes never make the buffer again.
 constexpr uint32 kInitialInstanceCapacity = 4096;
 
+constexpr uint32 kInitialGlyphRunCapacity = 1024;
+
 // Two triangles of a quad, made in the vertex shader from the vertex index.
 constexpr uint32 kVerticesPerSprite = 6;
+constexpr uint32 kVerticesPerGlyphRun = kVerticesPerSprite * GpuGlyphRun::MAX_GLYPHS;
 
 NODISCARD SPtr<IBuffer>
-createInstanceBuffer(uint32 capacity)
+createInstanceBuffer(SIZE_T bytes)
 {
-  return IGraphicsAPI::instance().createBuffer(
-      {.size = static_cast<uint32>(capacity * sizeof(GpuSpriteInstance)),
-       .usage = BufferUsage::StorageBuffer,
-       .memoryUsage = MemoryUsage::CpuToGpu});
+  return IGraphicsAPI::instance().createBuffer({.size = static_cast<uint32>(bytes),
+                                                .usage = BufferUsage::StorageBuffer,
+                                                .memoryUsage = MemoryUsage::CpuToGpu});
+}
+
+/**
+ * Copies data into the frame slot's buffer, made bigger when it does not fit, and gives
+ * the buffer (null for no data).
+ */
+template<typename T>
+NODISCARD const IBuffer*
+uploadToFrameBuffer(Span<const T> data,
+                    uint32 initialCapacity,
+                    SPtr<IBuffer>& buffer,
+                    uint32& capacity)
+{
+  const uint32 count = static_cast<uint32>(data.size());
+  if (count == 0) {
+    return nullptr;
+  }
+  if (count > capacity) {
+    capacity = Math::max(count, Math::max(capacity * 2, initialCapacity));
+    buffer = createInstanceBuffer(static_cast<SIZE_T>(capacity) * sizeof(T));
+  }
+  buffer->update(data.data(), data.size_bytes());
+  return buffer.get();
 }
 
 NODISCARD SPtr<ISampler>
@@ -70,6 +107,8 @@ SpritePass::SpritePass()
   IGraphicsAPI& graphicsAPI = IGraphicsAPI::instance();
   m_vertexShader = graphicsAPI.loadShader(ShaderStage::Vertex, "sprite");
   m_fragmentShader = graphicsAPI.loadShader(ShaderStage::Fragment, "sprite");
+  m_glyphVertexShader = graphicsAPI.loadShader(ShaderStage::Vertex, "glyphrun");
+  m_glyphFragmentShader = graphicsAPI.loadShader(ShaderStage::Fragment, "glyphrun");
   m_pointSampler = createSampler(SamplerFilter::Nearest, SamplerMipmapMode::Nearest);
   m_linearSampler = createSampler(SamplerFilter::Linear, SamplerMipmapMode::Linear);
 }
@@ -84,50 +123,72 @@ void
 SpritePass::addPass(RenderGraph& graph,
                     const Camera& camera,
                     Span<const SpriteItem> sprites,
+                    Span<const GlyphRunItem> glyphRuns,
+                    Span<const GlyphRunBatch> glyphRunBatches,
                     const LinearColor& clearColor,
                     RGTextureHandle output)
 {
   m_batcher.build(sprites,
                   camera.getFrustum(),
-                  g_cvarSpriteYSort.get() ? camera.getUpVector() : camera.getForwardVector());
-  const Span<const GpuSpriteInstance> instances = m_batcher.getInstances();
-  const uint32 count = static_cast<uint32>(instances.size());
+                  g_cvarSpriteYSort.get() ? camera.getUpVector() : camera.getForwardVector(),
+                  glyphRuns,
+                  glyphRunBatches);
 
-  const IBuffer* buffer = nullptr;
-  if (count > 0) {
-    const uint32 frameIndex = IGraphicsAPI::instance().getFrameIndex();
-    uint32& capacity = m_capacities[frameIndex];
-    if (count > capacity) {
-      capacity = Math::max(count, Math::max(capacity * 2, kInitialInstanceCapacity));
-      m_instanceBuffers[frameIndex] = createInstanceBuffer(capacity);
-    }
-    m_instanceBuffers[frameIndex]->update(instances.data(), instances.size_bytes());
-    buffer = m_instanceBuffers[frameIndex].get();
-  }
+  const uint32 frameIndex = IGraphicsAPI::instance().getFrameIndex();
+  const IBuffer* instanceBuffer = uploadToFrameBuffer(m_batcher.getInstances(),
+                                                      kInitialInstanceCapacity,
+                                                      m_instanceBuffers[frameIndex],
+                                                      m_capacities[frameIndex]);
+  const IBuffer* glyphRunBuffer = uploadToFrameBuffer(m_batcher.getGlyphRuns(),
+                                                      kInitialGlyphRunCapacity,
+                                                      m_glyphRunBuffers[frameIndex],
+                                                      m_glyphRunCapacities[frameIndex]);
 
   const Format colorFormat = graph.getTextureDesc(output).format;
-  Array<const IPipeline*, static_cast<SIZE_T>(SpriteBlendMode::COUNT)> pipelines{};
-  for (uint32 mode = 0; mode < pipelines.size(); ++mode) {
-    pipelines[mode] = &getPipeline(static_cast<SpriteBlendMode>(mode), colorFormat);
+  constexpr uint32 kBlendModes = static_cast<uint32>(SpriteBlendMode::COUNT);
+  Array<const IPipeline*, kBlendModes * 2> pipelines{};
+  for (uint32 mode = 0; mode < kBlendModes; ++mode) {
+    pipelines[mode] = &getPipeline(static_cast<SpriteBlendMode>(mode), false, colorFormat);
+    pipelines[mode + kBlendModes] =
+        &getPipeline(static_cast<SpriteBlendMode>(mode), true, colorFormat);
   }
-  const SpritePushConstants pushConstants{
+  const SpritePushConstants spriteConstants{
       .viewProjection = camera.getViewProjectionMatrix(),
-      .instanceBufferIndex = buffer ? buffer->getBindlessIndex() : 0,
+      .instanceBufferIndex = instanceBuffer ? instanceBuffer->getBindlessIndex() : 0,
       .firstInstance = 0,
       .pointSamplerIndex = m_pointSampler->getBindlessIndex(),
       .linearSamplerIndex = m_linearSampler->getBindlessIndex()};
+  const uint32 glyphRunBufferIndex = glyphRunBuffer ? glyphRunBuffer->getBindlessIndex() : 0;
 
   graph.addPass("Sprites")
       .setOptional()
       .writeColor(output, LoadOp::Clear, clearColor)
-      .setExecute([this, pipelines, pushConstants](RenderPassContext& context) {
+      .setExecute([this, pipelines, spriteConstants, glyphRunBufferIndex](
+                      RenderPassContext& context) {
         ICommandList& commandList = context.getCommandList();
-        SpritePushConstants constants = pushConstants;
+        SpritePushConstants sprite = spriteConstants;
+        GlyphRunPushConstants glyph{.viewProjection = spriteConstants.viewProjection,
+                                    .runBufferIndex = glyphRunBufferIndex,
+                                    .firstRun = 0,
+                                    .pointSamplerIndex = spriteConstants.pointSamplerIndex,
+                                    .linearSamplerIndex = spriteConstants.linearSamplerIndex,
+                                    .bWritableBuffer = 0};
         for (const SpriteRun& run : m_batcher.getRuns()) {
-          constants.firstInstance = run.firstInstance;
-          commandList.bindPipeline(*pipelines[static_cast<uint32>(run.blendMode)]);
-          commandList.pushConstants(&constants, sizeof(constants));
-          commandList.draw(kVerticesPerSprite, run.instanceCount);
+          const uint32 blend = static_cast<uint32>(run.blendMode);
+          if (run.kind == SpriteRunKind::Sprites) {
+            sprite.firstInstance = run.firstInstance;
+            commandList.bindPipeline(*pipelines[blend]);
+            commandList.pushConstants(&sprite, sizeof(sprite));
+            commandList.draw(kVerticesPerSprite, run.instanceCount);
+            continue;
+          }
+          const bool bBatch = run.kind == SpriteRunKind::GlyphRunBatch;
+          glyph.runBufferIndex = bBatch ? run.bufferIndex : glyphRunBufferIndex;
+          glyph.bWritableBuffer = bBatch ? 1u : 0u;
+          glyph.firstRun = run.firstInstance;
+          commandList.bindPipeline(*pipelines[blend + kBlendModes]);
+          commandList.pushConstants(&glyph, sizeof(glyph));
+          commandList.draw(kVerticesPerGlyphRun, run.instanceCount);
         }
       });
 }
@@ -135,22 +196,25 @@ SpritePass::addPass(RenderGraph& graph,
 /*
  */
 const IPipeline&
-SpritePass::getPipeline(SpriteBlendMode blendMode, Format colorFormat)
+SpritePass::getPipeline(SpriteBlendMode blendMode, bool bGlyphRuns, Format colorFormat)
 {
   if (colorFormat != m_pipelineFormat) {
     m_pipelines.fill(nullptr);
     m_pipelineFormat = colorFormat;
   }
-  const IPipeline*& pipeline = m_pipelines[static_cast<uint32>(blendMode)];
+  const uint32 slot = static_cast<uint32>(blendMode) +
+                      (bGlyphRuns ? static_cast<uint32>(SpriteBlendMode::COUNT) : 0u);
+  const IPipeline*& pipeline = m_pipelines[slot];
   if (pipeline != nullptr) {
     return *pipeline;
   }
 
-  GraphicsPipelineDesc pipelineDesc{.vertexShader = m_vertexShader,
-                                    .fragmentShader = m_fragmentShader,
-                                    .raster = {.cullMode = CullMode::None},
-                                    .depth = {.testEnable = false, .writeEnable = false},
-                                    .colorAttachmentCount = 1};
+  GraphicsPipelineDesc pipelineDesc{
+      .vertexShader = bGlyphRuns ? m_glyphVertexShader : m_vertexShader,
+      .fragmentShader = bGlyphRuns ? m_glyphFragmentShader : m_fragmentShader,
+      .raster = {.cullMode = CullMode::None},
+      .depth = {.testEnable = false, .writeEnable = false},
+      .colorAttachmentCount = 1};
   pipelineDesc.colorFormats[0] = colorFormat;
   BlendAttachmentState& blend = pipelineDesc.blendStates[0];
   blend.enable = true;

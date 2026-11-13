@@ -46,6 +46,8 @@ class CH_CORE_EXPORT SpritePass
   addPass(RenderGraph& graph,
           const Camera& camera,
           Span<const SpriteItem> sprites,
+          Span<const GlyphRunItem> glyphRuns,
+          Span<const GlyphRunBatch> glyphRunBatches,
           const LinearColor& clearColor,
           RGTextureHandle output);
 
@@ -58,21 +60,35 @@ class CH_CORE_EXPORT SpritePass
     return static_cast<uint32>(m_batcher.getInstances().size());
   }
 
+  /**
+   * Glyph runs drawn by the last addPass, batches not counted.
+   */
+  NODISCARD FORCEINLINE uint32
+  getLastGlyphRunCount() const noexcept
+  {
+    return static_cast<uint32>(m_batcher.getGlyphRuns().size());
+  }
+
  private:
   NODISCARD const IPipeline&
-  getPipeline(SpriteBlendMode blendMode, Format colorFormat);
+  getPipeline(SpriteBlendMode blendMode, bool bGlyphRuns, Format colorFormat);
 
   SPtr<IShader> m_vertexShader;
   SPtr<IShader> m_fragmentShader;
+  SPtr<IShader> m_glyphVertexShader;
+  SPtr<IShader> m_glyphFragmentShader;
   SPtr<ISampler> m_pointSampler;
   SPtr<ISampler> m_linearSampler;
   PipelineCache m_pipelineCache;
-  Array<const IPipeline*, static_cast<SIZE_T>(SpriteBlendMode::COUNT)> m_pipelines{};
+  // Sprites first, then glyph runs, per blend mode.
+  Array<const IPipeline*, static_cast<SIZE_T>(SpriteBlendMode::COUNT) * 2> m_pipelines{};
   Format m_pipelineFormat = Format::Unknown;
   SpriteBatcher m_batcher;
   Array<SPtr<IBuffer>, GraphicsLimits::MAX_FRAMES_IN_FLIGHT> m_instanceBuffers;
   // In instances.
   Array<uint32, GraphicsLimits::MAX_FRAMES_IN_FLIGHT> m_capacities{};
+  Array<SPtr<IBuffer>, GraphicsLimits::MAX_FRAMES_IN_FLIGHT> m_glyphRunBuffers;
+  Array<uint32, GraphicsLimits::MAX_FRAMES_IN_FLIGHT> m_glyphRunCapacities{};
 };
 
 } // namespace chEngineSDK

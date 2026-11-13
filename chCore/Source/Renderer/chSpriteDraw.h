@@ -75,6 +75,35 @@ struct TextDrawDesc
 };
 
 /**
+ * A short text drawn as one GpuGlyphRun (plus one for the outline and one for the shadow),
+ * in the YZ plane like SpriteQuad.
+ */
+struct GlyphRunDesc
+{
+  // Y and Z of the pivot.
+  Vector2 position = Vector2::ZERO;
+  // World X.
+  float depth = 0.0f;
+  // Counterclockwise on screen, around the pivot.
+  Radian rotation = Radian(0.0f);
+  // Height of the font from its lowest to its highest point, in world units.
+  float size = 1.0f;
+  // Point of the run that stands at position: (0, 0) bottom left, (1, 1) top right.
+  Vector2 pivot{0.5f, 0.5f};
+  LinearColor color = LinearColor::WHITE;
+  // Every digit takes the width of the widest, so numbers that change do not move.
+  bool bMonospaceDigits = false;
+  int16 sortingLayer = 0;
+  int16 order = 0;
+  SpriteBlendMode blendMode = SpriteBlendMode::Alpha;
+  // As in TextDrawDesc.
+  float outlineWidth = 0.0f;
+  LinearColor outlineColor = LinearColor::BLACK;
+  LinearColor shadowColor = LinearColor::TRANSPARENT_BLACK;
+  Vector2 shadowOffset{0.05f, -0.05f};
+};
+
+/**
  * Exists so systems that draw many short-lived images (bullets, particles, effects) need no
  * GameObject per image: they add sprites every frame and the renderer sorts them with the
  * sprite components, by layer and order. Each Scene has one, cleared when the scene
@@ -122,6 +151,46 @@ class CH_CORE_EXPORT SpriteDraw
                     Vector<SpriteItem>& outSprites);
 
   /**
+   * The first GpuGlyphRun::MAX_GLYPHS characters of text as one glyph run (line breaks are
+   * skipped, there are no color tags), plus the outline and shadow runs behind it. Meant for
+   * numbers and labels that change every frame: no layout object, one instance per run.
+   */
+  void
+  glyphRun(Font& font, StringView text, const GlyphRunDesc& desc);
+
+  /**
+   * A run built by makeGlyphRun, or by hand.
+   */
+  void
+  glyphRun(const GlyphRunItem& item);
+
+  /**
+   * Runs kept in a GPU buffer by their owner, drawn as they are.
+   */
+  void
+  glyphRunBatch(const GlyphRunBatch& batch);
+
+  /**
+   * Fills outItem with the fill run of text, without its outline or shadow. False when the
+   * font cannot be read or text has no characters. Draws new glyphs into the font and
+   * uploads its atlas and glyph table, so main thread only.
+   */
+  NODISCARD static bool
+  makeGlyphRun(Font& font, StringView text, const GlyphRunDesc& desc, GlyphRunItem& outItem);
+
+  NODISCARD FORCEINLINE Span<const GlyphRunItem>
+  getGlyphRuns() const noexcept
+  {
+    return m_glyphRuns;
+  }
+
+  NODISCARD FORCEINLINE Span<const GlyphRunBatch>
+  getGlyphRunBatches() const noexcept
+  {
+    return m_glyphRunBatches;
+  }
+
+  /**
    * Forgets every sprite but keeps the memory.
    */
   void
@@ -159,9 +228,11 @@ class CH_CORE_EXPORT SpriteDraw
 
  private:
   NODISCARD bool
-  hasRoom(SIZE_T count = 1);
+  hasRoom(SIZE_T used, SIZE_T count);
 
   Vector<SpriteItem> m_sprites;
+  Vector<GlyphRunItem> m_glyphRuns;
+  Vector<GlyphRunBatch> m_glyphRunBatches;
   bool m_bWarnedFull = false;
 };
 

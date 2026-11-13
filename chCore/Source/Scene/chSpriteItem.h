@@ -98,6 +98,74 @@ struct GpuSpriteInstance
 static_assert(sizeof(GpuSpriteInstance) == 64, "GpuSpriteInstance must match sprite.hlsl");
 
 /**
+ * Exists so short texts (numbers above all) cost one instance instead of one per glyph:
+ * glyphrun.hlsl draws up to MAX_GLYPHS quads from it, reading each glyph's image from the
+ * font's glyph table (Font::prepareGpuGlyphTable). Pen positions are computed on the CPU,
+ * kerning and fixed digits included, so the shader has no loop. 128 bytes; must match
+ * glyphrun.hlsl.
+ */
+struct GpuGlyphRun
+{
+  static constexpr uint32 MAX_GLYPHS = 16;
+  static constexpr uint32 COUNT_MASK = 0x1Fu;
+  // Pens are stored in 1/PEN_SCALE of the font's height, so a run reaches 64 heights.
+  static constexpr float PEN_SCALE = 1024.0f;
+
+  // World position of the run's pivot.
+  Vector3 position;
+  // Bindless index of the font's glyph table.
+  uint32 glyphTableIndex;
+  // The atlas, as GpuSpriteInstance::textureAndFlags.
+  uint32 textureAndFlags;
+  // Height of the font from its lowest to its highest point, in world units.
+  float size;
+  // From the pivot to the first pen on the baseline, in font heights.
+  float offset[2];
+  // Cosine and sine of the rotation, as halves.
+  uint32 rotation;
+  uint32 colorRG;
+  uint32 colorBA;
+  // Glyphs in the run, at most MAX_GLYPHS.
+  uint32 glyphCount;
+  // Free for systems that move runs in a shader of their own (start time, velocity...).
+  uint32 userData[4];
+  // Slots of the font's glyphs.
+  uint16 glyphs[MAX_GLYPHS];
+  // Pen of each glyph from the first one, in 1/PEN_SCALE of the font's height.
+  uint16 pens[MAX_GLYPHS];
+};
+static_assert(sizeof(GpuGlyphRun) == 128, "GpuGlyphRun must match glyphrun.hlsl");
+
+/**
+ * A glyph run as the renderer sorts it with the sprites.
+ */
+struct GlyphRunItem
+{
+  GpuGlyphRun run{};
+  // Distance from the position that holds every glyph, for culling.
+  float radius = 0.0f;
+  int16 sortingLayer = 0;
+  int16 order = 0;
+  SpriteBlendMode blendMode = SpriteBlendMode::Alpha;
+};
+
+/**
+ * Glyph runs that live in a GPU buffer of their owner, drawn as they are without being
+ * copied or culled: for systems that keep thousands of runs and only write the new ones.
+ * It sorts with the sprites at depth 0 of its layer and order.
+ */
+struct GlyphRunBatch
+{
+  // Bindless index of a storage buffer of GpuGlyphRun.
+  uint32 bufferIndex = 0;
+  uint32 firstRun = 0;
+  uint32 runCount = 0;
+  int16 sortingLayer = 0;
+  int16 order = 0;
+  SpriteBlendMode blendMode = SpriteBlendMode::Alpha;
+};
+
+/**
  * Exists so the renderer reads sprites from a flat array instead of walking GameObjects and
  * components. Sprite components add one to their Scene and keep it up to date.
  */

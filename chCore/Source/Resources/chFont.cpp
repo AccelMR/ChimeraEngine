@@ -10,6 +10,7 @@
 #include "chFont.h"
 
 #include "chFileSystem.h"
+#include "chIBuffer.h"
 #include "chIGraphicsAPI.h"
 #include "chITexture.h"
 #include "chLogger.h"
@@ -34,6 +35,8 @@ constexpr WCHAR32 kAsciiEnd = 0x7F;
 constexpr WCHAR32 kLatin1First = 0xA0;
 // stb writes the edge of an SDF glyph at this value.
 constexpr uint8 kSdfEdgeValue = 128;
+// Most fonts fit, so the table is rarely made again.
+constexpr uint32 kInitialGlyphTableCapacity = 512;
 constexpr StringView kDefaultFontPath = "/Engine/Fonts/Inter-Regular.ttf";
 
 NODISCARD uint64
@@ -270,10 +273,55 @@ Font::prepareGpuAtlas()
 
 /*
  */
+uint32
+Font::prepareGpuGlyphTable()
+{
+  if (!m_impl || !IGraphicsAPI::isStarted()) {
+    return 0;
+  }
+  rebuildGpuGlyphs();
+  const uint32 count = static_cast<uint32>(m_gpuGlyphs.size());
+  if (m_glyphTable && count == m_glyphTableCount && m_revision == m_glyphTableRevision) {
+    return m_glyphTable->getBindlessIndex();
+  }
+
+  uint32 firstToUpload = m_revision == m_glyphTableRevision ? m_glyphTableCount : 0;
+  if (count > m_glyphTableCapacity || !m_glyphTable) {
+    m_glyphTableCapacity =
+        Math::max(count, Math::max(m_glyphTableCapacity * 2, kInitialGlyphTableCapacity));
+    m_glyphTable = IGraphicsAPI::instance().createBuffer(
+        {.size = static_cast<uint32>(m_glyphTableCapacity * sizeof(GpuGlyph)),
+         .usage = BufferUsage::StorageBuffer,
+         .memoryUsage = MemoryUsage::GpuOnly});
+    firstToUpload = 0;
+  }
+  if (count > firstToUpload) {
+    m_glyphTable->update(m_gpuGlyphs.data() + firstToUpload,
+                         (count - firstToUpload) * sizeof(GpuGlyph),
+                         static_cast<uint32>(firstToUpload * sizeof(GpuGlyph)));
+  }
+  m_glyphTableCount = count;
+  m_glyphTableRevision = m_revision;
+  return m_glyphTable->getBindlessIndex();
+}
+
+/*
+ */
+Span<const GpuGlyph>
+Font::getGpuGlyphs()
+{
+  rebuildGpuGlyphs();
+  return m_gpuGlyphs;
+}
+
+/*
+ */
 void
 Font::releaseGpuData()
 {
   m_atlasTexture.reset();
+  m_glyphTable.reset();
+  m_glyphTableCapacity = 0;
   m_bGpuSizeChanged = true;
 }
 
@@ -463,6 +511,43 @@ Font::growAtlas()
   m_bGpuSizeChanged = true;
   ++m_revision;
   return true;
+}
+
+/*
+ */
+void
+Font::rebuildGpuGlyphs()
+{
+  // Texture coordinates depend on the atlas size, so a new revision computes them all.
+  SIZE_T first = m_gpuGlyphs.size();
+  if (m_gpuGlyphsRevision != m_revision) {
+    m_gpuGlyphs.clear();
+    first = 0;
+  }
+  if (first == m_glyphs.size()) {
+    m_gpuGlyphsRevision = m_revision;
+    return;
+  }
+  const float inverseWidth = 1.0f / static_cast<float>(m_atlasWidth);
+  const float inverseHeight = 1.0f / static_cast<float>(m_atlasHeight);
+  const float height = getHeight();
+  const float inverseFontHeight = height > 0.0f ? 1.0f / height : 0.0f;
+  m_gpuGlyphs.resize(m_glyphs.size());
+  for (SIZE_T slot = first; slot < m_glyphs.size(); ++slot) {
+    const FontGlyph& glyph = m_glyphs[slot];
+    GpuGlyph& gpu = m_gpuGlyphs[slot];
+    const float width = static_cast<float>(glyph.width);
+    const float glyphHeight = static_cast<float>(glyph.height);
+    gpu.uvRect[0] = static_cast<float>(glyph.atlasX) * inverseWidth;
+    gpu.uvRect[1] = static_cast<float>(glyph.atlasY) * inverseHeight;
+    gpu.uvRect[2] = width * inverseWidth;
+    gpu.uvRect[3] = glyphHeight * inverseHeight;
+    gpu.box[0] = glyph.offsetX * inverseFontHeight;
+    gpu.box[1] = (glyph.offsetY - glyphHeight) * inverseFontHeight;
+    gpu.box[2] = width * inverseFontHeight;
+    gpu.box[3] = glyphHeight * inverseFontHeight;
+  }
+  m_gpuGlyphsRevision = m_revision;
 }
 
 /*

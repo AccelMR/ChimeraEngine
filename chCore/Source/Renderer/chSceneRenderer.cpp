@@ -226,8 +226,13 @@ SceneRenderer::addSpritePasses(const RenderView& view, RGTextureHandle output)
   const RGTextureHandle sceneColor = m_graph.createTexture(
       "SceneColor",
       {.format = kSceneColorFormat, .width = outputDesc.width, .height = outputDesc.height});
-  m_spritePass->addPass(
-      m_graph, view.camera, m_frame.getSprites(), view.clearColor, sceneColor);
+  m_spritePass->addPass(m_graph,
+                        view.camera,
+                        m_frame.getSprites(),
+                        m_frame.getGlyphRuns(),
+                        m_frame.getGlyphRunBatches(),
+                        view.clearColor,
+                        sceneColor);
   m_visibleSprites = m_spritePass->getLastInstanceCount();
   m_tonemapPass->addPass(m_graph, sceneColor, output, true);
   return {};

@@ -21,6 +21,12 @@ namespace {
 constexpr uint32 kRadixBits = 8;
 constexpr uint32 kRadixBuckets = 1u << kRadixBits;
 constexpr uint32 kKeyBytes = sizeof(uint64);
+// What an entry points at is kept in the top bits of its index.
+constexpr uint32 kKindShift = 30;
+constexpr uint32 kIndexMask = (1u << kKindShift) - 1;
+constexpr uint32 kSpriteKind = 0;
+constexpr uint32 kGlyphRunKind = 1;
+constexpr uint32 kBatchKind = 2;
 
 /*
  * Unsigned numbers in the same order as the floats, negative ones included.
@@ -53,11 +59,14 @@ SpriteBatcher::makeSortKey(int16 sortingLayer, int16 order, float depth) noexcep
 void
 SpriteBatcher::build(Span<const SpriteItem> sprites,
                      const Frustum& frustum,
-                     const Vector3& depthAxis)
+                     const Vector3& depthAxis,
+                     Span<const GlyphRunItem> glyphRuns,
+                     Span<const GlyphRunBatch> batches)
 {
   CH_PROFILE_SCOPE("BatchSprites");
   m_entries.clear();
   m_instances.clear();
+  m_glyphRuns.clear();
   m_runs.clear();
 
   for (SIZE_T i = 0; i < sprites.size(); ++i) {
@@ -69,6 +78,22 @@ SpriteBatcher::build(Span<const SpriteItem> sprites,
         {.key = makeSortKey(sprite.sortingLayer, sprite.order,
                             sprite.instance.center.dot(depthAxis)),
          .sprite = static_cast<uint32>(i)});
+  }
+  for (SIZE_T i = 0; i < glyphRuns.size(); ++i) {
+    const GlyphRunItem& item = glyphRuns[i];
+    if (!ShapeOverlap::frustumSphere(frustum, Sphere(item.run.position, item.radius))) {
+      continue;
+    }
+    m_entries.push_back(
+        {.key = makeSortKey(item.sortingLayer, item.order, item.run.position.dot(depthAxis)),
+         .sprite = static_cast<uint32>(i) | (kGlyphRunKind << kKindShift)});
+  }
+  for (SIZE_T i = 0; i < batches.size(); ++i) {
+    if (batches[i].runCount == 0) {
+      continue;
+    }
+    m_entries.push_back({.key = makeSortKey(batches[i].sortingLayer, batches[i].order, 0.0f),
+                         .sprite = static_cast<uint32>(i) | (kBatchKind << kKindShift)});
   }
   const SIZE_T count = m_entries.size();
   if (count == 0) {
@@ -106,14 +131,41 @@ SpriteBatcher::build(Span<const SpriteItem> sprites,
     std::swap(source, target);
   }
 
-  m_instances.resize(count);
   for (SIZE_T i = 0; i < count; ++i) {
-    const SpriteItem& sprite = sprites[source[i].sprite];
-    m_instances[i] = sprite.instance;
-    if (m_runs.empty() || m_runs.back().blendMode != sprite.blendMode) {
-      m_runs.push_back({.blendMode = sprite.blendMode,
-                        .firstInstance = static_cast<uint32>(i),
-                        .instanceCount = 0});
+    const uint32 kind = source[i].sprite >> kKindShift;
+    const uint32 index = source[i].sprite & kIndexMask;
+    if (kind == kBatchKind) {
+      const GlyphRunBatch& batch = batches[index];
+      m_runs.push_back({.blendMode = batch.blendMode,
+                        .firstInstance = batch.firstRun,
+                        .instanceCount = batch.runCount,
+                        .kind = SpriteRunKind::GlyphRunBatch,
+                        .bufferIndex = batch.bufferIndex});
+      continue;
+    }
+
+    SpriteBlendMode blendMode;
+    SpriteRunKind runKind;
+    uint32 instance;
+    if (kind == kSpriteKind) {
+      const SpriteItem& sprite = sprites[index];
+      blendMode = sprite.blendMode;
+      runKind = SpriteRunKind::Sprites;
+      instance = static_cast<uint32>(m_instances.size());
+      m_instances.push_back(sprite.instance);
+    }
+    else {
+      const GlyphRunItem& item = glyphRuns[index];
+      blendMode = item.blendMode;
+      runKind = SpriteRunKind::GlyphRuns;
+      instance = static_cast<uint32>(m_glyphRuns.size());
+      m_glyphRuns.push_back(item.run);
+    }
+    if (m_runs.empty() || m_runs.back().blendMode != blendMode || m_runs.back().kind != runKind) {
+      m_runs.push_back({.blendMode = blendMode,
+                        .firstInstance = instance,
+                        .instanceCount = 0,
+                        .kind = runKind});
     }
     ++m_runs.back().instanceCount;
   }

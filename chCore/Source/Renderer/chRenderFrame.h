@@ -98,6 +98,21 @@ class CH_CORE_EXPORT RenderFrame
   }
 
   /**
+   * The glyph runs of the scene's SpriteDraws (update, then fixed step).
+   */
+  NODISCARD FORCEINLINE Span<const GlyphRunItem>
+  getGlyphRuns() const
+  {
+    return m_glyphRuns;
+  }
+
+  NODISCARD FORCEINLINE Span<const GlyphRunBatch>
+  getGlyphRunBatches() const
+  {
+    return m_glyphRunBatches;
+  }
+
+  /**
    * The sky light that lights the scene, null when there is none.
    */
   NODISCARD FORCEINLINE const SkyLightItem*
@@ -137,6 +152,8 @@ class CH_CORE_EXPORT RenderFrame
   Vector<Matrix4> m_skinMatrices;
   Vector<LightItem> m_lights;
   Vector<SpriteItem> m_sprites;
+  Vector<GlyphRunItem> m_glyphRuns;
+  Vector<GlyphRunBatch> m_glyphRunBatches;
   SkyLightItem m_skyLight;
   bool m_bHasSkyLight = false;
   DebugDraw m_sceneLines;

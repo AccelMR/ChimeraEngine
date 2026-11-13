@@ -71,6 +71,17 @@ RenderFrame::extract(const Scene& scene,
   m_sprites.insert(m_sprites.end(), frameSprites.begin(), frameSprites.end());
   m_sprites.insert(m_sprites.end(), fixedSprites.begin(), fixedSprites.end());
 
+  const SpriteDraw& frameDraw = scene.getSpriteDraw();
+  const SpriteDraw& fixedDraw = scene.getFixedSpriteDraw();
+  m_glyphRuns.assign(frameDraw.getGlyphRuns().begin(), frameDraw.getGlyphRuns().end());
+  m_glyphRuns.insert(
+      m_glyphRuns.end(), fixedDraw.getGlyphRuns().begin(), fixedDraw.getGlyphRuns().end());
+  m_glyphRunBatches.assign(frameDraw.getGlyphRunBatches().begin(),
+                           frameDraw.getGlyphRunBatches().end());
+  m_glyphRunBatches.insert(m_glyphRunBatches.end(),
+                           fixedDraw.getGlyphRunBatches().begin(),
+                           fixedDraw.getGlyphRunBatches().end());
+
   const SkyLightItem* skyLight = scene.getActiveSkyLight();
   m_bHasSkyLight = skyLight != nullptr;
   if (skyLight) {

@@ -52,6 +52,7 @@
 #include "chMesh.h"
 #include "chMeshGenerator.h"
 #include "chMeshSplit.h"
+#include "chNumberFormat.h"
 #include "chModel.h"
 #include "chModelAsset.h"
 #include "chModelComponent.h"
@@ -10292,4 +10293,223 @@ TEST_CASE("chCore - Font asset")
     TestFontAsset loaded(metadata);
     REQUIRE_FALSE(loaded.deserialize(half));
   }
+}
+
+TEST_CASE("chCore - Font glyph table")
+{
+  const SPtr<Font> font = makeTestFont();
+  Span<const GpuGlyph> table = font->getGpuGlyphs();
+  REQUIRE(table.size() == font->getGlyphCount());
+
+  const uint32 slot = font->findGlyph('W');
+  const FontGlyph& glyph = font->getGlyph(slot);
+  const float height = font->getHeight();
+  table = font->getGpuGlyphs();
+  const GpuGlyph& gpu = table[slot];
+  REQUIRE(gpu.uvRect[0] == Approx(static_cast<float>(glyph.atlasX) / font->getAtlasWidth()));
+  REQUIRE(gpu.uvRect[3] == Approx(static_cast<float>(glyph.height) / font->getAtlasHeight()));
+  REQUIRE(gpu.box[0] == Approx(glyph.offsetX / height));
+  REQUIRE(gpu.box[1] == Approx((glyph.offsetY - glyph.height) / height));
+  REQUIRE(gpu.box[2] == Approx(glyph.width / height));
+
+  // A new glyph is added at the end of the table.
+  const uint32 euro = font->findGlyph(0x20AC);
+  REQUIRE(font->getGpuGlyphs().size() == euro + 1);
+  // Without a graphics API there is no buffer.
+  REQUIRE(font->prepareGpuGlyphTable() == 0);
+
+  SECTION("A bigger atlas moves every texture coordinate")
+  {
+    const SPtr<Font> big =
+        makeTestFont({.rasterSize = 200, .bPreloadAscii = false, .bPreloadLatin1 = false});
+    const uint32 w = big->findGlyph('W');
+    const float uvTop = big->getGpuGlyphs()[w].uvRect[3];
+    for (WCHAR32 character = 'a'; character <= 'z'; ++character) {
+      CH_PARAMETER_UNUSED(big->findGlyph(character));
+    }
+    REQUIRE(big->getGpuGlyphs()[w].uvRect[3] < uvTop);
+    REQUIRE(big->getGpuGlyphs().size() == big->getGlyphCount());
+  }
+}
+
+TEST_CASE("chCore - Glyph runs")
+{
+  const SPtr<Font> font = makeTestFont();
+  const float height = font->getHeight();
+  GlyphRunItem item;
+
+  SECTION("Glyphs and pens")
+  {
+    REQUIRE(SpriteDraw::makeGlyphRun(*font,
+                                     "AV 1.5K",
+                                     {.position = Vector2(2.0f, 3.0f),
+                                      .depth = 1.0f,
+                                      .size = 2.0f,
+                                      .pivot = Vector2(0.0f, 0.0f),
+                                      .sortingLayer = 4},
+                                     item));
+    const GpuGlyphRun& run = item.run;
+    REQUIRE(run.glyphCount == 7);
+    REQUIRE(run.glyphs[0] == font->findGlyph('A'));
+    REQUIRE(run.glyphs[6] == font->findGlyph('K'));
+    REQUIRE(run.pens[0] == 0);
+    for (uint32 i = 1; i < run.glyphCount; ++i) {
+      REQUIRE(run.pens[i] > run.pens[i - 1]);
+    }
+    // Kerning pulls V toward A.
+    const float aAdvance = font->getGlyph(font->findGlyph('A')).advance / height;
+    REQUIRE(static_cast<float>(run.pens[1]) / GpuGlyphRun::PEN_SCALE < aAdvance);
+    REQUIRE(run.glyphs[7] == 0);
+    REQUIRE(run.position.x == Approx(1.0f));
+    REQUIRE(run.position.y == Approx(2.0f));
+    REQUIRE(run.position.z == Approx(3.0f));
+    REQUIRE(run.size == Approx(2.0f));
+    // Pivot at the bottom left: the first pen is at the left, the baseline above the descent.
+    REQUIRE(run.offset[0] == Approx(0.0f));
+    REQUIRE(run.offset[1] == Approx(-font->getDescent() / height));
+    REQUIRE((run.textureAndFlags & GpuSpriteInstance::TEXTURE_INDEX_MASK) ==
+            GpuSpriteInstance::NO_TEXTURE);
+    REQUIRE(((run.textureAndFlags >> GpuSpriteInstance::MODE_SHIFT) &
+             GpuSpriteInstance::MODE_MASK) == static_cast<uint32>(SpriteTextureMode::Sdf));
+    REQUIRE(lowHalf(run.rotation) == Approx(1.0f));
+    REQUIRE(highHalf(run.rotation) == Approx(0.0f));
+    REQUIRE(item.radius > 0.0f);
+    REQUIRE(item.sortingLayer == 4);
+  }
+
+  SECTION("Centered pivot and fixed digits")
+  {
+    REQUIRE(SpriteDraw::makeGlyphRun(*font, "1181", {.bMonospaceDigits = true}, item));
+    const float digit = font->getDigitAdvance() / height;
+    const float step = (static_cast<float>(item.run.pens[3]) - item.run.pens[2]) /
+                       GpuGlyphRun::PEN_SCALE;
+    // 8 is centered in its cell, 1 too, so from 8 to 1 is a whole cell minus the halves.
+    const float eight = font->getGlyph(font->findGlyph('8')).advance / height;
+    const float one = font->getGlyph(font->findGlyph('1')).advance / height;
+    REQUIRE(step == Approx(digit - (digit - eight) * 0.5f + (digit - one) * 0.5f).margin(2e-3f));
+    REQUIRE(item.run.offset[0] == Approx(-2.0f * digit).margin(1e-4f));
+    REQUIRE(item.run.offset[1] == Approx(-font->getDescent() / height - 0.5f));
+  }
+
+  SECTION("Limits")
+  {
+    REQUIRE_FALSE(SpriteDraw::makeGlyphRun(*font, "", {}, item));
+    REQUIRE_FALSE(SpriteDraw::makeGlyphRun(*font, "\n", {}, item));
+    REQUIRE(SpriteDraw::makeGlyphRun(*font, "A\nB", {}, item));
+    REQUIRE(item.run.glyphCount == 2);
+    REQUIRE(SpriteDraw::makeGlyphRun(*font, "0123456789abcdefghij", {}, item));
+    REQUIRE(item.run.glyphCount == GpuGlyphRun::MAX_GLYPHS);
+    REQUIRE(item.run.glyphs[15] == font->findGlyph('f'));
+  }
+
+  SECTION("Outline and shadow runs go first")
+  {
+    SpriteDraw draw;
+    draw.glyphRun(*font,
+                  "12",
+                  {.outlineWidth = 2.0f,
+                   .shadowColor = LinearColor(0.0f, 0.0f, 0.0f, 0.5f),
+                   .shadowOffset = Vector2(0.1f, -0.2f)});
+    const Span<const GlyphRunItem> runs = draw.getGlyphRuns();
+    REQUIRE(runs.size() == 3);
+    const auto edgeOf = [](const GlyphRunItem& run) {
+      return (run.run.textureAndFlags >> GpuSpriteInstance::EDGE_SHIFT) &
+             GpuSpriteInstance::EDGE_MASK;
+    };
+    REQUIRE(edgeOf(runs[0]) == 32);
+    REQUIRE(edgeOf(runs[1]) == 32);
+    REQUIRE(edgeOf(runs[2]) == 0);
+    REQUIRE(runs[0].run.position.y == Approx(runs[2].run.position.y + 0.1f));
+    REQUIRE(runs[0].run.position.z == Approx(runs[2].run.position.z - 0.2f));
+    REQUIRE(highHalf(runs[0].run.colorBA) == Approx(0.5f));
+    draw.clear();
+    REQUIRE(draw.getGlyphRuns().empty());
+  }
+
+  SECTION("They sort with the sprites")
+  {
+    const Camera camera = createSpriteTestCamera();
+
+    const auto spriteAt = [](int16 layer) {
+      SpriteItem sprite;
+      sprite.instance.center = Vector3::ZERO;
+      sprite.radius = 1.0f;
+      sprite.sortingLayer = layer;
+      sprite.bInUse = true;
+      return sprite;
+    };
+    const Vector<SpriteItem> sprites{spriteAt(0), spriteAt(2), spriteAt(1)};
+    REQUIRE(SpriteDraw::makeGlyphRun(*font, "x", {.sortingLayer = 1}, item));
+    Vector<GlyphRunItem> runs{item, item};
+    runs[1].sortingLayer = 3;
+    const Vector<GlyphRunBatch> batches{
+        {.bufferIndex = 9, .firstRun = 5, .runCount = 7, .sortingLayer = 1},
+        {.bufferIndex = 9, .firstRun = 0, .runCount = 0, .sortingLayer = 1}};
+
+    SpriteBatcher batcher;
+    batcher.build(sprites, camera.getFrustum(), camera.getForwardVector(), runs, batches);
+    const Span<const SpriteRun> order = batcher.getRuns();
+    // The sprites of layers 0 and 1 share a draw; then layer 1's glyph run and batch, the
+    // sprite of layer 2 and the run of layer 3. The empty batch is dropped.
+    REQUIRE(order.size() == 5);
+    REQUIRE(order[0].kind == SpriteRunKind::Sprites);
+    REQUIRE(order[0].instanceCount == 2);
+    REQUIRE(order[1].kind == SpriteRunKind::GlyphRuns);
+    REQUIRE(order[2].kind == SpriteRunKind::GlyphRunBatch);
+    REQUIRE(order[2].bufferIndex == 9);
+    REQUIRE(order[2].firstInstance == 5);
+    REQUIRE(order[2].instanceCount == 7);
+    REQUIRE(order[3].kind == SpriteRunKind::Sprites);
+    REQUIRE(order[3].firstInstance == 2);
+    REQUIRE(order[4].kind == SpriteRunKind::GlyphRuns);
+    REQUIRE(order[4].firstInstance == 1);
+    REQUIRE(batcher.getInstances().size() == 3);
+    REQUIRE(batcher.getGlyphRuns().size() == 2);
+
+    // A run the camera does not see is dropped.
+    runs[1].run.position = Vector3(0.0f, 500.0f, 0.0f);
+    batcher.build(sprites, camera.getFrustum(), camera.getForwardVector(), runs, {});
+    REQUIRE(batcher.getGlyphRuns().size() == 1);
+  }
+}
+
+TEST_CASE("chCore - Glyph run benchmark", "[.]")
+{
+  const SPtr<Font> font = makeTestFont();
+  constexpr uint32 kNumbers = 100000;
+  SpriteDraw draw;
+  SpriteBatcher batcher;
+  Camera camera = createSpriteTestCamera();
+  camera.setOrthographicSize(100.0f);
+
+  const int32 previousMax = g_cvarSpriteDrawMax.get();
+  g_cvarSpriteDrawMax.set(static_cast<int32>(kNumbers * 2));
+  ANSICHAR buffer[NumberFormat::MAX_CHARS];
+  double total = 0.0;
+  constexpr uint32 kFrames = 20;
+  for (uint32 frame = 0; frame < kFrames; ++frame) {
+    const auto start = std::chrono::steady_clock::now();
+    draw.clear();
+    for (uint32 i = 0; i < kNumbers; ++i) {
+      const double value = 1234.5 * (i + 1) * (frame + 1);
+      const float x = static_cast<float>(i % 400) * 0.45f - 90.0f;
+      const float y = static_cast<float>(i / 400) * 0.7f - 85.0f;
+      draw.glyphRun(*font,
+                    NumberFormat::format(buffer, value),
+                    {.position = Vector2(x, y), .size = 0.5f, .bMonospaceDigits = true});
+    }
+    batcher.build({}, camera.getFrustum(), camera.getForwardVector(), draw.getGlyphRuns(), {});
+    const auto end = std::chrono::steady_clock::now();
+    if (frame > 1) {
+      total += std::chrono::duration<double, std::milli>(end - start).count();
+    }
+  }
+  g_cvarSpriteDrawMax.set(previousMax);
+  CH_LOG_INFO(SpriteTestLog,
+              "{0} numbers formatted, built as glyph runs and sorted: {1:.3f} ms per frame, "
+              "{2} runs drawn",
+              kNumbers,
+              total / (kFrames - 2),
+              batcher.getGlyphRuns().size());
+  REQUIRE(batcher.getGlyphRuns().size() == kNumbers);
 }

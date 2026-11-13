@@ -16,6 +16,19 @@ namespace chEngineSDK {
 class Frustum;
 
 /**
+ * What one draw of a SpriteRun reads.
+ */
+enum class SpriteRunKind : uint8
+{
+  // SpriteBatcher::getInstances.
+  Sprites,
+  // SpriteBatcher::getGlyphRuns.
+  GlyphRuns,
+  // A GlyphRunBatch's own buffer.
+  GlyphRunBatch
+};
+
+/**
  * Instances next to each other that draw with the same blend mode, so one draw call.
  */
 struct SpriteRun
@@ -23,6 +36,9 @@ struct SpriteRun
   SpriteBlendMode blendMode = SpriteBlendMode::Alpha;
   uint32 firstInstance = 0;
   uint32 instanceCount = 0;
+  SpriteRunKind kind = SpriteRunKind::Sprites;
+  // GlyphRunBatch only: the bindless index of its buffer.
+  uint32 bufferIndex = 0;
 };
 
 /**
@@ -39,13 +55,22 @@ class CH_CORE_EXPORT SpriteBatcher
  public:
   /**
    * Replaces the instances and runs. depthAxis (unit) breaks ties inside an order: sprites
-   * farther along it draw first. Sprites that sort equal keep the order they come in.
+   * farther along it draw first. Sprites that sort equal keep the order they come in, with
+   * sprites before glyph runs and glyph runs before batches. Batches are not culled and
+   * sort at depth 0.
    */
   void
-  build(Span<const SpriteItem> sprites, const Frustum& frustum, const Vector3& depthAxis);
+  build(Span<const SpriteItem> sprites,
+        const Frustum& frustum,
+        const Vector3& depthAxis,
+        Span<const GlyphRunItem> glyphRuns = {},
+        Span<const GlyphRunBatch> batches = {});
 
   NODISCARD FORCEINLINE Span<const GpuSpriteInstance>
   getInstances() const noexcept { return m_instances; }
+
+  NODISCARD FORCEINLINE Span<const GpuGlyphRun>
+  getGlyphRuns() const noexcept { return m_glyphRuns; }
 
   NODISCARD FORCEINLINE Span<const SpriteRun>
   getRuns() const noexcept { return m_runs; }
@@ -67,6 +92,7 @@ class CH_CORE_EXPORT SpriteBatcher
   Vector<SortEntry> m_entries;
   Vector<SortEntry> m_scratch;
   Vector<GpuSpriteInstance> m_instances;
+  Vector<GpuGlyphRun> m_glyphRuns;
   Vector<SpriteRun> m_runs;
 };
 

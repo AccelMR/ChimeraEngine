@@ -12,6 +12,7 @@
 #include "chPrerequisitesCore.h"
 
 namespace chEngineSDK {
+class IBuffer;
 class ITexture;
 
 /**
@@ -64,6 +65,19 @@ struct FontGlyph
   // How far the pen moves after the glyph.
   float advance = 0.0f;
 };
+
+/**
+ * One glyph as glyphrun.hlsl reads it from the font's glyph table, 32 bytes. Sizes are in
+ * font heights (ascent to descent), y up from the baseline.
+ */
+struct GpuGlyph
+{
+  // Left, top, width and height of the image in the atlas, in 0..1.
+  float uvRect[4];
+  // Left and bottom edges of the image from the pen, then its width and height.
+  float box[4];
+};
+static_assert(sizeof(GpuGlyph) == 32, "GpuGlyph must match glyphrun.hlsl");
 
 /**
  * Exists so text can show any character without preparing the atlas by hand: glyphs are
@@ -123,6 +137,15 @@ class CH_CORE_EXPORT Font
   getDescent() const noexcept
   {
     return m_descent;
+  }
+
+  /**
+   * From the lowest to the highest point, the unit glyph runs and TextLayout sizes use.
+   */
+  NODISCARD FORCEINLINE float
+  getHeight() const noexcept
+  {
+    return m_ascent - m_descent;
   }
 
   /**
@@ -211,6 +234,21 @@ class CH_CORE_EXPORT Font
   }
 
   /**
+   * Sends the glyph table (one GpuGlyph per slot) to the GPU when glyphs were added or the
+   * atlas changed size, and gives the bindless index of its storage buffer, 0 without a
+   * graphics API. Main thread only. A table made bigger is a new buffer, so runs built
+   * earlier in the frame keep reading the old one, which has every glyph they use.
+   */
+  NODISCARD uint32
+  prepareGpuGlyphTable();
+
+  /**
+   * The table prepareGpuGlyphTable uploads, in slot order.
+   */
+  NODISCARD Span<const GpuGlyph>
+  getGpuGlyphs();
+
+  /**
    * Drops the GPU copy; the next prepareGpuAtlas() makes it again.
    */
   void
@@ -250,6 +288,9 @@ class CH_CORE_EXPORT Font
   void
   preload();
 
+  void
+  rebuildGpuGlyphs();
+
   UniquePtr<Impl> m_impl;
   FontSettings m_settings;
   Vector<uint8> m_fontData;
@@ -275,6 +316,13 @@ class CH_CORE_EXPORT Font
   uint32 m_shelfHeight = 0;
   bool m_bAtlasFull = false;
   uint32 m_revision = 0;
+
+  Vector<GpuGlyph> m_gpuGlyphs;
+  uint32 m_gpuGlyphsRevision = INVALID_SLOT;
+  SPtr<IBuffer> m_glyphTable;
+  uint32 m_glyphTableCapacity = 0;
+  uint32 m_glyphTableCount = 0;
+  uint32 m_glyphTableRevision = INVALID_SLOT;
 
   SPtr<ITexture> m_atlasTexture;
   uint32 m_atlasBindlessIndex = 0;
