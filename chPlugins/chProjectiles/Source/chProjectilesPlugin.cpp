@@ -11,6 +11,7 @@
 #include "chProjectileBindings.h"
 #include "chProjectileSystemComponent.h"
 #include "chProjectileTargetComponent.h"
+#include "chProjectilesEditor.h"
 #include "chScriptManager.h"
 
 using namespace chEngineSDK;
@@ -24,4 +25,7 @@ loadPlugin()
   ComponentRegister::registerType<ProjectileSystemComponent>();
   ComponentRegister::registerType<ProjectileTargetComponent>();
   ScriptManager::addBindings(&ProjectileBindings::registerBindings);
+#if USING(CH_EDITOR)
+  ProjectilesEditor::registerDescriptions();
+#endif
 }

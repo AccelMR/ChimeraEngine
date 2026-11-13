@@ -83,6 +83,8 @@ ProjectileSystemComponent::ProjectileSystemComponent()
  : m_hitCallback(ScriptClassInfo::NO_REFERENCE)
 {
   setUpdateFlags(ComponentUpdate::Fixed);
+  // Projectiles fired outside Play (Test Fire) must move too; with none it returns at once.
+  setUpdatesWhileEditing(true);
 }
 
 /*
@@ -94,7 +96,19 @@ ProjectileSystemComponent::~ProjectileSystemComponent() { releaseHitCallback(); 
 void
 ProjectileSystemComponent::fixedUpdate(const float deltaTime)
 {
-  step(deltaTime);
+  const Scene* scene = getOwner() ? getOwner()->getScene() : nullptr;
+  if (!scene || (!scene->isPlaying() && m_projectiles.empty())) {
+    return;
+  }
+  if (scene->isPlaying()) {
+    step(deltaTime);
+  }
+  else {
+    // No scripts run while editing, and a target hit would only remove the preview.
+    m_hits.clear();
+    move(deltaTime);
+    removeDead();
+  }
   draw();
   callHitScripts();
 }
@@ -546,6 +560,18 @@ ProjectileSystemComponent::clear() noexcept
 {
   m_projectiles.clear();
 }
+
+#if USING(CH_EDITOR)
+/*
+ */
+void
+ProjectileSystemComponent::testFire()
+{
+  const Matrix4 world = getOwner()->getCurrentWorldMatrix();
+  static_cast<void>(
+      fireRing(Vector2(world[3][1], world[3][2]), TEST_FIRE_COUNT, 0.0f, m_defaults.speed));
+}
+#endif // USING(CH_EDITOR)
 
 /*
  */

@@ -61,6 +61,13 @@ class CH_CORE_EXPORT GameObject : public Object,
   getComponent() const;
 
   /**
+   * A component of a type ComponentRegister knows, made with its default constructor;
+   * null for an unknown type.
+   */
+  Component*
+  addComponentByType(const UUID& typeId);
+
+  /**
    * Unregisters and destroys a component of this object; the reference dangles after.
    */
   void

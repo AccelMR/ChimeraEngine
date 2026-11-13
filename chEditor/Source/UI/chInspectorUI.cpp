@@ -17,6 +17,7 @@
 #include "chAnimatorComponent.h"
 #include "chAssetDragDrop.h"
 #include "chCameraComponent.h"
+#include "chComponentEditorUI.h"
 #include "chCameraPreviewUI.h"
 #include "chEditorScene.h"
 #include "chAssetManager.h"
@@ -201,6 +202,8 @@ InspectorUI::renderInspectorUI()
     renderCameraComponent(*camera);
   }
   renderScriptComponents(*selected);
+  ComponentEditorUI::renderComponents(*selected);
+  ComponentEditorUI::renderAddComponent(*selected);
   ImGui::EndDisabled();
   ImGui::End();
 }

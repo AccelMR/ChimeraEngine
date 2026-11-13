@@ -13,6 +13,7 @@
 #include <chrono>
 
 #include "chAlgorithm.h"
+#include "chComponentEditor.h"
 #include "chComponentRegister.h"
 #include "chFileStream.h"
 #include "chGameObject.h"
@@ -20,6 +21,7 @@
 #include "chProjectileBindings.h"
 #include "chProjectileSystemComponent.h"
 #include "chProjectileTargetComponent.h"
+#include "chProjectilesEditor.h"
 #include "chScene.h"
 #include "chScriptApi.h"
 #include "chScriptManager.h"
@@ -300,11 +302,18 @@ TEST_CASE("Projectiles - drawing")
   look.blendMode = SpriteBlendMode::Additive;
   system.setLook(look);
 
-  SECTION("Nothing runs while the scene does not play")
+  SECTION("Outside Play projectiles move and draw but hit nothing")
   {
-    system.fire(Vector2::ZERO, 0.0f, 1.0f);
     scene.fixedUpdate(kStep);
     REQUIRE(scene.getFixedSpriteDraw().getSprites().empty());
+    makeTarget(scene, "Target", Vector2(0.5f, 0.0f), 1);
+    system.fire(Vector2::ZERO, 0.0f, 1.0f);
+    for (uint32 i = 0; i < 60; ++i) {
+      scene.fixedUpdate(kStep);
+      REQUIRE(system.getLastHits().empty());
+    }
+    REQUIRE(system.getCount() == 1);
+    REQUIRE(scene.getFixedSpriteDraw().getSprites().size() == 1);
   }
 
   SECTION("Each projectile is one sprite in the fixed list, facing its velocity")
@@ -515,6 +524,95 @@ TEST_CASE("Projectiles - scripts")
     REQUIRE(scripts.runString("assert(Scene.find('Gun'):getProjectiles() == nil)"));
   }
 }
+
+#if USING(CH_EDITOR)
+TEST_CASE("Projectiles - editor")
+{
+  ProjectilesEditor::registerDescriptions();
+  const ComponentEditorDesc* systemDesc =
+      ComponentEditorRegister::find(TypeTraits<ProjectileSystemComponent>::getTypeId());
+  const ComponentEditorDesc* targetDesc =
+      ComponentEditorRegister::find(TypeTraits<ProjectileTargetComponent>::getTypeId());
+  REQUIRE(systemDesc);
+  REQUIRE(targetDesc);
+  REQUIRE(systemDesc->category == "Projectiles");
+
+  const auto findEntry = [](const ComponentEditorDesc& desc, const ANSICHAR* label) {
+    for (const ComponentEditorEntry& entry : desc.entries) {
+      if (entry.label == label) {
+        return &entry;
+      }
+    }
+    return static_cast<const ComponentEditorEntry*>(nullptr);
+  };
+
+  Scene scene("Projectiles", chEngineSDK::UUID::createRandom());
+  GameObject& gun = *scene.createGameObject("Gun", nullptr);
+  gun.getTransform().setLocalPosition(Vector3(0.0f, 2.0f, 3.0f));
+  ProjectileSystemComponent& system = gun.addComponent<ProjectileSystemComponent>();
+
+  SECTION("Rows edit the look, the shots and the system")
+  {
+    const ComponentEditorEntry* blend = findEntry(*systemDesc, "Blend");
+    REQUIRE(blend);
+    REQUIRE(blend->widget == ComponentPropertyWidget::Enum);
+    ScriptPropertyValue value;
+    value.type = blend->type;
+    blend->getter(system, value);
+    value.integer = 1;
+    blend->setter(system, value);
+    REQUIRE(system.getLook().blendMode == SpriteBlendMode::Additive);
+
+    const ComponentEditorEntry* speed = findEntry(*systemDesc, "Speed");
+    REQUIRE(speed);
+    value.type = speed->type;
+    speed->getter(system, value);
+    REQUIRE(value.number == 5.0);
+    value.number = 7.0;
+    speed->setter(system, value);
+    REQUIRE(system.getDefaults().speed == 7.0f);
+
+    const ComponentEditorEntry* teams = findEntry(*systemDesc, "Hit Teams");
+    REQUIRE(teams);
+    REQUIRE(teams->widget == ComponentPropertyWidget::Flags);
+    REQUIRE(teams->names.size() == 16);
+    value.type = teams->type;
+    value.integer = 0b100;
+    teams->setter(system, value);
+    REQUIRE(system.getHitTeams() == 0b100u);
+
+    const ComponentEditorEntry* team = findEntry(*targetDesc, "Team");
+    REQUIRE(team);
+    REQUIRE(team->maximum == 32.0);
+  }
+
+  SECTION("Test Fire shoots a ring from the object while the scene does not play")
+  {
+    const ComponentEditorEntry* testFire = findEntry(*systemDesc, "Test Fire");
+    REQUIRE(testFire);
+    REQUIRE(testFire->kind == ComponentEditorEntryKind::Action);
+    testFire->action(system);
+    REQUIRE(system.getCount() == ProjectileSystemComponent::TEST_FIRE_COUNT);
+    scene.fixedUpdate(0.0f);
+    const Span<const SpriteItem> sprites = scene.getFixedSpriteDraw().getSprites();
+    REQUIRE(sprites.size() == ProjectileSystemComponent::TEST_FIRE_COUNT);
+    REQUIRE(sprites[0].instance.center.nearEqual(Vector3(0.0f, 2.0f, 3.0f), 1e-4f));
+    // They die at the end of their lifetime, also outside Play.
+    for (uint32 i = 0; i < 6 * 60; ++i) {
+      scene.fixedUpdate(kStep);
+    }
+    REQUIRE(system.getCount() == 0);
+  }
+
+  SECTION("Add Component makes the types by id")
+  {
+    ComponentRegister::registerType<ProjectileTargetComponent>();
+    GameObject& enemy = *scene.createGameObject("Enemy", nullptr);
+    REQUIRE(enemy.addComponentByType(TypeTraits<ProjectileTargetComponent>::getTypeId()));
+    REQUIRE(ProjectileTargetComponent::getTargets(scene).size() == 1);
+  }
+}
+#endif // USING(CH_EDITOR)
 
 /*
  * Hidden: run it by name in a Release build to measure a step with many projectiles.

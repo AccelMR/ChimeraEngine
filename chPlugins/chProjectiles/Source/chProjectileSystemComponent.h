@@ -91,7 +91,9 @@ struct ProjectileHit {
  * the ProjectileTargetComponents of the scene whose team the system hits, and drawn through
  * the scene's fixed step SpriteDraw. Hits are listed after each step and handed to a script
  * function when one is set. Each system has one look, so player and enemy bullets are two
- * systems. Projectiles are never saved; the settings are. Runs only while the scene plays.
+ * systems. Projectiles are never saved; the settings are. Hits are only tested and reported
+ * while the scene plays; outside Play the projectiles alive (Test Fire in the editor) still
+ * move and draw.
  */
 class ProjectileSystemComponent : public Component
 {
@@ -222,6 +224,17 @@ class ProjectileSystemComponent : public Component
    */
   void
   clear() noexcept;
+
+#if USING(CH_EDITOR)
+  /**
+   * A ring of TEST_FIRE_COUNT projectiles from the owner's position with the defaults, to
+   * try the look in the editor; they move and draw also while the scene does not play.
+   */
+  void
+  testFire();
+
+  static constexpr uint32 TEST_FIRE_COUNT = 16;
+#endif // USING(CH_EDITOR)
 
   /**
    * What the projectiles did in the last step, in the order they hit. Valid until the next

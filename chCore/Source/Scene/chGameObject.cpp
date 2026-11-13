@@ -9,6 +9,8 @@
 /************************************************************************/
 #include "chGameObject.h"
 
+#include "chComponentRegister.h"
+
 #include "chAlgorithm.h"
 #include "chBox.h"
 #include "chScene.h"
@@ -164,6 +166,18 @@ GameObject::attachComponent(UniquePtr<Component>&& component, const UUID& typeId
     attached.setRegistered(true);
   }
   return attached;
+}
+
+/*
+ */
+Component*
+GameObject::addComponentByType(const UUID& typeId)
+{
+  UniquePtr<Component> component = ComponentRegister::create(typeId);
+  if (!component) {
+    return nullptr;
+  }
+  return &attachComponent(std::move(component), typeId);
 }
 
 /*
