@@ -1,3 +1,3 @@
-
 add_subdirectory(chMeshCodec)
 add_subdirectory(chImageCodec)
+add_subdirectory(chFontCodec)

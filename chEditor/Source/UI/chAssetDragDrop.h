@@ -45,6 +45,13 @@ class AssetDragDrop
   acceptAnyAsset();
 
   /**
+   * The asset dragged now, whatever its type, without accepting the drop: for targets that
+   * take only some types of the assets that travel as any asset.
+   */
+  NODISCARD static SPtr<IAsset>
+  peekAnyAsset();
+
+  /**
    * Call between BeginDragDropSource and EndDragDropSource: drags a Content Browser folder by
    * its virtual path (/Game/Enemies).
    */

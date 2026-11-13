@@ -29,6 +29,7 @@
 #include "chAnimationGraphAsset.h"
 #include "chScriptAsset.h"
 #include "chSpriteAtlasAsset.h"
+#include "chFontAsset.h"
 #include "chStringUtils.h"
 
 #include "../../Content/Fonts/IconsFontAwsome5.h"
@@ -208,6 +209,9 @@ UIHelpers::getIconFromAssetType(const SPtr<IAsset>& asset)
   }
   if (asset->isTypeOf<SpriteAtlasAsset>()) {
     return {AssetType::SpriteAtlas, ICON_FA_TH};
+  }
+  if (asset->isTypeOf<FontAsset>()) {
+    return {AssetType::Font, ICON_FA_FONT};
   }
   return {AssetType::Unknown, ICON_FA_FILE};
 }

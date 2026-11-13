@@ -13,6 +13,7 @@
 #include "chAssetManager.h"
 #include "chCameraComponent.h"
 #include "chEditorCamera.h"
+#include "chCoreComponentEditors.h"
 #include "chEditorScene.h"
 #include "chEditorTheme.h"
 #include "chConsoleVariable.h"
@@ -40,7 +41,9 @@
 #include "chQuaternion.h"
 #include "chRayCast.h"
 #include "chSpriteAtlasAsset.h"
+#include "chFontAsset.h"
 #include "chSpriteComponent.h"
+#include "chTextComponent.h"
 #include "chTextureAsset.h"
 #include "chRotator.h"
 #include "chUIHelpers.h"
@@ -485,6 +488,7 @@ EditorApplication::initializeEditorComponents() {
   // Before the managers: plugins register the components scenes hold and the script
   // bindings the state is made with.
   EnginePlugins::loadEnabled();
+  CoreComponentEditors::registerDescriptions();
 
   AssetManager::startUp();
   AssetManager& assetManager = AssetManager::instance();
@@ -867,6 +871,7 @@ EditorApplication::acceptSpriteDrop(Scene& scene, GameObject* parent)
     }
   }
   if (!texture && !atlas) {
+    acceptFontDrop(scene, parent);
     return;
   }
 
@@ -886,6 +891,33 @@ EditorApplication::acceptSpriteDrop(Scene& scene, GameObject* parent)
   placeAtMouse(gameObject);
   EditorSelection::setSelectedGameObject(gameObject);
   EditorScene::recordCreated(*gameObject, "Drop Sprite");
+}
+
+/*
+ * A font dropped on the 2D view becomes a text written in it, so the font can be tried at
+ * once.
+ */
+void
+EditorApplication::acceptFontDrop(Scene& scene, GameObject* parent)
+{
+  const ImGuiPayload* payload = ImGui::GetDragDropPayload();
+  if (!payload) {
+    return;
+  }
+  // Fonts travel as any asset; only one that is a font is taken.
+  const SPtr<IAsset> dragged = AssetDragDrop::peekAnyAsset();
+  if (!dragged || !dragged->isTypeOf<FontAsset>()) {
+    return;
+  }
+  const SPtr<IAsset> asset = AssetDragDrop::acceptAnyAsset();
+  if (!asset || (!asset->isLoaded() && !AssetManager::instance().syncLoadAsset(asset))) {
+    return;
+  }
+  const SPtr<GameObject> gameObject = scene.createGameObject(asset->getName(), parent);
+  gameObject->addComponent<TextComponent>("Text", asset->as<FontAsset>());
+  placeAtMouse(gameObject);
+  EditorSelection::setSelectedGameObject(gameObject);
+  EditorScene::recordCreated(*gameObject, "Drop Font");
 }
 
 /*

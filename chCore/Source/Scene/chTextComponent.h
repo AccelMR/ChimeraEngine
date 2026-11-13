@@ -77,6 +77,13 @@ class CH_CORE_EXPORT TextComponent : public Component
   getFontId() const noexcept { return m_fontId; }
 
   /**
+   * The font asset with that UUID, loaded; null uses the default font. An id with no asset
+   * is kept (saving keeps the reference) and draws with the default font.
+   */
+  void
+  setFontId(const UUID& fontId);
+
+  /**
    * Height of the font from its lowest to its highest point, in world units before the
    * GameObject's scale.
    */
@@ -146,6 +153,12 @@ class CH_CORE_EXPORT TextComponent : public Component
   void
   setSorting(int16 sortingLayer, int16 order);
 
+  void
+  setSortingLayer(int16 sortingLayer);
+
+  void
+  setOrder(int16 order);
+
   NODISCARD FORCEINLINE int16
   getSortingLayer() const noexcept { return m_sortingLayer; }
 
@@ -164,6 +177,12 @@ class CH_CORE_EXPORT TextComponent : public Component
   void
   setOutline(float width, const LinearColor& color);
 
+  void
+  setOutlineWidth(float width);
+
+  void
+  setOutlineColor(const LinearColor& color);
+
   NODISCARD FORCEINLINE float
   getOutlineWidth() const noexcept { return m_outlineWidth; }
 
@@ -175,6 +194,12 @@ class CH_CORE_EXPORT TextComponent : public Component
    */
   void
   setShadow(const LinearColor& color, const Vector2& offset);
+
+  void
+  setShadowColor(const LinearColor& color);
+
+  void
+  setShadowOffset(const Vector2& offset);
 
   NODISCARD FORCEINLINE const LinearColor&
   getShadowColor() const noexcept { return m_shadowColor; }

@@ -6,7 +6,7 @@ ch_include_subfolders(chEditor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
 target_link_libraries(chEditor PRIVATE chCore chImguiSDL3 chImGuizmo chImguiNodeEditor)
 
 # Plugins are loaded at run time, so nothing links them; building the editor builds them too.
-foreach(PLUGIN chVulkan chDX12 chImageCodec chMeshCodec ${CH_ENGINE_PLUGINS})
+foreach(PLUGIN chVulkan chDX12 chImageCodec chMeshCodec chFontCodec ${CH_ENGINE_PLUGINS})
   if(TARGET ${PLUGIN})
     add_dependencies(chEditor ${PLUGIN})
   endif()

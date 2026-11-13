@@ -208,6 +208,25 @@ AssetDragDrop::acceptAnyAsset()
 
 /*
  */
+SPtr<IAsset>
+AssetDragDrop::peekAnyAsset()
+{
+  const ImGuiPayload* dragged = ImGui::GetDragDropPayload();
+  if (!dragged || dragged->DataSize != static_cast<int32>(sizeof(UUID))) {
+    return nullptr;
+  }
+  for (const ANSICHAR* payloadName : kAssetPayloads) {
+    if (dragged->IsDataType(payloadName)) {
+      UUID uuid;
+      std::memcpy(&uuid, dragged->Data, sizeof(UUID));
+      return AssetManager::instance().getAsset(uuid);
+    }
+  }
+  return nullptr;
+}
+
+/*
+ */
 void
 AssetDragDrop::setFolderPayload(const String& folder)
 {

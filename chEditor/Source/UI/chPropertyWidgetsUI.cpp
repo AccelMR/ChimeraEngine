@@ -367,13 +367,20 @@ renderValue(const PropertyWidgetDesc& desc, ScriptPropertyValue& value,
     return renderNumberRow(desc, value);
   case ScriptPropertyType::Boolean:
     return ImGui::Checkbox(desc.label, &value.boolean);
-  case ScriptPropertyType::String:
+  case ScriptPropertyType::String: {
     StringUtils::copyToBuffer(g_textBuffer, value.text);
-    if (ImGui::InputText(desc.label, g_textBuffer, sizeof(g_textBuffer))) {
+    const bool bChanged =
+        desc.widget == ComponentPropertyWidget::Multiline
+            ? ImGui::InputTextMultiline(desc.label, g_textBuffer, sizeof(g_textBuffer),
+                                        ImVec2(0.0f, ImGui::GetTextLineHeight() * 4.0f +
+                                                         ImGui::GetStyle().FramePadding.y * 2.0f))
+            : ImGui::InputText(desc.label, g_textBuffer, sizeof(g_textBuffer));
+    if (bChanged) {
       value.text = g_textBuffer;
       return true;
     }
     return false;
+  }
   case ScriptPropertyType::GameObject:
     return renderObjectRow(desc, value, owner);
   case ScriptPropertyType::Prefab:

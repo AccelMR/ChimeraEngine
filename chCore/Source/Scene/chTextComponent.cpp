@@ -131,6 +131,20 @@ TextComponent::setFont(const SPtr<FontAsset>& font)
 /*
  */
 void
+TextComponent::setFontId(const UUID& fontId)
+{
+  SPtr<FontAsset> font = findFont(fontId);
+  if (font && !font->isLoaded() && !AssetManager::instance().syncLoadAsset(font)) {
+    font.reset();
+  }
+  m_font = std::move(font);
+  m_fontId = fontId;
+  m_bLayoutDirty = true;
+}
+
+/*
+ */
+void
 TextComponent::setSize(float size)
 {
   m_size = size;
@@ -223,6 +237,22 @@ TextComponent::setSorting(int16 sortingLayer, int16 order)
 /*
  */
 void
+TextComponent::setSortingLayer(int16 sortingLayer)
+{
+  setSorting(sortingLayer, m_order);
+}
+
+/*
+ */
+void
+TextComponent::setOrder(int16 order)
+{
+  setSorting(m_sortingLayer, order);
+}
+
+/*
+ */
+void
 TextComponent::setBlendMode(SpriteBlendMode blendMode)
 {
   m_blendMode = blendMode;
@@ -237,6 +267,38 @@ TextComponent::setOutline(float width, const LinearColor& color)
   m_outlineWidth = Math::max(width, 0.0f);
   m_outlineColor = color;
   m_bLookDirty = true;
+}
+
+/*
+ */
+void
+TextComponent::setOutlineWidth(float width)
+{
+  setOutline(width, m_outlineColor);
+}
+
+/*
+ */
+void
+TextComponent::setOutlineColor(const LinearColor& color)
+{
+  setOutline(m_outlineWidth, color);
+}
+
+/*
+ */
+void
+TextComponent::setShadowColor(const LinearColor& color)
+{
+  setShadow(color, m_shadowOffset);
+}
+
+/*
+ */
+void
+TextComponent::setShadowOffset(const Vector2& offset)
+{
+  setShadow(m_shadowColor, offset);
 }
 
 /*

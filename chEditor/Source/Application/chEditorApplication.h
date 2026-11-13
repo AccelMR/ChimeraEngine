@@ -125,6 +125,9 @@ class EditorApplication : public WindowedApplication
   acceptSpriteDrop(Scene& scene, GameObject* parent);
 
   void
+  acceptFontDrop(Scene& scene, GameObject* parent);
+
+  void
   updateGameInput();
 
   /**

@@ -25,14 +25,17 @@
 namespace chEngineSDK {
 
 /**
- * How an integer property is edited. Value is the widget of its type.
+ * How a property is edited. Value is the widget of its type; Enum and Flags are for integers
+ * and Multiline for strings.
  */
 enum class ComponentPropertyWidget : uint8 {
   Value = 0,
   // A combo of names, the value being the index of the name.
   Enum = 1,
   // A checkbox per name, the value having bit i for name i.
-  Flags = 2
+  Flags = 2,
+  // A box of several lines, for texts that hold line breaks.
+  Multiline = 3
 };
 
 enum class ComponentEditorEntryKind : uint8 {
@@ -486,8 +489,11 @@ template <typename T> class ComponentEditor
     entry.getter = getter;
     entry.setter = setter;
     CH_ASSERT((entry.widget == ComponentPropertyWidget::Value
-               || entry.type == ScriptPropertyType::Integer)
-              && "Enum and Flags edit integers and enums.");
+               || (entry.widget == ComponentPropertyWidget::Multiline
+                   && entry.type == ScriptPropertyType::String)
+               || (entry.widget != ComponentPropertyWidget::Multiline
+                   && entry.type == ScriptPropertyType::Integer))
+              && "Enum and Flags edit integers and enums, Multiline strings.");
   }
 
   ComponentEditorDesc m_desc;

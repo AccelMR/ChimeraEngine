@@ -20,6 +20,7 @@
 #include "chLightComponent.h"
 #include "chShapeComponent.h"
 #include "chSpriteComponent.h"
+#include "chTextComponent.h"
 #include "chSkyLightComponent.h"
 #include "chCameraComponent.h"
 #include "chMath.h"
@@ -107,6 +108,9 @@ getObjectIcon(const GameObject& gameObject)
     else if (typeId == TypeTraits<SpriteComponent>::getTypeId()) {
       icon = ICON_FA_IMAGE;
     }
+    else if (typeId == TypeTraits<TextComponent>::getTypeId()) {
+      icon = ICON_FA_FONT;
+    }
   }
   return icon;
 }
@@ -151,6 +155,12 @@ renderCreateSpriteItem(Scene& scene, GameObject* parent)
 {
   if (ImGui::MenuItem(ICON_FA_IMAGE "  Create Sprite")) {
     createWithComponent<SpriteComponent>(scene, "Sprite", parent);
+  }
+  if (ImGui::MenuItem(ICON_FA_FONT "  Create Text")) {
+    const SPtr<GameObject> gameObject = scene.createGameObject("Text", parent);
+    gameObject->addComponent<TextComponent>("Text");
+    EditorSelection::setSelectedGameObject(gameObject);
+    EditorScene::recordCreated(*gameObject, "Create");
   }
 }
 

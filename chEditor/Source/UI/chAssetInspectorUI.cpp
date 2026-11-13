@@ -16,6 +16,8 @@
 #include "chAssetManager.h"
 #include "chConsoleVariable.h"
 #include "chEngineConfig.h"
+#include "chFont.h"
+#include "chFontAsset.h"
 #include "chITexture.h"
 #include "chImGuiRenderer.h"
 #include "chLogger.h"
@@ -30,6 +32,7 @@
 #include "chSkeletonAsset.h"
 #include "chSpriteAtlasAsset.h"
 #include "chSpriteAtlasEditorUI.h"
+#include "chStringUtils.h"
 #include "chTextureAsset.h"
 #include "chUIHelpers.h"
 
@@ -268,6 +271,112 @@ prepare(InspectorState& state)
                                 state.modelClips);
 }
 
+/**
+ * The settings being edited for the font shown, applied only on Apply: making the font again
+ * draws its glyphs again, which is too slow for every drag of a slider.
+ */
+struct FontEditState
+{
+  UUID asset = UUID::null();
+  FontSettings settings;
+  ANSICHAR preloadCharacters[1024] = "";
+};
+
+FontEditState&
+getFontEditState()
+{
+  static FontEditState s_state;
+  return s_state;
+}
+
+NODISCARD bool
+sameSettings(const FontSettings& a, const FontSettings& b)
+{
+  return a.mode == b.mode && a.rasterSize == b.rasterSize && a.sdfSpread == b.sdfSpread &&
+         a.bPreloadAscii == b.bPreloadAscii && a.bPreloadLatin1 == b.bPreloadLatin1 &&
+         a.preloadCharacters == b.preloadCharacters;
+}
+
+/*
+ */
+void
+renderFont(const SPtr<FontAsset>& asset)
+{
+  FontEditState& state = getFontEditState();
+  if (state.asset != asset->getUUID()) {
+    state.asset = asset->getUUID();
+    state.settings = asset->getSettings();
+    StringUtils::copyToBuffer(state.preloadCharacters, state.settings.preloadCharacters);
+  }
+
+  const SPtr<Font>& font = asset->getFont();
+  if (font) {
+    ImGui::Text("%u glyphs drawn, atlas %u x %u, file %u KB", font->getGlyphCount(),
+                font->getAtlasWidth(), font->getAtlasHeight(),
+                static_cast<uint32>(font->getFontData().size() / 1024));
+  }
+  else {
+    ImGui::TextDisabled("The file is not a font.");
+  }
+
+  ImGui::SeparatorText("Glyphs");
+  static constexpr const ANSICHAR* kModes[] = {"SDF (sharp at any size, outlines)",
+                                               "Pixel (one size, point filter)"};
+  int32 mode = static_cast<int32>(state.settings.mode);
+  if (ImGui::Combo("Mode", &mode, kModes, 2)) {
+    state.settings.mode = static_cast<FontRenderMode>(mode);
+  }
+  int32 rasterSize = static_cast<int32>(state.settings.rasterSize);
+  if (ImGui::SliderInt("Raster Size", &rasterSize, FontSettings::MIN_RASTER_SIZE,
+                       FontSettings::MAX_RASTER_SIZE)) {
+    state.settings.rasterSize = static_cast<uint32>(rasterSize);
+  }
+  ImGui::SetItemTooltip("Pixels the glyphs are drawn at: a pixel font's own size, or the "
+                        "detail of an SDF font (48 is plenty)");
+  if (state.settings.mode == FontRenderMode::Sdf) {
+    int32 spread = static_cast<int32>(state.settings.sdfSpread);
+    if (ImGui::SliderInt("SDF Spread", &spread, 1, FontSettings::MAX_SDF_SPREAD)) {
+      state.settings.sdfSpread = static_cast<uint32>(spread);
+    }
+    ImGui::SetItemTooltip("Pixels of distance around each glyph: the widest outline it can "
+                          "draw");
+  }
+  ImGui::Checkbox("Preload ASCII", &state.settings.bPreloadAscii);
+  ImGui::Checkbox("Preload Latin-1", &state.settings.bPreloadLatin1);
+  if (ImGui::InputText("More Characters", state.preloadCharacters,
+                       sizeof(state.preloadCharacters))) {
+    state.settings.preloadCharacters = state.preloadCharacters;
+  }
+  ImGui::SetItemTooltip("Drawn when the font loads, so the first frame that shows them does "
+                        "not have to. Any character is drawn when first used anyway.");
+
+  const bool bChanged = !sameSettings(state.settings, asset->getSettings());
+  ImGui::BeginDisabled(!bChanged);
+  if (ImGui::Button(ICON_FA_CHECK "  Apply")) {
+    asset->setSettings(state.settings);
+    if (!AssetManager::instance().saveAsset(asset)) {
+      CH_LOG_ERROR(AssetInspectorLog, "Could not save font {0}.", asset->getName());
+    }
+    // Read back, since the font keeps its values in range.
+    state.asset = UUID::null();
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Revert")) {
+    state.asset = UUID::null();
+  }
+  ImGui::EndDisabled();
+
+  if (!font) {
+    return;
+  }
+  ImGui::SeparatorText("Atlas");
+  ImGui::TextDisabled("One channel, shown in red; glyphs are added as texts use them.");
+  CH_PARAMETER_UNUSED(font->prepareGpuAtlas());
+  if (font->getAtlasTexture()) {
+    renderTexture(*font->getAtlasTexture());
+  }
+}
+
 /*
  */
 void
@@ -311,6 +420,9 @@ renderAsset(const SPtr<IAsset>& asset)
   }
   else if (const SPtr<SpriteAtlasAsset> atlas = asset->as<SpriteAtlasAsset>()) {
     SpriteAtlasEditorUI::render(atlas);
+  }
+  else if (const SPtr<FontAsset> font = asset->as<FontAsset>()) {
+    renderFont(font);
   }
   else {
     ImGui::TextDisabled("Nothing to show for this type.");
