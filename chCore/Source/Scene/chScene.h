@@ -17,6 +17,7 @@
 #include "chLightItem.h"
 #include "chMath.h"
 #include "chSkyLightItem.h"
+#include "chSpriteDraw.h"
 #include "chSpriteItem.h"
 #include "chRenderItem.h"
 
@@ -329,6 +330,26 @@ class CH_CORE_EXPORT Scene : public Object
   getFixedDebugDraw() const { return m_fixedDebugDraw; }
 
   /**
+   * Sprites added in update() without GameObjects (bullets, effects). Cleared when update()
+   * starts.
+   */
+  NODISCARD FORCEINLINE SpriteDraw&
+  getSpriteDraw() { return m_spriteDraw; }
+
+  NODISCARD FORCEINLINE const SpriteDraw&
+  getSpriteDraw() const { return m_spriteDraw; }
+
+  /**
+   * Sprites added in fixedUpdate(). Cleared when fixedUpdate() starts, so they show on every
+   * frame until the next fixed step.
+   */
+  NODISCARD FORCEINLINE SpriteDraw&
+  getFixedSpriteDraw() { return m_fixedSpriteDraw; }
+
+  NODISCARD FORCEINLINE const SpriteDraw&
+  getFixedSpriteDraw() const { return m_fixedSpriteDraw; }
+
+  /**
    * The levels whose objects are in the scene: the map first, then the sublevels in the
    * order they were loaded. That order decides which sky light and camera win.
    */
@@ -454,6 +475,8 @@ class CH_CORE_EXPORT Scene : public Object
   CameraComponent* m_chosenCamera = nullptr;
   DebugDraw m_debugDraw;
   DebugDraw m_fixedDebugDraw;
+  SpriteDraw m_spriteDraw;
+  SpriteDraw m_fixedSpriteDraw;
   Vector<SPtr<GameObject>> m_destroyRequests;
   // The requests being applied; a member so its memory is kept.
   Vector<SPtr<GameObject>> m_destroyBatch;

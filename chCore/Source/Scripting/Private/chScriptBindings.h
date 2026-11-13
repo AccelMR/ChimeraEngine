@@ -45,6 +45,12 @@ class ScriptBindings
    */
   static void
   registerDebugDraw(lua_State* state);
+
+  /**
+   * Texture, SpriteStyle and Sprites (sprites drawn each frame without GameObjects).
+   */
+  static void
+  registerSprites(lua_State* state);
 };
 
 } // namespace chEngineSDK

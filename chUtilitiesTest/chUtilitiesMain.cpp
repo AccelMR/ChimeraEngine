@@ -42,6 +42,7 @@
 #include "chRotator.h"
 #include "chSTDThreading.h"
 #include "chShapeOverlap.h"
+#include "chSpatialHash2D.h"
 #include "chSphereBoxBounds.h"
 #include "chStringUtils.h"
 #include "chUnicode.h"
@@ -3289,4 +3290,168 @@ TEST_CASE("chUtilities - Flags") {
   mixed ^= TestFlag::C;
   REQUIRE(mixed == (TestFlag::B | TestFlag::C));
   REQUIRE(TestFlagFlags::fromBits(6) == mixed);
+}
+
+namespace {
+/*
+ * Small and fixed, so every run tests the same shapes.
+ */
+struct TestRandom
+{
+  uint32 state = 12345u;
+
+  float
+  next(float low, float high)
+  {
+    state = state * 1664525u + 1013904223u;
+    const float unit = static_cast<float>(state >> 8) / static_cast<float>(1u << 24);
+    return low + (high - low) * unit;
+  }
+};
+
+struct TestShape
+{
+  bool bCircle;
+  Vector2 center;
+  float radius;
+  Vector2 minPoint;
+  Vector2 maxPoint;
+};
+
+float
+squaredDistanceToTestBox(const Vector2& point, const TestShape& box)
+{
+  const float dx =
+      Math::max(box.minPoint.x - point.x, Math::max(0.0f, point.x - box.maxPoint.x));
+  const float dy =
+      Math::max(box.minPoint.y - point.y, Math::max(0.0f, point.y - box.maxPoint.y));
+  return dx * dx + dy * dy;
+}
+
+bool
+circleTouches(const TestShape& shape, const Vector2& center, float radius)
+{
+  if (shape.bCircle) {
+    const float reach = shape.radius + radius;
+    return (shape.center - center).sqrMagnitude() <= reach * reach;
+  }
+  return squaredDistanceToTestBox(center, shape) <= radius * radius;
+}
+
+bool
+boxTouches(const TestShape& shape, const Vector2& low, const Vector2& high)
+{
+  const TestShape query{false, Vector2::ZERO, 0.0f, low, high};
+  if (shape.bCircle) {
+    return squaredDistanceToTestBox(shape.center, query) <= shape.radius * shape.radius;
+  }
+  return shape.minPoint.x <= high.x && shape.maxPoint.x >= low.x &&
+         shape.minPoint.y <= high.y && shape.maxPoint.y >= low.y;
+}
+} // namespace
+
+TEST_CASE("chUtilities - Spatial hash 2D")
+{
+  SpatialHash2D hash(2.0f);
+  Vector<uint32> found;
+
+  SECTION("Queries find the same shapes as testing every one")
+  {
+    TestRandom random;
+    Vector<TestShape> shapes;
+    for (uint32 i = 0; i < 2000; ++i) {
+      TestShape shape{};
+      shape.bCircle = i % 3 != 0;
+      const Vector2 center(random.next(-60.0f, 60.0f), random.next(-60.0f, 60.0f));
+      if (shape.bCircle) {
+        shape.center = center;
+        // Some cover many cells, so they are kept apart.
+        shape.radius = i % 97 == 0 ? 30.0f : random.next(0.05f, 3.0f);
+        hash.addCircle(shape.center, shape.radius, i);
+      }
+      else {
+        const Vector2 half(random.next(0.05f, 4.0f), random.next(0.05f, 4.0f));
+        shape.minPoint = center - half;
+        shape.maxPoint = center + half;
+        // Corners given in any order.
+        hash.addBox(shape.maxPoint, shape.minPoint, i);
+      }
+      shapes.push_back(shape);
+    }
+    hash.build();
+    REQUIRE(hash.getShapeCount() == 2000);
+
+    for (uint32 query = 0; query < 300; ++query) {
+      const Vector2 center(random.next(-70.0f, 70.0f), random.next(-70.0f, 70.0f));
+      const float radius = query % 50 == 0 ? 200.0f : random.next(0.0f, 6.0f);
+      Vector<uint32> expected;
+      for (uint32 i = 0; i < shapes.size(); ++i) {
+        if (circleTouches(shapes[i], center, radius)) {
+          expected.push_back(i);
+        }
+      }
+      hash.queryCircle(center, radius, found);
+      Algorithm::sort(found);
+      REQUIRE(found == expected);
+
+      const Vector2 half(random.next(0.0f, 5.0f), random.next(0.0f, 5.0f));
+      expected.clear();
+      for (uint32 i = 0; i < shapes.size(); ++i) {
+        if (boxTouches(shapes[i], center - half, center + half)) {
+          expected.push_back(i);
+        }
+      }
+      hash.queryBox(center - half, center + half, found);
+      Algorithm::sort(found);
+      REQUIRE(found == expected);
+    }
+  }
+
+  SECTION("Touching counts, and a shape over several cells is reported once")
+  {
+    hash.addCircle(Vector2(0.0f, 0.0f), 1.0f, 7);
+    hash.addBox(Vector2(-1.0f, -1.0f), Vector2(9.0f, 1.0f), 8);
+    hash.build();
+    hash.queryPoint(Vector2(1.0f, 0.0f), found);
+    Algorithm::sort(found);
+    REQUIRE(found == Vector<uint32>{7, 8});
+    hash.queryCircle(Vector2(3.0f, 0.0f), 1.0f, found);
+    REQUIRE(found == Vector<uint32>{8});
+    hash.queryCircle(Vector2(0.0f, 3.0f), 1.0f, found);
+    REQUIRE(found.empty());
+    hash.queryBox(Vector2(-20.0f, -20.0f), Vector2(20.0f, 20.0f), found);
+    REQUIRE(found.size() == 2);
+  }
+
+  SECTION("Negative cells are their own cells")
+  {
+    hash.addCircle(Vector2(-0.5f, -0.5f), 0.1f, 1);
+    hash.addCircle(Vector2(0.5f, 0.5f), 0.1f, 2);
+    hash.addCircle(Vector2(-3.5f, 1.5f), 0.1f, 3);
+    hash.build();
+    hash.queryPoint(Vector2(-0.5f, -0.5f), found);
+    REQUIRE(found == Vector<uint32>{1});
+    hash.queryCircle(Vector2(-3.5f, 1.5f), 0.2f, found);
+    REQUIRE(found == Vector<uint32>{3});
+  }
+
+  SECTION("It can be filled again")
+  {
+    hash.addCircle(Vector2::ZERO, 1.0f, 1);
+    hash.build();
+    hash.clear();
+    REQUIRE(hash.getShapeCount() == 0);
+    hash.build();
+    hash.queryPoint(Vector2::ZERO, found);
+    REQUIRE(found.empty());
+
+    hash.addCircle(Vector2(5.0f, 5.0f), 1.0f, 2);
+    hash.build();
+    hash.queryPoint(Vector2(5.0f, 5.0f), found);
+    REQUIRE(found == Vector<uint32>{2});
+
+    hash.setCellSize(0.0f);
+    REQUIRE(hash.getCellSize() == SpatialHash2D::MIN_CELL_SIZE);
+    REQUIRE(hash.getShapeCount() == 0);
+  }
 }

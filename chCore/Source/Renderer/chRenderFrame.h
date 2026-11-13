@@ -88,7 +88,8 @@ class CH_CORE_EXPORT RenderFrame
   }
 
   /**
-   * The sprites in use, in the order of the scene's slots.
+   * The sprites in use, in the order of the scene's slots, then those of the scene's
+   * SpriteDraws (update, then fixed step).
    */
   NODISCARD FORCEINLINE Span<const SpriteItem>
   getSprites() const

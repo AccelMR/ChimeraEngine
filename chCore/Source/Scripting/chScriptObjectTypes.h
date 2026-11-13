@@ -32,7 +32,21 @@ struct ScriptPrefab
   UUID prefab;
 };
 
+/**
+ * Exists so scripts hold a texture as a plain value (Texture.find and Texture properties
+ * give one; Sprites.makeStyle and Sprites.draw take it). Only the asset's UUID is kept, so it
+ * never keeps the asset loaded and never dangles.
+ */
+struct ScriptTexture
+{
+  NODISCARD bool
+  operator==(const ScriptTexture& other) const { return texture == other.texture; }
+
+  UUID texture;
+};
+
 CH_SCRIPT_VALUE_TYPE(ScriptPrefab, "Prefab");
+CH_SCRIPT_VALUE_TYPE(ScriptTexture, "Texture");
 CH_SCRIPT_HANDLE_TYPE(GameObject, "GameObject");
 CH_SCRIPT_HANDLE_TYPE(Transform, "Transform");
 CH_SCRIPT_HANDLE_TYPE(AnimatorComponent, "Animator");

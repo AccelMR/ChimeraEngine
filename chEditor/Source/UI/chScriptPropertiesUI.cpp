@@ -14,6 +14,7 @@
 #include "chEditorSelection.h"
 #include "chGameObject.h"
 #include "chPrefabAsset.h"
+#include "chTextureAsset.h"
 #include "chScene.h"
 #include "chSceneAsset.h"
 #include "chScriptAsset.h"
@@ -194,6 +195,9 @@ acceptAssetOfType(const UUID& typeId)
   if (typeId == AssetTypeTraits<PrefabAsset>::getTypeId()) {
     return AssetDragDrop::acceptPrefab();
   }
+  if (typeId == AssetTypeTraits<TextureAsset>::getTypeId()) {
+    return AssetDragDrop::acceptTexture();
+  }
   // Scenes are dragged as any asset.
   const SPtr<IAsset> dropped = AssetDragDrop::acceptAnyAsset();
   return dropped && dropped->getAssetTypeId() == typeId ? dropped : nullptr;
@@ -300,6 +304,15 @@ renderValue(const ScriptProperty& property, ScriptPropertyValue& value, const Ga
                              .tooltip = "Click to pick a scene, or drop one from the Content "
                                         "Browser. Scenes picked here go into packages.",
                              .emptyListText = "The project has no scenes"});
+    case ScriptPropertyType::Texture:
+      return renderAssetRow(property, value,
+                            {.typeId = AssetTypeTraits<TextureAsset>::getTypeId(),
+                             .noneText = "None (drop a texture)",
+                             .missingText = "Missing texture",
+                             .tooltip = "Click to pick a texture, or drop one from the "
+                                        "Content Browser. Textures picked here go into "
+                                        "packages.",
+                             .emptyListText = "The project has no textures"});
     default:
       return renderVectorRow(property, value);
   }

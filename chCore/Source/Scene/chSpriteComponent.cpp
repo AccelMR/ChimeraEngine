@@ -12,13 +12,12 @@
 #include "chAssetManager.h"
 #include "chBox.h"
 #include "chFileStream.h"
-#include "chFloat16.h"
 #include "chGameObject.h"
-#include "chITexture.h"
 #include "chMath.h"
 #include "chMatrix4.h"
 #include "chScene.h"
 #include "chSceneManager.h"
+#include "chSpriteDraw.h"
 #include "chTextureAsset.h"
 
 namespace chEngineSDK {
@@ -39,13 +38,6 @@ struct SpriteFileData
   uint8 flipY;
 };
 static_assert(sizeof(SpriteFileData) == 68, "SpriteFileData must have no padding");
-
-NODISCARD uint32
-packHalves(float low, float high)
-{
-  return static_cast<uint32>(Float16::fromFloat(low)) |
-         (static_cast<uint32>(Float16::fromFloat(high)) << 16);
-}
 
 /*
  * Null when there is no such asset or it is of another type. Without an AssetManager
@@ -300,39 +292,10 @@ SpriteComponent::updateSpriteItem()
   instance.halfAxisU = halfU;
   instance.halfAxisV = halfV;
 
-  float uvRect[4] = {0.0f, 0.0f, 1.0f, 1.0f};
-  const uint32 textureWidth = m_texture ? m_texture->getWidth() : 0;
-  const uint32 textureHeight = m_texture ? m_texture->getHeight() : 0;
-  if (textureWidth > 0 && textureHeight > 0) {
-    const float width = static_cast<float>(textureWidth);
-    const float height = static_cast<float>(textureHeight);
-    const bool bWholeTexture = m_sourceSize.x <= 0.0f || m_sourceSize.y <= 0.0f;
-    uvRect[0] = bWholeTexture ? 0.0f : m_sourcePosition.x / width;
-    uvRect[1] = bWholeTexture ? 0.0f : m_sourcePosition.y / height;
-    uvRect[2] = bWholeTexture ? 1.0f : m_sourceSize.x / width;
-    uvRect[3] = bWholeTexture ? 1.0f : m_sourceSize.y / height;
-  }
-  // Flipping reads the rectangle from its other edge, so the quad keeps its corners.
-  if (m_bFlipX) {
-    uvRect[0] += uvRect[2];
-    uvRect[2] = -uvRect[2];
-  }
-  if (m_bFlipY) {
-    uvRect[1] += uvRect[3];
-    uvRect[3] = -uvRect[3];
-  }
-  for (uint32 i = 0; i < 4; ++i) {
-    instance.uvRect[i] = uvRect[i];
-  }
-
-  const ITexture* gpuTexture = m_texture ? m_texture->getTexture().get() : nullptr;
-  const uint32 textureIndex =
-      gpuTexture ? gpuTexture->getBindlessIndex() : GpuSpriteInstance::NO_TEXTURE;
-  instance.textureAndFlags =
-      textureIndex | (m_filter == SpriteFilter::Point ? GpuSpriteInstance::POINT_FILTER_BIT
-                                                      : 0u);
-  instance.colorRG = packHalves(m_color.r, m_color.g);
-  instance.colorBA = packHalves(m_color.b, m_color.a);
+  SpriteDraw::makeUvRect(
+      m_texture.get(), m_sourcePosition, m_sourceSize, m_bFlipX, m_bFlipY, instance.uvRect);
+  instance.textureAndFlags = SpriteDraw::makeTextureFlags(m_texture.get(), m_filter);
+  SpriteDraw::packColor(m_color, instance.colorRG, instance.colorBA);
 
   item.radius = halfU.magnitude() + halfV.magnitude();
   item.sortingLayer = m_sortingLayer;

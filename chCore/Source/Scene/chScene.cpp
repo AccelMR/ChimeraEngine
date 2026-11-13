@@ -233,6 +233,7 @@ void
 Scene::fixedUpdate(float deltaTime)
 {
   m_fixedDebugDraw.clear();
+  m_fixedSpriteDraw.clear();
   // By index with the count taken first: components registered meanwhile (objects a script
   // made) start from the next step, and those that leave only null their slot.
   const SIZE_T count = m_fixedUpdates.size();
@@ -252,6 +253,7 @@ void
 Scene::update(float deltaTime)
 {
   m_debugDraw.clear();
+  m_spriteDraw.clear();
   const SIZE_T count = m_frameUpdates.size();
   for (SIZE_T i = 0; i < count; ++i) {
     Component* component = m_frameUpdates[i];

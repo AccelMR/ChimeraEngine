@@ -84,7 +84,9 @@
 #include "chSkyLightComponent.h"
 #include "chSphereBoxBounds.h"
 #include "chSpriteBatcher.h"
+#include "chSpatialHash2D.h"
 #include "chSpriteComponent.h"
+#include "chSpriteDraw.h"
 #include "chStringUtils.h"
 #include "chTextureMips.h"
 #include "chTransientTexturePool.h"
@@ -6186,6 +6188,171 @@ TEST_CASE("chCore - Sprite batch benchmark", "[.benchmark]")
   }
 }
 
+TEST_CASE("chCore - Sprite draw")
+{
+  SpriteDraw spriteDraw;
+
+  SECTION("A quad turns counterclockwise and stands on its pivot")
+  {
+    spriteDraw.quad({.position = Vector2(1.0f, 2.0f),
+                     .depth = 4.0f,
+                     .size = Vector2(4.0f, 2.0f),
+                     .rotation = Radian(Degree(90.0f)),
+                     .pivot = Vector2(0.0f, 0.0f),
+                     .color = LinearColor(0.0f, 1.0f, 0.0f, 0.5f),
+                     .sortingLayer = 3,
+                     .order = -1,
+                     .blendMode = SpriteBlendMode::Additive});
+    REQUIRE(spriteDraw.getSprites().size() == 1);
+    const SpriteItem& sprite = spriteDraw.getSprites()[0];
+    REQUIRE(sprite.bInUse);
+    REQUIRE(sprite.owner == nullptr);
+    // The right side now points up and the top points left.
+    REQUIRE(sprite.instance.halfAxisU.nearEqual(Vector3(0.0f, 0.0f, 2.0f), 1e-5f));
+    REQUIRE(sprite.instance.halfAxisV.nearEqual(Vector3(0.0f, -1.0f, 0.0f), 1e-5f));
+    REQUIRE(sprite.instance.center.nearEqual(Vector3(4.0f, 0.0f, 4.0f), 1e-5f));
+    REQUIRE(sprite.radius == Approx(3.0f));
+    REQUIRE(sprite.sortingLayer == 3);
+    REQUIRE(sprite.order == -1);
+    REQUIRE(sprite.blendMode == SpriteBlendMode::Additive);
+    REQUIRE(Float16::toFloat(static_cast<uint16>(sprite.instance.colorRG >> 16)) == 1.0f);
+    REQUIRE(Float16::toFloat(static_cast<uint16>(sprite.instance.colorBA >> 16)) == 0.5f);
+    REQUIRE(sprite.instance.textureAndFlags == GpuSpriteInstance::NO_TEXTURE);
+  }
+
+  SECTION("Instances are taken as they are")
+  {
+    GpuSpriteInstance instance{};
+    instance.center = Vector3(0.0f, 7.0f, 0.0f);
+    spriteDraw.instance(instance, 2.0f, 1, 2, SpriteBlendMode::Alpha);
+    REQUIRE(spriteDraw.getSprites()[0].instance.center.y == 7.0f);
+    REQUIRE(spriteDraw.getSprites()[0].radius == 2.0f);
+    spriteDraw.clear();
+    REQUIRE(spriteDraw.getSprites().empty());
+  }
+
+  SECTION("Above the limit the rest are dropped")
+  {
+    const int32 limit = g_cvarSpriteDrawMax.get();
+    REQUIRE(g_cvarSpriteDrawMax.set(3));
+    for (uint32 i = 0; i < 5; ++i) {
+      spriteDraw.quad({});
+    }
+    REQUIRE(spriteDraw.getSprites().size() == 3);
+    REQUIRE(g_cvarSpriteDrawMax.set(limit));
+  }
+
+  SECTION("Texture parts and flips")
+  {
+    float uvRect[4];
+    SpriteDraw::makeUvRect(nullptr, Vector2(4.0f, 4.0f), Vector2(8.0f, 8.0f), false, true,
+                           uvRect);
+    // Without a texture size the whole image is shown, flipped as asked.
+    REQUIRE(uvRect[0] == 0.0f);
+    REQUIRE(uvRect[1] == 1.0f);
+    REQUIRE(uvRect[2] == 1.0f);
+    REQUIRE(uvRect[3] == -1.0f);
+    REQUIRE(SpriteDraw::makeTextureFlags(nullptr, SpriteFilter::Point) ==
+            (GpuSpriteInstance::NO_TEXTURE | GpuSpriteInstance::POINT_FILTER_BIT));
+  }
+
+  SECTION("Each scene list is cleared by its own update, and the frame has them all")
+  {
+    Scene scene("Sprites", chEngineSDK::UUID::createRandom());
+    const SPtr<GameObject> gameObject = scene.createGameObject("Sprite");
+    gameObject->addComponent<SpriteComponent>();
+    scene.updateTransforms();
+    scene.getSpriteDraw().quad({.position = Vector2(1.0f, 0.0f)});
+    scene.getFixedSpriteDraw().quad({.position = Vector2(2.0f, 0.0f)});
+
+    RenderFrame frame;
+    frame.extract(scene, createSpriteTestCamera(), LinearColor::BLACK);
+    REQUIRE(frame.getSprites().size() == 3);
+    REQUIRE(frame.getSprites()[0].owner == gameObject.get());
+    REQUIRE(frame.getSprites()[1].instance.center.y == 1.0f);
+    REQUIRE(frame.getSprites()[2].instance.center.y == 2.0f);
+
+    scene.update(0.016f);
+    REQUIRE(scene.getSpriteDraw().getSprites().empty());
+    REQUIRE(scene.getFixedSpriteDraw().getSprites().size() == 1);
+    scene.fixedUpdate(1.0f / 60.0f);
+    REQUIRE(scene.getFixedSpriteDraw().getSprites().empty());
+  }
+}
+
+/*
+ * Hidden: run it by name in a Release build,
+ *   chCoreTest "chCore - Bullet benchmark"
+ * A bullet hell frame done the way a C++ system (or plugin) would: 20000 bullets move, go
+ * into a spatial hash, 200 targets ask what touches them, and every bullet is drawn with
+ * SpriteDraw; then the sprites are sorted as the renderer does.
+ */
+TEST_CASE("chCore - Bullet benchmark", "[.benchmark]")
+{
+  constexpr uint32 kBulletCount = 20000;
+  constexpr uint32 kTargetCount = 200;
+  constexpr uint32 kFrames = 100;
+  constexpr float kDeltaTime = 1.0f / 60.0f;
+  const Camera camera = createSpriteTestCamera();
+
+  Vector<Vector2> positions(kBulletCount);
+  Vector<Vector2> velocities(kBulletCount);
+  for (uint32 i = 0; i < kBulletCount; ++i) {
+    const float angle = static_cast<float>(i) * 0.61f;
+    positions[i] = Vector2(Math::cos(Radian(angle)) * 0.5f, Math::sin(Radian(angle)) * 0.5f);
+    velocities[i] = Vector2(Math::cos(Radian(angle)) * 2.0f, Math::sin(Radian(angle)) * 2.0f);
+  }
+  Vector<Vector2> targets(kTargetCount);
+  for (uint32 i = 0; i < kTargetCount; ++i) {
+    targets[i] = Vector2(static_cast<float>(i % 20) * 0.8f - 8.0f,
+                         static_cast<float>(i / 20) * 0.9f - 4.5f);
+  }
+
+  SpriteDraw spriteDraw;
+  SpatialHash2D hash(0.5f);
+  Vector<uint32> touching;
+  SpriteBatcher batcher;
+  uint64 hits = 0;
+  const auto runFrame = [&]() {
+    spriteDraw.clear();
+    hash.clear();
+    for (uint32 i = 0; i < kBulletCount; ++i) {
+      Vector2& position = positions[i];
+      position += velocities[i] * kDeltaTime;
+      // Bullets that leave the screen come back in at the center.
+      if (Math::abs(position.x) > 9.0f || Math::abs(position.y) > 5.0f) {
+        position = Vector2::ZERO;
+      }
+      hash.addCircle(position, 0.05f, i);
+      spriteDraw.quad({.position = position,
+                       .size = Vector2(0.1f, 0.1f),
+                       .sortingLayer = 2,
+                       .blendMode = SpriteBlendMode::Additive});
+    }
+    hash.build();
+    for (const Vector2& target : targets) {
+      hash.queryCircle(target, 0.3f, touching);
+      hits += touching.size();
+    }
+    batcher.build(spriteDraw.getSprites(), camera.getFrustum(), camera.getForwardVector());
+  };
+
+  runFrame();
+  const auto start = std::chrono::steady_clock::now();
+  for (uint32 frame = 0; frame < kFrames; ++frame) {
+    runFrame();
+  }
+  const auto end = std::chrono::steady_clock::now();
+  const double milliseconds =
+      std::chrono::duration<double, std::milli>(end - start).count() / kFrames;
+  CH_LOG_INFO(SpriteTestLog,
+              "{} bullets, {} targets: {:.3f} ms per frame (move, hash, queries, draw, sort), "
+              "{} draws, {} hits",
+              kBulletCount, kTargetCount, milliseconds,
+              static_cast<uint32>(batcher.getRuns().size()), hits);
+  REQUIRE(batcher.getInstances().size() == kBulletCount);
+}
+
 #if USING(CH_DEBUG_DRAW)
 TEST_CASE("chCore - Debug draw")
 {
@@ -8085,6 +8252,180 @@ TEST_CASE("chCore - Script objects")
     REQUIRE(scripts.runString("DebugDraw.line(Vector3(0, 0, 0))"));
 #endif
   }
+}
+
+TEST_CASE("chCore - Script sprites")
+{
+  ScriptManager& scripts = getTestScriptManager();
+  Scene scene("Sprites", chEngineSDK::UUID::createRandom());
+  // Reset on any exit, so a failed check leaves no dangling scene for later tests.
+  struct SceneGuard
+  {
+    ScriptManager& scripts;
+    ~SceneGuard() { scripts.setCurrentScene(nullptr); }
+  } guard{scripts};
+  scripts.setCurrentScene(&scene);
+  scripts.beginUpdate(0.0f);
+
+  SECTION("A style places sprites in the frame list")
+  {
+    REQUIRE(scripts.runString(R"lua(
+      local style = Sprites.makeStyle{ size = Vector2(2, 1), color = Color(1, 0, 0, 1),
+                                       layer = 3, order = -2, blend = "Additive",
+                                       pivot = Vector2(0, 0), depth = 4 }
+      Sprites.draw(style, 1, 2)
+      Sprites.draw(style, 5, 6, 90, 2, Color(0, 1, 0, 0.5))
+      local copy = style:copy()
+      copy:setSorting(7)
+      copy:setSize(Vector2(3, 3))
+      assert(style:getSize().x == 2 and copy:getSize().x == 3)
+      Sprites.draw(copy, 0, 0)
+      Sprites.draw(Sprites.makeStyle(), 0, 0)
+    )lua"));
+    const Span<const SpriteItem> sprites = scene.getSpriteDraw().getSprites();
+    REQUIRE(sprites.size() == 4);
+    REQUIRE(sprites[0].instance.center.nearEqual(Vector3(4.0f, 2.0f, 2.5f), 1e-5f));
+    REQUIRE(sprites[0].sortingLayer == 3);
+    REQUIRE(sprites[0].order == -2);
+    REQUIRE(sprites[0].blendMode == SpriteBlendMode::Additive);
+    REQUIRE(Float16::toFloat(static_cast<uint16>(sprites[0].instance.colorRG & 0xFFFF)) ==
+            1.0f);
+    // Turned 90 degrees and twice as big, with the color given to the call.
+    REQUIRE(sprites[1].instance.halfAxisU.nearEqual(Vector3(0.0f, 0.0f, 2.0f), 1e-4f));
+    REQUIRE(sprites[1].instance.center.nearEqual(Vector3(4.0f, 4.0f, 8.0f), 1e-4f));
+    REQUIRE(Float16::toFloat(static_cast<uint16>(sprites[1].instance.colorBA >> 16)) == 0.5f);
+    REQUIRE(sprites[2].sortingLayer == 7);
+    REQUIRE(sprites[2].order == -2);
+    REQUIRE(sprites[2].instance.halfAxisU.y == Approx(1.5f));
+    // The default style is a one-unit square around the point.
+    REQUIRE(sprites[3].instance.center.nearEqual(Vector3::ZERO));
+    REQUIRE(sprites[3].instance.halfAxisU.y == Approx(0.5f));
+    REQUIRE(sprites[3].instance.textureAndFlags ==
+            (GpuSpriteInstance::NO_TEXTURE | GpuSpriteInstance::POINT_FILTER_BIT));
+  }
+
+  SECTION("Sprites drawn in a fixed step go to the fixed list")
+  {
+    scripts.beginFixedUpdate(1.0f / 60.0f);
+    REQUIRE(scripts.runString("Sprites.draw(Sprites.makeStyle(), 0, 0)"));
+    scripts.beginUpdate(0.0f);
+    REQUIRE(scene.getFixedSpriteDraw().getSprites().size() == 1);
+    REQUIRE(scene.getSpriteDraw().getSprites().empty());
+  }
+
+  SECTION("Mistakes raise, and without a scene nothing is drawn")
+  {
+    REQUIRE_FALSE(scripts.runString("Sprites.makeStyle{ colour = Color(1, 1, 1, 1) }"));
+    REQUIRE_FALSE(scripts.runString("Sprites.makeStyle{ blend = 'Over' }"));
+    REQUIRE_FALSE(scripts.runString("Sprites.makeStyle{ layer = 40000 }"));
+    REQUIRE_FALSE(scripts.runString("Sprites.makeStyle(5)"));
+    REQUIRE_FALSE(scripts.runString("Sprites.draw(5, 0, 0)"));
+    REQUIRE_FALSE(scripts.runString("Sprites.draw(Sprites.makeStyle(), 'x', 0)"));
+    REQUIRE(scene.getSpriteDraw().getSprites().empty());
+
+    scripts.setCurrentScene(nullptr);
+    REQUIRE(scripts.runString("Sprites.draw(Sprites.makeStyle(), 0, 0)"));
+    REQUIRE(scene.getSpriteDraw().getSprites().empty());
+  }
+
+  SECTION("Texture properties are picked in the editor and go into packages")
+  {
+    ScriptPropertyType type = ScriptPropertyType::Number;
+    REQUIRE(ScriptPropertyUtils::fromTypeName("Texture", type));
+    REQUIRE(type == ScriptPropertyType::Texture);
+    REQUIRE(StringView(ScriptPropertyUtils::getTypeName(type)) == "Texture");
+
+    ScriptPropertyValue value = ScriptPropertyValue::makeDefault(ScriptPropertyType::Texture);
+    REQUIRE(value.object.isNull());
+    value.object = chEngineSDK::UUID::createRandom();
+    MemoryDataStream stream;
+    ScriptPropertyUtils::writeValue(stream, value);
+    stream.seek(0);
+    ScriptPropertyValue loaded;
+    REQUIRE(ScriptPropertyUtils::readValue(stream, loaded));
+    REQUIRE(loaded.type == ScriptPropertyType::Texture);
+    REQUIRE(loaded.object == value.object);
+
+    const SPtr<ScriptAsset> painter = createTestScriptAsset("Painter", R"lua(
+      local Painter = {}
+      Painter.properties = { { "image", type = "Texture" } }
+      return Painter
+    )lua");
+    const ScriptClassInfo* painterClass = scripts.getClass(*painter);
+    REQUIRE(painterClass);
+    REQUIRE(painterClass->bValid);
+    REQUIRE(painterClass->properties.size() == 1);
+    REQUIRE(painterClass->properties[0].defaultValue.type == ScriptPropertyType::Texture);
+
+    // Like the other asset types, a texture has no default in the script.
+    const SPtr<ScriptAsset> broken = createTestScriptAsset("BrokenPainter", R"lua(
+      local BrokenPainter = {}
+      BrokenPainter.properties = { { "image", 5, type = "Texture" } }
+      return BrokenPainter
+    )lua");
+    const ScriptClassInfo* brokenClass = scripts.getClass(*broken);
+    REQUIRE((brokenClass == nullptr || !brokenClass->bValid));
+
+    ScriptComponent component(painter);
+    component.setOverride("image", value);
+    Vector<chEngineSDK::UUID> references;
+    component.collectReferences(references);
+    REQUIRE(Algorithm::contains(references, value.object));
+  }
+}
+
+/*
+ * Hidden: run it by name in a Release build,
+ *   chCoreTest "chCore - Script sprites benchmark"
+ * Bullets moved by a Lua loop over plain number arrays, each drawn with one Sprites.draw.
+ */
+TEST_CASE("chCore - Script sprites benchmark", "[.benchmark]")
+{
+  constexpr uint32 kFrames = 100;
+  ScriptManager& scripts = getTestScriptManager();
+  Scene scene("SpriteBench", chEngineSDK::UUID::createRandom());
+  struct SceneGuard
+  {
+    ScriptManager& scripts;
+    ~SceneGuard() { scripts.setCurrentScene(nullptr); }
+  } guard{scripts};
+  scripts.setCurrentScene(&scene);
+  REQUIRE(scripts.runString(R"lua(
+    BulletCount = 10000
+    local px, py, vx, vy = {}, {}, {}, {}
+    for i = 1, BulletCount do
+      local angle = i * 0.61
+      px[i], py[i] = math.cos(angle) * 0.5, math.sin(angle) * 0.5
+      vx[i], vy[i] = math.cos(angle) * 2, math.sin(angle) * 2
+    end
+    local style = Sprites.makeStyle{ size = Vector2(0.1, 0.1), layer = 2, blend = "Additive" }
+    local draw = Sprites.draw
+    function MoveBullets(dt)
+      for i = 1, BulletCount do
+        local x, y = px[i] + vx[i] * dt, py[i] + vy[i] * dt
+        if x > 9 or x < -9 or y > 5 or y < -5 then x, y = 0, 0 end
+        px[i], py[i] = x, y
+        draw(style, x, y)
+      end
+    end
+  )lua"));
+
+  const auto runFrame = [&]() {
+    scene.getSpriteDraw().clear();
+    scripts.beginUpdate(1.0f / 60.0f);
+    REQUIRE(scripts.runString("MoveBullets(1 / 60)"));
+  };
+  runFrame();
+  const auto start = std::chrono::steady_clock::now();
+  for (uint32 frame = 0; frame < kFrames; ++frame) {
+    runFrame();
+  }
+  const auto end = std::chrono::steady_clock::now();
+  const double milliseconds =
+      std::chrono::duration<double, std::milli>(end - start).count() / kFrames;
+  CH_LOG_INFO(ScriptTestLog, "Lua: 10000 bullets moved and drawn: {:.3f} ms per frame",
+              milliseconds);
+  REQUIRE(scene.getSpriteDraw().getSprites().size() == 10000);
 }
 
 TEST_CASE("chCore - Script spawning")

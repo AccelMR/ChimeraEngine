@@ -257,6 +257,17 @@ toPropertyValue(lua_State* state,
       }
       return prefab != nullptr;
     }
+    case ScriptPropertyType::Texture: {
+      if (lua_isnil(state, index)) {
+        return true;
+      }
+      const auto* texture = static_cast<const ScriptTexture*>(
+          luaL_testudata(state, index, ScriptValueType<ScriptTexture>::NAME));
+      if (texture) {
+        outValue.object = texture->texture;
+      }
+      return texture != nullptr;
+    }
     case ScriptPropertyType::Scene: {
       if (lua_isnil(state, index)) {
         return true;
@@ -365,6 +376,14 @@ pushPropertyValue(lua_State* state, const ScriptPropertyValue& value, const Scen
         ScriptTraits<ScriptPrefab>::push(state, ScriptPrefab{value.object});
       }
       break;
+    case ScriptPropertyType::Texture:
+      if (value.object.isNull()) {
+        lua_pushnil(state);
+      }
+      else {
+        ScriptTraits<ScriptTexture>::push(state, ScriptTexture{value.object});
+      }
+      break;
     case ScriptPropertyType::Scene: {
       // Its path, which the Scene functions take; nil once the scene was deleted.
       const SPtr<IAsset> sceneAsset = value.object.isNull() || !AssetManager::isStarted()
@@ -468,7 +487,7 @@ readProperty(lua_State* state, const lua_Integer position, ScriptClassInfo& info
         !ScriptPropertyUtils::fromTypeName(lua_tostring(state, -1), type)) {
       luaL_error(state,
                  "property '%s' has an unknown type '%s' (number, integer, boolean, string, "
-                 "Vector2, Vector3, Vector4, Color, GameObject, Prefab)",
+                 "Vector2, Vector3, Vector4, Color, GameObject, Prefab, Scene, Texture)",
                  name, luaL_tolstring(state, -1, nullptr));
     }
   }
@@ -482,7 +501,7 @@ readProperty(lua_State* state, const lua_Integer position, ScriptClassInfo& info
   lua_pop(state, 1);
 
   if ((type == ScriptPropertyType::GameObject || type == ScriptPropertyType::Prefab ||
-       type == ScriptPropertyType::Scene) &&
+       type == ScriptPropertyType::Scene || type == ScriptPropertyType::Texture) &&
       !lua_isnil(state, defaultIndex)) {
     luaL_error(state, "property '%s' is a %s: it is picked in the editor and has no default",
                name, ScriptPropertyUtils::getTypeName(type));
@@ -716,7 +735,8 @@ ScriptManager::openLibraries()
 
     m_apiDescription->addAlias("ScriptPropertyType",
                                "\"number\"|\"integer\"|\"boolean\"|\"string\"|\"Vector2\"|"
-                               "\"Vector3\"|\"Vector4\"|\"Color\"|\"GameObject\"|\"Prefab\"");
+                               "\"Vector3\"|\"Vector4\"|\"Color\"|\"GameObject\"|\"Prefab\"|"
+                               "\"Scene\"|\"Texture\"");
     ScriptApiType& entry =
         m_apiDescription->addType("ScriptPropertyEntry", ScriptApiTypeKind::Shape);
     entry.description = "One value the editor shows for each object using the script: "
@@ -734,6 +754,7 @@ ScriptManager::openLibraries()
   ScriptBindings::registerObjects(m_state);
   ScriptBindings::registerInput(m_state);
   ScriptBindings::registerDebugDraw(m_state);
+  ScriptBindings::registerSprites(m_state);
 }
 
 /*
@@ -1080,9 +1101,7 @@ ScriptManager::beginUpdate(const float deltaTime)
   m_deltaTime = deltaTime;
   m_time += static_cast<double>(deltaTime);
   ++m_frameCount;
-#if USING(CH_DEBUG_DRAW)
   m_bInFixedStep = false;
-#endif
   writeTime();
 }
 
@@ -1093,9 +1112,7 @@ ScriptManager::beginFixedUpdate(const float fixedDeltaTime)
 {
   m_deltaTime = fixedDeltaTime;
   m_fixedDeltaTime = fixedDeltaTime;
-#if USING(CH_DEBUG_DRAW)
   m_bInFixedStep = true;
-#endif
   writeTime();
 }
 

@@ -31,6 +31,7 @@ enum class ScriptPropertyType : uint8
   GameObject = 8,
   Prefab = 9,
   Scene = 10,
+  Texture = 11,
   COUNT
 };
 

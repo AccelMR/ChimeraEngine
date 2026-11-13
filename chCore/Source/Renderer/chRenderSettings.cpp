@@ -70,6 +70,12 @@ ConsoleVariable<bool> g_cvarSpriteYSort(
     "Inside one sorting layer and order, sprites higher on screen draw first, so lower ones "
     "cover them (top-down games); off draws the farther ones first.");
 
+ConsoleVariable<int32> g_cvarSpriteDrawMax(
+    "Renderer.SpriteDrawMax",
+    1048576,
+    "Most sprites one SpriteDraw (the sprites code and scripts add each frame without "
+    "GameObjects) keeps between two clears; more are dropped with a warning.");
+
 ConsoleVariable<float> g_cvarAmbient(
     "Renderer.Ambient",
     0.03f,

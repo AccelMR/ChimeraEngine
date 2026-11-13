@@ -83,6 +83,9 @@ extern CH_CORE_EXPORT ConsoleVariable<String> g_cvarRenderPath;
 // instead of the farther ones.
 extern CH_CORE_EXPORT ConsoleVariable<bool> g_cvarSpriteYSort;
 
+// Most sprites one SpriteDraw keeps between two clears; more are dropped with a warning.
+extern CH_CORE_EXPORT ConsoleVariable<int32> g_cvarSpriteDrawMax;
+
 // Light that reaches every surface from all sides until image based lighting exists.
 extern CH_CORE_EXPORT ConsoleVariable<float> g_cvarAmbient;
 
