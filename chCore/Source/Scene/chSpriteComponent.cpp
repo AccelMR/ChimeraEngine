@@ -17,6 +17,7 @@
 #include "chMatrix4.h"
 #include "chScene.h"
 #include "chSceneManager.h"
+#include "chSpriteAtlasAsset.h"
 #include "chSpriteDraw.h"
 #include "chTextureAsset.h"
 
@@ -25,6 +26,8 @@ namespace {
 struct SpriteFileData
 {
   UUID texture;
+  UUID atlas;
+  uint32 frame;
   float sourcePosition[2];
   float sourceSize[2];
   float pixelsPerUnit;
@@ -37,7 +40,7 @@ struct SpriteFileData
   uint8 flipX;
   uint8 flipY;
 };
-static_assert(sizeof(SpriteFileData) == 68, "SpriteFileData must have no padding");
+static_assert(sizeof(SpriteFileData) == 88, "SpriteFileData must have no padding");
 
 /*
  * Null when there is no such asset or it is of another type. Without an AssetManager
@@ -52,6 +55,16 @@ findTexture(const UUID& id)
   const SPtr<IAsset> asset = AssetManager::instance().getAsset(id);
   return asset ? asset->as<TextureAsset>() : nullptr;
 }
+
+NODISCARD SPtr<SpriteAtlasAsset>
+findAtlas(const UUID& id)
+{
+  if (id.isNull() || !AssetManager::isStarted()) {
+    return nullptr;
+  }
+  const SPtr<IAsset> asset = AssetManager::instance().getAsset(id);
+  return asset ? asset->as<SpriteAtlasAsset>() : nullptr;
+}
 } // namespace
 
 /*
@@ -61,7 +74,55 @@ SpriteComponent::setTexture(const SPtr<TextureAsset>& texture)
 {
   m_texture = texture;
   m_textureId = texture ? texture->getUUID() : UUID::null();
+  m_atlas.reset();
+  m_atlasId = UUID::null();
+  m_frame = NO_FRAME;
   updateSpriteItem();
+}
+
+/*
+ */
+void
+SpriteComponent::setAtlasFrame(const SPtr<SpriteAtlasAsset>& atlas, uint32 frame)
+{
+  m_atlas = atlas;
+  m_atlasId = atlas ? atlas->getUUID() : UUID::null();
+  m_frame = atlas ? frame : NO_FRAME;
+  m_texture.reset();
+  m_textureId = UUID::null();
+  updateSpriteItem();
+}
+
+/*
+ */
+void
+SpriteComponent::setFrame(uint32 frame)
+{
+  if (!m_atlas || frame == m_frame) {
+    return;
+  }
+  m_frame = frame;
+  updateSpriteItem();
+}
+
+/*
+ */
+const SpriteAtlasFrame*
+SpriteComponent::getAtlasFrame() const
+{
+  if (!m_atlas) {
+    return nullptr;
+  }
+  const Vector<SpriteAtlasFrame>& frames = m_atlas->getAtlas().getFrames();
+  return m_frame < frames.size() ? &frames[m_frame] : nullptr;
+}
+
+/*
+ */
+const TextureAsset*
+SpriteComponent::getShownTexture() const
+{
+  return m_atlas ? m_atlas->getTexture().get() : m_texture.get();
 }
 
 /*
@@ -144,13 +205,15 @@ SpriteComponent::setFilter(SpriteFilter filter)
 Vector2
 SpriteComponent::getSize() const
 {
-  Vector2 pixels = m_sourceSize;
+  const SpriteAtlasFrame* frame = getAtlasFrame();
+  Vector2 pixels = frame ? frame->size : m_sourceSize;
   if (pixels.x <= 0.0f || pixels.y <= 0.0f) {
-    if (!m_texture || m_texture->getWidth() == 0 || m_texture->getHeight() == 0) {
+    const TextureAsset* texture = getShownTexture();
+    if (!texture || texture->getWidth() == 0 || texture->getHeight() == 0) {
       return Vector2(1.0f, 1.0f);
     }
-    pixels = Vector2(static_cast<float>(m_texture->getWidth()),
-                     static_cast<float>(m_texture->getHeight()));
+    pixels = Vector2(static_cast<float>(texture->getWidth()),
+                     static_cast<float>(texture->getHeight()));
   }
   return Vector2(pixels.x / m_pixelsPerUnit, pixels.y / m_pixelsPerUnit);
 }
@@ -178,6 +241,8 @@ SpriteComponent::serialize(DataStream& stream) const
   const uint32 version = SERIALIZATION_VERSION;
   const SpriteFileData data{
       .texture = m_textureId,
+      .atlas = m_atlasId,
+      .frame = m_frame,
       .sourcePosition = {m_sourcePosition.x, m_sourcePosition.y},
       .sourceSize = {m_sourceSize.x, m_sourceSize.y},
       .pixelsPerUnit = m_pixelsPerUnit,
@@ -221,6 +286,17 @@ SpriteComponent::deserialize(DataStream& stream)
   m_bFlipX = data.flipX != 0;
   m_bFlipY = data.flipY != 0;
 
+  if (!data.atlas.isNull()) {
+    const SPtr<SpriteAtlasAsset> atlas = findAtlas(data.atlas);
+    setAtlasFrame(atlas, data.frame);
+    m_atlasId = data.atlas;
+    m_frame = data.frame;
+    if (!atlas) {
+      CH_LOG_WARNING(SceneManagerLog, "A sprite lost its atlas {0}.", data.atlas);
+    }
+    return true;
+  }
+
   const SPtr<TextureAsset> texture = findTexture(data.texture);
   setTexture(texture);
   m_textureId = data.texture;
@@ -237,6 +313,9 @@ SpriteComponent::collectReferences(Vector<UUID>& outReferences) const
 {
   if (!m_textureId.isNull()) {
     outReferences.push_back(m_textureId);
+  }
+  if (!m_atlasId.isNull()) {
+    outReferences.push_back(m_atlasId);
   }
 }
 
@@ -281,6 +360,9 @@ SpriteComponent::updateSpriteItem()
   const Vector3 up(world.at(2, 0), world.at(2, 1), world.at(2, 2));
   const Vector3 origin(world.at(3, 0), world.at(3, 1), world.at(3, 2));
 
+  const SpriteAtlasFrame* frame = getAtlasFrame();
+  const TextureAsset* texture = getShownTexture();
+  const Vector2& pivot = frame ? frame->pivot : m_pivot;
   const Vector2 size = getSize();
   const Vector3 halfU = right * (size.x * 0.5f);
   const Vector3 halfV = up * (size.y * 0.5f);
@@ -288,13 +370,17 @@ SpriteComponent::updateSpriteItem()
   SpriteItem& item = getOwner()->getScene()->getSprite(m_spriteItemId);
   GpuSpriteInstance& instance = item.instance;
   instance.center =
-      origin - halfU * (m_pivot.x * 2.0f - 1.0f) - halfV * (m_pivot.y * 2.0f - 1.0f);
+      origin - halfU * (pivot.x * 2.0f - 1.0f) - halfV * (pivot.y * 2.0f - 1.0f);
   instance.halfAxisU = halfU;
   instance.halfAxisV = halfV;
 
-  SpriteDraw::makeUvRect(
-      m_texture.get(), m_sourcePosition, m_sourceSize, m_bFlipX, m_bFlipY, instance.uvRect);
-  instance.textureAndFlags = SpriteDraw::makeTextureFlags(m_texture.get(), m_filter);
+  SpriteDraw::makeUvRect(texture,
+                         frame ? frame->position : m_sourcePosition,
+                         frame ? frame->size : m_sourceSize,
+                         m_bFlipX,
+                         m_bFlipY,
+                         instance.uvRect);
+  instance.textureAndFlags = SpriteDraw::makeTextureFlags(texture, m_filter);
   SpriteDraw::packColor(m_color, instance.colorRG, instance.colorBA);
 
   item.radius = halfU.magnitude() + halfV.magnitude();

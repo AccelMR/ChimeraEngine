@@ -47,6 +47,21 @@ struct ScriptTexture
 
 CH_SCRIPT_VALUE_TYPE(ScriptPrefab, "Prefab");
 CH_SCRIPT_VALUE_TYPE(ScriptTexture, "Texture");
+
+/**
+ * Exists so scripts hold a sprite atlas as a plain value (Atlas.find gives one;
+ * Sprites.makeStyle, Sprite:setAtlas and SpriteAnimator:setAtlas take it). Only the asset's
+ * UUID is kept.
+ */
+struct ScriptSpriteAtlas
+{
+  NODISCARD bool
+  operator==(const ScriptSpriteAtlas& other) const { return atlas == other.atlas; }
+
+  UUID atlas;
+};
+
+CH_SCRIPT_VALUE_TYPE(ScriptSpriteAtlas, "Atlas");
 CH_SCRIPT_HANDLE_TYPE(GameObject, "GameObject");
 CH_SCRIPT_HANDLE_TYPE(Transform, "Transform");
 CH_SCRIPT_HANDLE_TYPE(AnimatorComponent, "Animator");

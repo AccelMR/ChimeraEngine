@@ -50,10 +50,9 @@ struct PartHandle
   GameObject* const* object;
 };
 
-// The GameObject handle's user values, each the handle of one part, made on first use.
-constexpr int32 kTransformUserValue = 1;
-constexpr int32 kAnimatorUserValue = 2;
-constexpr int32 kUserValueCount = 2;
+constexpr int32 kTransformUserValue = ScriptBindings::TRANSFORM_USER_VALUE;
+constexpr int32 kAnimatorUserValue = ScriptBindings::ANIMATOR_USER_VALUE;
+constexpr int32 kUserValueCount = ScriptBindings::USER_VALUE_COUNT;
 
 /*
  * An object that left its scene but is still held elsewhere (undo, the editor selection) is
@@ -1678,6 +1677,27 @@ ScriptTraits<AnimatorComponent>::checkOwner(lua_State* state, const int32 index)
 /*
  */
 void
+ScriptBindings::pushPartHandle(lua_State* state,
+                               GameObject& gameObject,
+                               const int32 userValue,
+                               const ANSICHAR* typeName)
+{
+  chEngineSDK::pushPartHandle(state, gameObject, userValue, typeName);
+}
+
+/*
+ */
+GameObject&
+ScriptBindings::checkPartOwner(lua_State* state, const int32 index, const ANSICHAR* typeName)
+{
+  const PartHandle* handle =
+      static_cast<const PartHandle*>(luaL_checkudata(state, index, typeName));
+  return checkAlive(state, *handle->object);
+}
+
+/*
+ */
+void
 ScriptBindings::registerObjects(lua_State* state)
 {
   ScriptClass<GameObject>(state)
@@ -1686,6 +1706,9 @@ ScriptBindings::registerObjects(lua_State* state)
       .method<&setName>("setName", "name")
       .rawMethod("getTransform", &getTransform, "fun(): Transform")
       .rawMethod("getAnimator", &getAnimator, "fun(): Animator?")
+      .rawMethod("getSprite", &ScriptBindings::getSprite, "fun(): Sprite?")
+      .rawMethod("getSpriteAnimator", &ScriptBindings::getSpriteAnimator,
+                 "fun(): SpriteAnimator?")
       .rawMethod("getParent", &getParent, "fun(): GameObject?")
       .method<&getChildCount>("getChildCount")
       .rawMethod("getChild", &getChild, "fun(index: integer): GameObject?")

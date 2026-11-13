@@ -19,14 +19,18 @@
 #include "chVector2.h"
 
 namespace chEngineSDK {
+class SpriteAtlasAsset;
 class TextureAsset;
+struct SpriteAtlasFrame;
 
 /**
  * Exists to draw 2D images: it shows part of a texture as a quad that faces -X, with its
  * width along the GameObject's right axis (Y) and its height along its up axis (Z), so a
  * camera looking along +X sees it as a flat image. Its size in world units is the source
- * rectangle in pixels divided by the pixels per unit, times the GameObject's scale. While
- * registered it adds one sprite item to the scene and moves it with the GameObject.
+ * rectangle in pixels divided by the pixels per unit, times the GameObject's scale. It shows
+ * either a texture (with an optional source rectangle and pivot of its own) or one frame of
+ * a sprite atlas, whose texture, rectangle and pivot are used instead. While registered it
+ * adds one sprite item to the scene and moves it with the GameObject.
  */
 class CH_CORE_EXPORT SpriteComponent : public Component
 {
@@ -34,10 +38,36 @@ class CH_CORE_EXPORT SpriteComponent : public Component
   SpriteComponent() = default;
 
   /**
-   * Null draws a quad of the color alone.
+   * Null draws a quad of the color alone. Leaves the atlas, if one was shown.
    */
   void
   setTexture(const SPtr<TextureAsset>& texture);
+
+  /**
+   * Shows frame (an index into the atlas' frames) of atlas instead of a texture. A null
+   * atlas goes back to no texture; a frame past the atlas' frames shows its whole texture.
+   */
+  void
+  setAtlasFrame(const SPtr<SpriteAtlasAsset>& atlas, uint32 frame);
+
+  /**
+   * Another frame of the same atlas; cheap enough to call every frame (animations). Does
+   * nothing without an atlas.
+   */
+  void
+  setFrame(uint32 frame);
+
+  NODISCARD FORCEINLINE const SPtr<SpriteAtlasAsset>&
+  getAtlas() const noexcept { return m_atlas; }
+
+  /**
+   * The atlas asked for, kept even when the asset is missing.
+   */
+  NODISCARD FORCEINLINE const UUID&
+  getAtlasId() const noexcept { return m_atlasId; }
+
+  NODISCARD FORCEINLINE uint32
+  getFrame() const noexcept { return m_frame; }
 
   NODISCARD FORCEINLINE const SPtr<TextureAsset>&
   getTexture() const noexcept { return m_texture; }
@@ -142,6 +172,7 @@ class CH_CORE_EXPORT SpriteComponent : public Component
   collectReferences(Vector<UUID>& outReferences) const override;
 
   static constexpr uint32 SERIALIZATION_VERSION = 1;
+  static constexpr uint32 NO_FRAME = 0xFFFFFFFFu;
   static constexpr float DEFAULT_PIXELS_PER_UNIT = 100.0f;
   static constexpr float MIN_PIXELS_PER_UNIT = 0.001f;
 
@@ -159,8 +190,23 @@ class CH_CORE_EXPORT SpriteComponent : public Component
   void
   updateSpriteItem();
 
+  /**
+   * The atlas frame shown, null when the sprite shows a texture or the frame does not exist.
+   */
+  NODISCARD const SpriteAtlasFrame*
+  getAtlasFrame() const;
+
+  /**
+   * The texture drawn: the atlas' in atlas mode, else the component's.
+   */
+  NODISCARD const TextureAsset*
+  getShownTexture() const;
+
   SPtr<TextureAsset> m_texture;
   UUID m_textureId = UUID::null();
+  SPtr<SpriteAtlasAsset> m_atlas;
+  UUID m_atlasId = UUID::null();
+  uint32 m_frame = NO_FRAME;
   Vector2 m_sourcePosition = Vector2::ZERO;
   Vector2 m_sourceSize = Vector2::ZERO;
   float m_pixelsPerUnit = DEFAULT_PIXELS_PER_UNIT;

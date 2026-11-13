@@ -18,6 +18,7 @@
 #include "chScriptComponent.h"
 #include "chShapeComponent.h"
 #include "chSkyLightComponent.h"
+#include "chSpriteAnimatorComponent.h"
 #include "chSpriteComponent.h"
 
 namespace chEngineSDK {
@@ -49,6 +50,7 @@ getTypes()
     addBuiltIn.operator()<SkyLightComponent>();
     addBuiltIn.operator()<ShapeComponent>();
     addBuiltIn.operator()<SpriteComponent>();
+    addBuiltIn.operator()<SpriteAnimatorComponent>();
     addBuiltIn.operator()<CameraComponent>();
     addBuiltIn.operator()<ScriptComponent>();
     return builtIn;
