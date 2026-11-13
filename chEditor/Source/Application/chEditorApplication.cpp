@@ -39,6 +39,9 @@
 #include "chProfilerUI.h"
 #include "chQuaternion.h"
 #include "chRayCast.h"
+#include "chSpriteAtlasAsset.h"
+#include "chSpriteComponent.h"
+#include "chTextureAsset.h"
 #include "chRotator.h"
 #include "chUIHelpers.h"
 #include "chViewportGrid.h"
@@ -307,6 +310,12 @@ EditorApplication::update(const float deltaTime)
   m_editorCamera->setFocused(!m_bGameView &&
                              (!UIHelpers::bRenderImGui ||
                               (m_bViewportHovered && !m_viewportTools->isUsingMouse())));
+  if (m_viewportArea.width > 0.0f && m_viewportArea.height > 0.0f) {
+    const ImVec2 mouse = ImGui::GetMousePos();
+    m_editorCamera->setCursorPosition(
+        Vector2((mouse.x - m_viewportArea.x) / m_viewportArea.width,
+                (mouse.y - m_viewportArea.y) / m_viewportArea.height));
+  }
   syncPilotedCamera();
   const Vector3 positionBefore = m_editorCamera->getCamera().getPosition();
   const Vector3 lookAtBefore = m_editorCamera->getCamera().getLookAt();
@@ -393,7 +402,8 @@ EditorApplication::onRender(ICommandList& commandList, const ISwapChain& swapCha
     const RGTextureHandle sceneDepth = m_sceneRenderer->addScenePasses(sceneImage);
     if (ViewportGrid::isVisible() && !m_bGameView) {
       m_viewportGrid->addPass(graph, m_sceneRenderer->getFrame().getCamera(), sceneImage,
-                              sceneDepth);
+                              sceneDepth,
+                              m_editorCamera->is2D() ? GridPlane::Plane2D : GridPlane::Ground);
     }
   }
   // The dockspace covers the whole window, so nothing of the clear shows.
@@ -775,6 +785,10 @@ EditorApplication::renderViewportPanel()
     if (const SPtr<PrefabAsset> prefab = AssetDragDrop::acceptPrefab()) {
       placeAtMouse(AssetDragDrop::createPrefabObject(scene, prefab, parent));
     }
+    // Images become sprites only in the 2D view, where the plane they stand on is shown.
+    if (m_editorCamera->is2D() && !EditorScene::isPlaying()) {
+      acceptSpriteDrop(scene, parent);
+    }
     ImGui::EndDragDropTarget();
   }
 
@@ -835,6 +849,44 @@ EditorApplication::updateViewportTarget(uint32 width, uint32 height)
 }
 
 /*
+ * A texture shows whole; an atlas shows its first frame; a frame dragged from an atlas
+ * shows that frame. The object is named after what it shows.
+ */
+void
+EditorApplication::acceptSpriteDrop(Scene& scene, GameObject* parent)
+{
+  SPtr<TextureAsset> texture = AssetDragDrop::acceptTexture();
+  SPtr<SpriteAtlasAsset> atlas = AssetDragDrop::acceptSpriteAtlas();
+  uint32 frame = 0;
+  if (!atlas) {
+    SPtr<SpriteAtlasAsset> frameAtlas;
+    if (AssetDragDrop::acceptSpriteFrame(frameAtlas, frame)) {
+      atlas = std::move(frameAtlas);
+    }
+  }
+  if (!texture && !atlas) {
+    return;
+  }
+
+  String name = texture ? String(texture->getName()) : String(atlas->getName());
+  if (atlas && frame < atlas->getAtlas().getFrames().size() &&
+      !atlas->getAtlas().getFrames()[frame].name.empty()) {
+    name = atlas->getAtlas().getFrames()[frame].name;
+  }
+  const SPtr<GameObject> gameObject = scene.createGameObject(name, parent);
+  SpriteComponent& sprite = gameObject->addComponent<SpriteComponent>();
+  if (texture) {
+    sprite.setTexture(texture);
+  }
+  else {
+    sprite.setAtlasFrame(atlas, frame);
+  }
+  placeAtMouse(gameObject);
+  EditorSelection::setSelectedGameObject(gameObject);
+  EditorScene::recordCreated(*gameObject, "Drop Sprite");
+}
+
+/*
  */
 void
 EditorApplication::placeAtMouse(const SPtr<GameObject>& gameObject)
@@ -849,11 +901,14 @@ EditorApplication::placeAtMouse(const SPtr<GameObject>& gameObject)
   const Camera& camera = getViewCamera();
   const Ray ray = camera.screenToWorldRay(screenPoint);
 
-  // Models land on the ground (Z = 0) under the mouse. When the ray misses the ground, or
-  // meets it near the horizon, they stay under the mouse at the look at distance instead.
+  // Models land on the ground (Z = 0) under the mouse, or on the plane x = 0 in the 2D
+  // view. When the ray misses it, or meets the ground near the horizon, they stay under the
+  // mouse at the look at distance instead.
   const float lookAtDistance = (camera.getLookAt() - camera.getPosition()).magnitude();
+  const Plane plane(m_editorCamera->is2D() && !m_bGameView ? Vector3::FORWARD : Vector3::UP,
+                    0.0f);
   float distance = 0.0f;
-  if (!RayCast::plane(ray, Plane(Vector3::UP, 0.0f), distance) ||
+  if (!RayCast::plane(ray, plane, distance) ||
       distance > lookAtDistance * kMaxDropDistanceScale) {
     distance = lookAtDistance;
   }

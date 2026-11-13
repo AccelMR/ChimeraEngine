@@ -1,5 +1,6 @@
-// The editor's ground grid on the plane z = 0, drawn over the finished image and hidden by
-// what the scene drew in front of it. Lines come in three levels, each ten times the one
+// The editor's grid on the ground plane z = 0, or on the plane x = 0 of 2D games, drawn
+// over the finished image and hidden by what the scene drew in front of it (when there is a
+// scene depth). Lines come in three levels, each ten times the one
 // below; with adaptive spacing the level is picked per pixel from how much ground a pixel
 // covers, so cells keep about the same size on screen at any distance or height.
 
@@ -19,13 +20,19 @@ struct PushConstants
   float fadeDistance;
   float opacity;
   uint adaptive;
+  // 2: the ground (z = 0, lines along x and y); 0: the 2D plane (x = 0, lines along y and
+  // z), seen straight on, so it neither fades with distance nor at grazing angles.
+  uint planeAxis;
 };
+
+static const uint kNoDepth = 0xFFFFFFFFu;
 
 [[vk::push_constant]] ConstantBuffer<PushConstants> g_push : register(b0);
 
 static const float3 kLineColor = float3(0.6f, 0.6f, 0.6f);
 static const float3 kAxisXColor = float3(0.9f, 0.25f, 0.25f);
 static const float3 kAxisYColor = float3(0.35f, 0.85f, 0.3f);
+static const float3 kAxisZColor = float3(0.3f, 0.5f, 0.95f);
 // Brightness of the finest level and of the levels ten and a hundred times bigger.
 static const float kMinorStrength = 0.5f;
 static const float kMajorStrength = 1.0f;
@@ -70,21 +77,27 @@ PSMain(VertexOutput input) : SV_Target0
 {
   const float4x4 clipToWorld = float4x4(g_push.clipToWorldRow0, g_push.clipToWorldRow1,
                                         g_push.clipToWorldRow2, g_push.clipToWorldRow3);
+  const bool bPlane2D = g_push.planeAxis == 0;
   // The pixel's view ray at the near and far planes, in homogeneous world coordinates.
-  // These change linearly with the clip depth, so the depth where the ray meets z = 0 comes
-  // out directly, and it is the value to compare with the scene depth.
+  // These change linearly with the clip depth, so the depth where the ray meets the plane
+  // comes out directly, and it is the value to compare with the scene depth.
   const float4 nearPoint = mul(float4(input.clipPosition, 0.0f, 1.0f), clipToWorld);
   const float4 farPoint = mul(float4(input.clipPosition, 1.0f, 1.0f), clipToWorld);
-  const float rayHeight = farPoint.z - nearPoint.z;
-  const float groundDepth = -nearPoint.z / (abs(rayHeight) > 1e-12f ? rayHeight : 1e-12f);
+  const float nearHeight = bPlane2D ? nearPoint.x : nearPoint.z;
+  const float rayHeight = (bPlane2D ? farPoint.x : farPoint.z) - nearHeight;
+  const float groundDepth = -nearHeight / (abs(rayHeight) > 1e-12f ? rayHeight : 1e-12f);
   const float4 ground = lerp(nearPoint, farPoint, groundDepth);
-  const float2 position = ground.xy / ground.w;
+  // The two axes the plane spans.
+  const float2 position = (bPlane2D ? ground.yz : ground.xy) / ground.w;
 
   // Before any discard, so the derivatives see every pixel of the quad.
   const float2 pixelSize = max(fwidth(position), 1e-6f);
 
-  Texture2D<float> depth = ResourceDescriptorHeap[g_push.depthIndex];
-  const float sceneDepth = depth.Load(int3(input.position.xy, 0));
+  float sceneDepth = 1.0f;
+  if (g_push.depthIndex != kNoDepth) {
+    Texture2D<float> depth = ResourceDescriptorHeap[g_push.depthIndex];
+    sceneDepth = depth.Load(int3(input.position.xy, 0));
+  }
   if (groundDepth < 0.0f || groundDepth > 1.0f || ground.w <= 0.0f ||
       groundDepth > sceneDepth) {
     discard;
@@ -109,19 +122,22 @@ PSMain(VertexOutput input) : SV_Target0
                         coarse * kMajorStrength));
   float3 color = kLineColor;
 
-  // The X axis is the line y = 0, the Y axis the line x = 0.
-  const float axisX = saturate(kAxisWidth * 0.5f + 0.5f - abs(position.y) / pixelSize.y);
-  const float axisY = saturate(kAxisWidth * 0.5f + 0.5f - abs(position.x) / pixelSize.x);
-  color = lerp(color, kAxisXColor, axisX);
-  color = lerp(color, kAxisYColor, axisY);
-  alpha = max(alpha, max(axisX, axisY));
+  // On the ground the X axis is the line y = 0 and the Y axis the line x = 0; on the 2D
+  // plane the Y axis is the line z = 0 and the Z axis the line y = 0.
+  const float firstAxis = saturate(kAxisWidth * 0.5f + 0.5f - abs(position.y) / pixelSize.y);
+  const float secondAxis = saturate(kAxisWidth * 0.5f + 0.5f - abs(position.x) / pixelSize.x);
+  color = lerp(color, bPlane2D ? kAxisYColor : kAxisXColor, firstAxis);
+  color = lerp(color, bPlane2D ? kAxisZColor : kAxisYColor, secondAxis);
+  alpha = max(alpha, max(firstAxis, secondAxis));
 
-  const float3 toGround = float3(position, 0.0f) - g_push.cameraPosition;
-  const float distance = length(toGround);
-  const float fadeDistance =
-      max(g_push.fadeDistance, abs(g_push.cameraPosition.z) * kFadeHeightMultiple);
-  alpha *= saturate(1.0f - distance / fadeDistance);
-  alpha *= saturate(abs(toGround.z) / (distance * kGrazingSlope));
+  if (!bPlane2D) {
+    const float3 toGround = float3(position, 0.0f) - g_push.cameraPosition;
+    const float distance = length(toGround);
+    const float fadeDistance =
+        max(g_push.fadeDistance, abs(g_push.cameraPosition.z) * kFadeHeightMultiple);
+    alpha *= saturate(1.0f - distance / fadeDistance);
+    alpha *= saturate(abs(toGround.z) / (distance * kGrazingSlope));
+  }
   alpha *= g_push.opacity;
   if (alpha <= 1.0f / 255.0f) {
     discard;

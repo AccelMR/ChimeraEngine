@@ -16,6 +16,14 @@
 
 namespace chEngineSDK {
 
+enum class GridPlane : uint8
+{
+  // z = 0, lines along X and Y.
+  Ground,
+  // x = 0, the plane 2D games live in, lines along Y and Z.
+  Plane2D
+};
+
 /**
  * Exists to show the ground plane (z = 0) in the viewport, so placement and scale can be
  * judged: lines every Editor.GridSpacing that grow ten times at a time with the distance when
@@ -34,18 +42,26 @@ class ViewportGrid
   ~ViewportGrid();
 
   /**
-   * Adds nothing when there is no scene depth (view modes without one); whether the grid
-   * is shown is up to the caller (isVisible() for the main viewport). The camera is read
+   * The ground grid adds nothing when there is no scene depth (view modes without one);
+   * the 2D plane is then drawn over the whole image. Whether the grid is shown is up to the
+   * caller (isVisible() for the main viewport). The camera is read
    * now, so it need not outlive the frame.
    */
   void
   addPass(RenderGraph& graph,
           const Camera& camera,
           RGTextureHandle output,
-          RGTextureHandle depth);
+          RGTextureHandle depth,
+          GridPlane plane = GridPlane::Ground);
 
   NODISCARD static bool
   isVisible();
+
+  /**
+   * Size of the smallest cell, in world units; the 2D view snaps to it.
+   */
+  NODISCARD static float
+  getSpacing();
 
   /**
    * Saved to /Saved/Config/Editor.ini.

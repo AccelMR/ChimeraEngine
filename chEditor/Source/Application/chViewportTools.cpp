@@ -206,7 +206,10 @@ ViewportTools::render(Scene& scene, const ViewportArea& area, bool bHovered, boo
   renderLights(camera);
   renderCameras(scene, camera);
   manipulateSelection(scene, camera);
-  renderViewCube();
+  // The 2D view never turns.
+  if (!m_editorCamera.is2D()) {
+    renderViewCube();
+  }
   handleClickSelection(scene, camera);
 }
 
@@ -335,12 +338,21 @@ ViewportTools::renderToolbar(bool bEditTools)
 
   ImGui::SameLine();
   ImGui::Checkbox("Snap", &m_bSnap);
+  const bool b2D = m_editorCamera.is2D();
   if (m_bSnap) {
     ImGui::SameLine();
     ImGui::SetNextItemWidth(70.0f);
     switch (m_operation) {
       case Operation::Translate:
-        ImGui::DragFloat("##SnapValue", &m_translationSnap, 0.05f, 0.01f, 1000.0f, "%.2f");
+        // The 2D view moves along its grid.
+        if (b2D) {
+          ImGui::AlignTextToFramePadding();
+          ImGui::TextDisabled("Grid %.2f", ViewportGrid::getSpacing());
+          ImGui::SetItemTooltip("In 2D, moves snap to the grid spacing (right click Grid)");
+        }
+        else {
+          ImGui::DragFloat("##SnapValue", &m_translationSnap, 0.05f, 0.01f, 1000.0f, "%.2f");
+        }
         break;
       case Operation::Rotate:
         ImGui::DragFloat("##SnapValue", &m_rotationSnapDegrees, 0.5f, 1.0f, 180.0f,
@@ -355,6 +367,14 @@ ViewportTools::renderToolbar(bool bEditTools)
   ImGui::SameLine();
   ImGui::TextDisabled("|");
   ImGui::SameLine();
+  if (ImGui::Button(b2D ? "2D###ViewMode2D" : "3D###ViewMode2D")) {
+    m_editorCamera.set2D(!b2D);
+  }
+  ImGui::SetItemTooltip(b2D ? "2D view: looking along +X at the plane x = 0; right or middle "
+                              "drag pans, the wheel zooms. Click for the 3D view."
+                            : "3D view. Click for the 2D view of the plane x = 0, where 2D "
+                              "games live.");
+  ImGui::SameLine();
   renderCameraSettings();
 
   ImGui::SameLine();
@@ -368,7 +388,8 @@ ViewportTools::renderToolbar(bool bEditTools)
   if (bGrid) {
     ImGui::PopStyleColor();
   }
-  ImGui::SetItemTooltip("Ground grid; right click for its settings");
+  ImGui::SetItemTooltip(b2D ? "Grid of the 2D plane; right click for its settings"
+                            : "Ground grid; right click for its settings");
   if (ImGui::BeginPopupContextItem("##GridSettings")) {
     ViewportGrid::renderSettings();
     ImGui::EndPopup();
@@ -757,19 +778,22 @@ ViewportTools::manipulateSelection(Scene& scene, const Camera& camera)
   Transform& transform = selected->getTransform();
   Matrix4 world = transform.getWorldMatrix();
 
+  // In 2D only what stays in the plane: moves and scales along Y and Z, turns around X.
+  // The depth (world X) is set in the Inspector.
+  const bool b2D = m_editorCamera.is2D();
   ImGuizmo::OPERATION operation = ImGuizmo::TRANSLATE;
   float snap[3] = {0.0f, 0.0f, 0.0f};
   switch (m_operation) {
     case Operation::Translate:
-      operation = ImGuizmo::TRANSLATE;
-      snap[0] = snap[1] = snap[2] = m_translationSnap;
+      operation = b2D ? ImGuizmo::TRANSLATE_Y | ImGuizmo::TRANSLATE_Z : ImGuizmo::TRANSLATE;
+      snap[0] = snap[1] = snap[2] = b2D ? ViewportGrid::getSpacing() : m_translationSnap;
       break;
     case Operation::Rotate:
-      operation = ImGuizmo::ROTATE;
+      operation = b2D ? ImGuizmo::ROTATE_X : ImGuizmo::ROTATE;
       snap[0] = m_rotationSnapDegrees;
       break;
     case Operation::Scale:
-      operation = ImGuizmo::SCALE;
+      operation = b2D ? ImGuizmo::SCALE_Y | ImGuizmo::SCALE_Z : ImGuizmo::SCALE;
       snap[0] = snap[1] = snap[2] = m_scaleSnap;
       break;
   }

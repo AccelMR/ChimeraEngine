@@ -118,6 +118,12 @@ class CH_CORE_EXPORT Camera
     return m_width / m_height;
   }
 
+  NODISCARD FORCEINLINE float
+  getViewportHeight() const
+  {
+    return m_height;
+  }
+
   FORCEINLINE void
   setClipPlanes(float nearPlane, float farPlane)
   {

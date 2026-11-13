@@ -26,7 +26,8 @@ namespace chEngineSDK {
 namespace {
 ConsoleVariable<bool> g_cvarGrid("Editor.Grid",
                                  true,
-                                 "Shows the ground grid (z = 0) in the viewport.",
+                                 "Shows the grid in the viewport: the ground (z = 0), or the 2D "
+                                 "plane (x = 0) in the 2D view.",
                                  "Grid");
 ConsoleVariable<float> g_cvarGridSpacing(
     "Editor.GridSpacing",
@@ -63,6 +64,7 @@ struct GridPushConstants
   float fadeDistance;
   float opacity;
   uint32 adaptive;
+  uint32 planeAxis;
 };
 static_assert(sizeof(GridPushConstants) <= GraphicsLimits::PUSH_CONSTANTS_SIZE);
 
@@ -138,9 +140,12 @@ void
 ViewportGrid::addPass(RenderGraph& graph,
                       const Camera& camera,
                       RGTextureHandle output,
-                      RGTextureHandle depth)
+                      RGTextureHandle depth,
+                      const GridPlane plane)
 {
-  if (!depth.isValid()) {
+  // The ground needs the scene depth to hide behind what stands on it; the 2D plane is seen
+  // straight on and is drawn over everything when the path keeps no depth (sprites).
+  if (!depth.isValid() && plane == GridPlane::Ground) {
     return;
   }
   updatePipeline(graph.getTextureDesc(output).format);
@@ -156,20 +161,33 @@ ViewportGrid::addPass(RenderGraph& graph,
       .minCellPixels = Math::max(g_cvarGridMinCellPixels.get(), 1.0f),
       .fadeDistance = Math::max(g_cvarGridFadeDistance.get(), 0.001f),
       .opacity = Math::clamp(g_cvarGridOpacity.get(), 0.0f, 1.0f),
-      .adaptive = g_cvarGridAdaptive.get() ? 1u : 0u};
+      .adaptive = g_cvarGridAdaptive.get() ? 1u : 0u,
+      .planeAxis = plane == GridPlane::Plane2D ? 0u : 2u};
 
-  graph.addPass("Grid")
-      .read(depth)
-      .writeColor(output, LoadOp::Load)
+  RenderPassBuilder pass = graph.addPass("Grid");
+  if (depth.isValid()) {
+    pass.read(depth);
+  }
+  pass.writeColor(output, LoadOp::Load)
       .setOptional()
       .setExecute([this, pushConstants, depth](RenderPassContext& context) {
         ICommandList& commandList = context.getCommandList();
         GridPushConstants constants = pushConstants;
-        constants.depthIndex = context.getView(depth).getBindlessIndex();
+        if (depth.isValid()) {
+          constants.depthIndex = context.getView(depth).getBindlessIndex();
+        }
         commandList.bindPipeline(*m_pipeline);
         commandList.pushConstants(&constants, sizeof(constants));
         commandList.draw(3);
       });
+}
+
+/*
+ */
+float
+ViewportGrid::getSpacing()
+{
+  return Math::max(g_cvarGridSpacing.get(), 0.001f);
 }
 
 /*

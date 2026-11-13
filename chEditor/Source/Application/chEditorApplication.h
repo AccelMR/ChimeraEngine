@@ -118,6 +118,12 @@ class EditorApplication : public WindowedApplication
   void
   placeAtMouse(const SPtr<GameObject>& gameObject);
 
+  /**
+   * Makes a sprite from a texture, an atlas or an atlas frame dropped on the 2D view.
+   */
+  void
+  acceptSpriteDrop(Scene& scene, GameObject* parent);
+
   void
   updateGameInput();
 

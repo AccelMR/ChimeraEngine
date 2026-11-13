@@ -12,6 +12,7 @@
 #include "chPrerequisitesCore.h"
 
 #include "chCamera.h"
+#include "chVector2.h"
 
 namespace chEngineSDK {
 
@@ -19,7 +20,9 @@ namespace chEngineSDK {
  * Exists because the viewport camera belongs to the editor, not to the scene: it is not a
  * GameObject and is never saved. Holding the right button flies it like a first person
  * camera (WASD along the view, E up, Q down, Shift faster); it starts
- * only while focused, so ImGui windows keep their keys and clicks.
+ * only while focused, so ImGui windows keep their keys and clicks. In the 2D view it is an
+ * orthographic camera looking along +X at the plane 2D games live in: the right or middle
+ * button pans, the wheel zooms toward the cursor, and it never turns.
  */
 class EditorCamera
 {
@@ -41,6 +44,23 @@ class EditorCamera
   setFocused(bool focused) { m_bFocused = focused; }
 
   /**
+   * Where the mouse is over the viewport, from (0, 0) at the top left to (1, 1), so the 2D
+   * zoom keeps the point under it in place.
+   */
+  FORCEINLINE void
+  setCursorPosition(const Vector2& normalizedPosition) { m_cursor = normalizedPosition; }
+
+  /**
+   * Switches the view and saves the choice in /Saved/Config/Editor.ini. Coming back to 3D
+   * gives the 3D view the camera had before.
+   */
+  void
+  set2D(bool b2D);
+
+  NODISCARD FORCEINLINE bool
+  is2D() const noexcept { return m_b2D; }
+
+  /**
    * True from the frame the right button starts a flight until it is released, even if
    * the cursor goes over a window meanwhile.
    */
@@ -56,6 +76,10 @@ class EditorCamera
   void
   focus(const AABox& bounds);
 
+  /**
+   * In the 2D view only the look at point's Y and Z are kept; the position is the 3D view
+   * the camera goes back to.
+   */
   void
   setView(const Vector3& position, const Vector3& lookAt);
 
@@ -131,6 +155,9 @@ class EditorCamera
   static constexpr float MAX_FAR_PLANE = 1000000.0f;
   // The far plane is at least this many times the near one.
   static constexpr float MIN_FAR_TO_NEAR_RATIO = 2.0f;
+  // Half the height the 2D view shows, in world units.
+  static constexpr float MIN_2D_HALF_HEIGHT = 0.05f;
+  static constexpr float MAX_2D_HALF_HEIGHT = 100000.0f;
 
  private:
   void
@@ -142,7 +169,22 @@ class EditorCamera
   void
   applyProjection(float fieldOfViewDegrees, float nearPlane, float farPlane);
 
+  void
+  update2D();
+
+  /*
+   * Looks straight along +X at the point (Y, Z) of the plane.
+   */
+  void
+  place2D(float y, float z);
+
   Camera m_camera;
+  // The 3D view set2D(false) goes back to.
+  Vector3 m_position3D = Vector3::ZERO;
+  Vector3 m_lookAt3D = Vector3::ZERO;
+  Vector2 m_cursor{0.5f, 0.5f};
+  bool m_b2D = false;
+  bool m_bHasView3D = false;
   bool m_bFocused = false;
   bool m_bFlying = false;
   // The wheel changed the speed during the flight, so it is saved when the flight ends.
