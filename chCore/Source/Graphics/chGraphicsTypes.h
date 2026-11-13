@@ -119,6 +119,34 @@ struct FormatInfo
   bool isSrgb = false;
 };
 
+// Kept out of FormatUtils: MSVC 14.44 stops with C2102 and an internal compiler error on a
+// static constexpr array member whose elements use designated initializers.
+namespace FormatDetail {
+// In the order of the Format values.
+inline constexpr FormatInfo kFormatInfos[] = {
+    {},                                                  // Unknown
+    {.bytesPerBlock = 4},                                // R8G8B8A8_UNORM
+    {.bytesPerBlock = 4},                                // B8G8R8A8_UNORM
+    {.bytesPerBlock = 4, .isSrgb = true},                // B8G8R8A8_SRGB
+    {.bytesPerBlock = 8},                                // R16G16B16A16_SFLOAT
+    {.bytesPerBlock = 4, .isDepth = true},               // D32_SFLOAT
+    {.bytesPerBlock = 4, .isDepth = true, .hasStencil = true}, // D24_UNORM_S8_UINT
+    {.bytesPerBlock = 1},                                // R8_UNORM
+    {.bytesPerBlock = 2},                                // R8G8_UNORM
+    {.bytesPerBlock = 4, .isSrgb = true},                // R8G8B8A8_SRGB
+    {.bytesPerBlock = 4},                                // A2B10G10R10_UNORM
+    {.bytesPerBlock = 4},                                // B10G11R11_UFLOAT
+    {.bytesPerBlock = 2},                                // R16_SFLOAT
+    {.bytesPerBlock = 4},                                // R16G16_SFLOAT
+    {.bytesPerBlock = 4},                                // R32_SFLOAT
+    {.bytesPerBlock = 16},                               // R32G32B32A32_SFLOAT
+    {.bytesPerBlock = 4},                                // R32_UINT
+    {.bytesPerBlock = 8, .isDepth = true, .hasStencil = true}, // D32_SFLOAT_S8_UINT
+};
+static_assert(std::size(kFormatInfos) == static_cast<SIZE_T>(Format::COUNT),
+              "Every Format needs its FormatInfo.");
+} // namespace FormatDetail
+
 /**
  * Looks up FormatInfo by format. The table is constexpr, so a lookup is one array read.
  */
@@ -128,7 +156,7 @@ class FormatUtils
   NODISCARD static constexpr const FormatInfo&
   getInfo(Format format)
   {
-    return FORMAT_INFOS[static_cast<uint32>(format)];
+    return FormatDetail::kFormatInfos[static_cast<uint32>(format)];
   }
 
   NODISCARD static constexpr bool
@@ -148,31 +176,6 @@ class FormatUtils
     const SIZE_T blocksHigh = (height + info.blockHeight - 1) / info.blockHeight;
     return blocksWide * blocksHigh * depth * info.bytesPerBlock;
   }
-
- private:
-  // In the order of the Format values.
-  static constexpr FormatInfo FORMAT_INFOS[] = {
-      {},                                                  // Unknown
-      {.bytesPerBlock = 4},                                // R8G8B8A8_UNORM
-      {.bytesPerBlock = 4},                                // B8G8R8A8_UNORM
-      {.bytesPerBlock = 4, .isSrgb = true},                // B8G8R8A8_SRGB
-      {.bytesPerBlock = 8},                                // R16G16B16A16_SFLOAT
-      {.bytesPerBlock = 4, .isDepth = true},               // D32_SFLOAT
-      {.bytesPerBlock = 4, .isDepth = true, .hasStencil = true}, // D24_UNORM_S8_UINT
-      {.bytesPerBlock = 1},                                // R8_UNORM
-      {.bytesPerBlock = 2},                                // R8G8_UNORM
-      {.bytesPerBlock = 4, .isSrgb = true},                // R8G8B8A8_SRGB
-      {.bytesPerBlock = 4},                                // A2B10G10R10_UNORM
-      {.bytesPerBlock = 4},                                // B10G11R11_UFLOAT
-      {.bytesPerBlock = 2},                                // R16_SFLOAT
-      {.bytesPerBlock = 4},                                // R16G16_SFLOAT
-      {.bytesPerBlock = 4},                                // R32_SFLOAT
-      {.bytesPerBlock = 16},                               // R32G32B32A32_SFLOAT
-      {.bytesPerBlock = 4},                                // R32_UINT
-      {.bytesPerBlock = 8, .isDepth = true, .hasStencil = true}, // D32_SFLOAT_S8_UINT
-  };
-  static_assert(std::size(FORMAT_INFOS) == static_cast<SIZE_T>(Format::COUNT),
-                "Every Format needs its FormatInfo.");
 };
 
 enum class LoadOp : uint32 {
