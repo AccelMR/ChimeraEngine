@@ -6,3 +6,7 @@ target_link_libraries(chCoreTest PRIVATE chCore)
 
 # catch.hpp is shared with chUtilitiesTest; SYSTEM keeps our warning level out of it.
 target_include_directories(chCoreTest SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/chUtilitiesTest)
+
+# The font tests read the engine's default font straight from the source tree.
+target_compile_definitions(chCoreTest PRIVATE
+  CH_TEST_FONT_FILE="${CMAKE_SOURCE_DIR}/chCore/Content/Fonts/Inter-Regular.ttf")

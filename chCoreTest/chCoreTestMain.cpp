@@ -42,6 +42,8 @@
 #include "chFileStream.h"
 #include "chFileSystem.h"
 #include "chFloat16.h"
+#include "chFont.h"
+#include "chFontAsset.h"
 #include "chGameObjectSerializer.h"
 #include "chMaterial.h"
 #include "chMaterialAsset.h"
@@ -93,6 +95,7 @@
 #include "chSpriteComponent.h"
 #include "chSpriteDraw.h"
 #include "chStringUtils.h"
+#include "chTextLayout.h"
 #include "chTextureMips.h"
 #include "chTransientTexturePool.h"
 #include "chUUID.h"
@@ -9870,5 +9873,423 @@ TEST_CASE("chCore - Scene levels")
     world.setSubLevels(before);
     history.commit(world);
     REQUIRE(history.getUndoName() == "Add Level");
+  }
+}
+
+namespace {
+NODISCARD Vector<uint8>
+readTestFont()
+{
+  return FileSystem::fastRead(FileSystem::absolutePath(Path(CH_TEST_FONT_FILE)));
+}
+
+NODISCARD SPtr<Font>
+makeTestFont(const FontSettings& settings = {})
+{
+  Vector<uint8> data = readTestFont();
+  REQUIRE_FALSE(data.empty());
+  SPtr<Font> font = chMakeShared<Font>(std::move(data), settings);
+  REQUIRE(font->isValid());
+  return font;
+}
+
+NODISCARD float
+glyphRight(const TextGlyph& glyph)
+{
+  return glyph.position.x + glyph.size.x;
+}
+
+NODISCARD float
+lowHalf(uint32 packed)
+{
+  return Float16::toFloat(static_cast<uint16>(packed & 0xFFFFu));
+}
+
+NODISCARD float
+highHalf(uint32 packed)
+{
+  return Float16::toFloat(static_cast<uint16>(packed >> 16));
+}
+
+NODISCARD uint8
+atlasPixel(const Font& font, uint32 x, uint32 y)
+{
+  return font.getAtlasPixels()[static_cast<SIZE_T>(y) * font.getAtlasWidth() + x];
+}
+
+class TestFontAsset : public FontAsset
+{
+ public:
+  using FontAsset::FontAsset;
+  using FontAsset::deserialize;
+  using FontAsset::serialize;
+};
+} // namespace
+
+TEST_CASE("chCore - Font")
+{
+  SECTION("Metrics and glyphs")
+  {
+    const SPtr<Font> font = makeTestFont();
+    REQUIRE(font->getAscent() > 0.0f);
+    REQUIRE(font->getDescent() < 0.0f);
+    REQUIRE(font->getLineHeight() >= font->getAscent() - font->getDescent());
+    // ASCII and Latin-1 are drawn when the font is made.
+    REQUIRE(font->getGlyphCount() > 150);
+
+    const uint32 count = font->getGlyphCount();
+    const uint32 a = font->findGlyph('A');
+    REQUIRE(font->findGlyph('A') == a);
+    REQUIRE(font->getGlyphCount() == count);
+    const FontGlyph glyphA = font->getGlyph(a);
+    REQUIRE(glyphA.width > 0);
+    REQUIRE(glyphA.height > 0);
+    REQUIRE(glyphA.advance > 0.0f);
+
+    const FontGlyph space = font->getGlyph(font->findGlyph(' '));
+    REQUIRE(space.width == 0);
+    REQUIRE(space.advance > 0.0f);
+
+    // Private use characters of the last plane, which the font does not have, show the
+    // fallback.
+    const uint32 missing = font->findGlyph(0x10FFFC);
+    REQUIRE(missing == font->findGlyph(0x10FFFD));
+    REQUIRE(font->getGlyph(missing).width > 0);
+
+    // Inside 'A' the field is past the edge.
+    uint8 highest = 0;
+    for (uint32 row = 0; row < glyphA.height; ++row) {
+      for (uint32 column = 0; column < glyphA.width; ++column) {
+        highest = Math::max(highest, atlasPixel(*font, glyphA.atlasX + column, glyphA.atlasY + row));
+      }
+    }
+    REQUIRE(highest > 128);
+  }
+
+  SECTION("Characters past Latin-1 are drawn when asked for")
+  {
+    const SPtr<Font> font = makeTestFont();
+    const uint32 count = font->getGlyphCount();
+    // Euro sign.
+    const uint32 euro = font->findGlyph(0x20AC);
+    REQUIRE(font->getGlyphCount() == count + 1);
+    REQUIRE(font->findGlyph(0x20AC) == euro);
+  }
+
+  SECTION("Kerning and digits")
+  {
+    const SPtr<Font> font = makeTestFont();
+    const uint32 a = font->findGlyph('A');
+    const uint32 v = font->findGlyph('V');
+    const float kerning = font->getKerning(a, v);
+    REQUIRE(kerning < 0.0f);
+    REQUIRE(font->getKerning(a, v) == kerning);
+    const float digitAdvance = font->getDigitAdvance();
+    for (WCHAR32 digit = '0'; digit <= '9'; ++digit) {
+      REQUIRE(font->getGlyph(font->findGlyph(digit)).advance <= digitAdvance);
+    }
+  }
+
+  SECTION("The atlas grows and keeps what it drew")
+  {
+    const SPtr<Font> font =
+        makeTestFont({.rasterSize = 200, .bPreloadAscii = false, .bPreloadLatin1 = false});
+    REQUIRE(font->getAtlasWidth() == Font::INITIAL_ATLAS_SIZE);
+    const FontGlyph glyph = font->getGlyph(font->findGlyph('W'));
+    Vector<uint8> before;
+    for (uint32 row = 0; row < glyph.height; ++row) {
+      for (uint32 column = 0; column < glyph.width; ++column) {
+        before.push_back(atlasPixel(*font, glyph.atlasX + column, glyph.atlasY + row));
+      }
+    }
+    const uint32 revision = font->getRevision();
+    for (WCHAR32 character = 'a'; character <= 'z'; ++character) {
+      CH_PARAMETER_UNUSED(font->findGlyph(character));
+    }
+    REQUIRE(font->getAtlasWidth() * font->getAtlasHeight() >
+            Font::INITIAL_ATLAS_SIZE * Font::INITIAL_ATLAS_SIZE);
+    REQUIRE(font->getRevision() > revision);
+    REQUIRE(font->getAtlasPixels().size() ==
+            static_cast<SIZE_T>(font->getAtlasWidth()) * font->getAtlasHeight());
+    SIZE_T index = 0;
+    for (uint32 row = 0; row < glyph.height; ++row) {
+      for (uint32 column = 0; column < glyph.width; ++column) {
+        REQUIRE(atlasPixel(*font, glyph.atlasX + column, glyph.atlasY + row) == before[index++]);
+      }
+    }
+  }
+
+  SECTION("Pixel fonts store coverage")
+  {
+    const SPtr<Font> font = makeTestFont({.mode = FontRenderMode::Pixel, .rasterSize = 16});
+    const FontGlyph glyph = font->getGlyph(font->findGlyph('H'));
+    REQUIRE(glyph.width > 0);
+    REQUIRE(glyph.height <= 16);
+    // Unlike a distance field, the corner of the box is empty and the stems are covered.
+    uint8 highest = 0;
+    for (uint32 row = 0; row < glyph.height; ++row) {
+      for (uint32 column = 0; column < glyph.width; ++column) {
+        highest = Math::max(highest, atlasPixel(*font, glyph.atlasX + column, glyph.atlasY + row));
+      }
+    }
+    REQUIRE(highest > 200);
+    REQUIRE(atlasPixel(*font, glyph.atlasX, glyph.atlasY + glyph.height / 2) < 255);
+  }
+
+  SECTION("Data that is not a font")
+  {
+    Font font(Vector<uint8>(64, 7), {});
+    REQUIRE_FALSE(font.isValid());
+    REQUIRE(font.prepareGpuAtlas() == GpuSpriteInstance::NO_TEXTURE);
+  }
+}
+
+TEST_CASE("chCore - Text layout")
+{
+  const SPtr<Font> font = makeTestFont();
+  TextLayout layout;
+  const float fontHeight = font->getAscent() - font->getDescent();
+
+  SECTION("One line")
+  {
+    layout.build(*font, "Hello", {.size = 2.0f, .pivot = Vector2(0.0f, 0.0f)});
+    REQUIRE(layout.getLineCount() == 1);
+    REQUIRE(layout.getGlyphs().size() == 5);
+    REQUIRE(layout.getSize().y == Approx(2.0f));
+    REQUIRE(layout.getSize().x > 0.0f);
+    REQUIRE(layout.getRadius() > 0.0f);
+    for (SIZE_T i = 1; i < layout.getGlyphs().size(); ++i) {
+      REQUIRE(layout.getGlyphs()[i].position.x > layout.getGlyphs()[i - 1].position.x);
+    }
+    // 'H' sits on the baseline, above the descent at the bottom of the block.
+    REQUIRE(layout.getGlyphs()[0].position.y > 0.0f);
+
+    const Vector2 size = layout.getSize();
+    const Vector2 first = layout.getGlyphs()[0].position;
+    layout.build(*font, "Hello", {.size = 2.0f, .pivot = Vector2(1.0f, 1.0f)});
+    REQUIRE(layout.getGlyphs()[0].position.x == Approx(first.x - size.x));
+    REQUIRE(layout.getGlyphs()[0].position.y == Approx(first.y - size.y));
+  }
+
+  SECTION("Spaces and line breaks")
+  {
+    layout.build(*font, "a b", {});
+    REQUIRE(layout.getGlyphs().size() == 2);
+
+    layout.build(*font, "A\nA", {.size = 1.0f});
+    REQUIRE(layout.getLineCount() == 2);
+    REQUIRE(layout.getGlyphs().size() == 2);
+    const float lineHeight = font->getLineHeight() / fontHeight;
+    REQUIRE(layout.getGlyphs()[0].position.y - layout.getGlyphs()[1].position.y ==
+            Approx(lineHeight));
+    REQUIRE(layout.getGlyphs()[0].position.x == Approx(layout.getGlyphs()[1].position.x));
+    REQUIRE(layout.getSize().y == Approx(lineHeight + 1.0f));
+  }
+
+  SECTION("Wrapping")
+  {
+    layout.build(*font, "mmm", {.pivot = Vector2(0.0f, 1.0f)});
+    const float wordWidth = layout.getSize().x;
+
+    layout.build(*font,
+                 "mmm mmm mmm",
+                 {.wrapWidth = wordWidth * 1.5f, .pivot = Vector2(0.0f, 1.0f)});
+    REQUIRE(layout.getLineCount() == 3);
+    REQUIRE(layout.getGlyphs().size() == 9);
+    REQUIRE(layout.getSize().x == Approx(wordWidth * 1.5f));
+    REQUIRE(layout.getGlyphs()[3].position.x == Approx(layout.getGlyphs()[0].position.x));
+    REQUIRE(layout.getGlyphs()[6].position.x == Approx(layout.getGlyphs()[0].position.x));
+    REQUIRE(layout.getGlyphs()[3].position.y < layout.getGlyphs()[0].position.y);
+
+    // A word longer than the line breaks inside it.
+    layout.build(*font, "mmmmmm", {.wrapWidth = wordWidth * 1.2f});
+    REQUIRE(layout.getLineCount() == 2);
+  }
+
+  SECTION("Alignment")
+  {
+    layout.build(*font, "mmmmmm\nm", {.align = TextAlign::Right, .pivot = Vector2(0.0f, 1.0f)});
+    REQUIRE(layout.getGlyphs().size() == 7);
+    REQUIRE(glyphRight(layout.getGlyphs()[6]) ==
+            Approx(glyphRight(layout.getGlyphs()[5])).margin(1e-3f));
+
+    layout.build(*font, "mmmmmm\nm", {.align = TextAlign::Center, .pivot = Vector2(0.0f, 1.0f)});
+    const Span<const TextGlyph> glyphs = layout.getGlyphs();
+    const float longCenter = (glyphs[0].position.x + glyphRight(glyphs[5])) * 0.5f;
+    const float shortCenter = (glyphs[6].position.x + glyphRight(glyphs[6])) * 0.5f;
+    REQUIRE(shortCenter == Approx(longCenter).margin(0.05f));
+  }
+
+  SECTION("Fixed digits")
+  {
+    layout.build(*font, "111", {.bMonospaceDigits = true});
+    const float ones = layout.getSize().x;
+    layout.build(*font, "888", {.bMonospaceDigits = true});
+    REQUIRE(layout.getSize().x == Approx(ones));
+  }
+
+  SECTION("Color tags")
+  {
+    layout.build(*font, "<color=#ff0000>R</color>G", {});
+    REQUIRE(layout.getGlyphs().size() == 2);
+    REQUIRE(lowHalf(layout.getGlyphs()[0].colorRG) == Approx(1.0f));
+    REQUIRE(highHalf(layout.getGlyphs()[0].colorRG) == Approx(0.0f));
+    REQUIRE(highHalf(layout.getGlyphs()[1].colorRG) == Approx(1.0f));
+
+    // sRGB 0x80 is about 0.216 in linear light; the tag's alpha is times the text's.
+    layout.build(*font, "<color=#80808080>x", {.color = LinearColor(1.0f, 1.0f, 1.0f, 0.5f)});
+    REQUIRE(lowHalf(layout.getGlyphs()[0].colorRG) == Approx(0.216f).margin(0.002f));
+    REQUIRE(highHalf(layout.getGlyphs()[0].colorBA) == Approx(0.251f).margin(0.002f));
+
+    layout.build(*font, "<<b", {});
+    REQUIRE(layout.getGlyphs().size() == 2);
+    layout.build(*font, "<b>", {});
+    REQUIRE(layout.getGlyphs().size() == 3);
+    layout.build(*font, "<color=#zz0000>", {});
+    REQUIRE(layout.getGlyphs().size() == 15);
+    layout.build(*font, "<color=#ff0000>R</color>G", {.bRichText = false});
+    REQUIRE(layout.getGlyphs().size() == 25);
+  }
+}
+
+TEST_CASE("chCore - Text sprites")
+{
+  const SPtr<Font> font = makeTestFont();
+  TextLayout layout;
+  layout.build(*font, "Hi!", {.size = 1.0f});
+  const SIZE_T glyphCount = layout.getGlyphs().size();
+  REQUIRE(glyphCount == 3);
+  const auto modeOf = [](const SpriteItem& sprite) {
+    return (sprite.instance.textureAndFlags >> GpuSpriteInstance::MODE_SHIFT) &
+           GpuSpriteInstance::MODE_MASK;
+  };
+  const auto edgeOf = [](const SpriteItem& sprite) {
+    return (sprite.instance.textureAndFlags >> GpuSpriteInstance::EDGE_SHIFT) &
+           GpuSpriteInstance::EDGE_MASK;
+  };
+
+  SECTION("Fill only")
+  {
+    Vector<SpriteItem> sprites;
+    SpriteDraw::appendTextSprites(*font, layout, {.sortingLayer = 2, .order = 5}, sprites);
+    REQUIRE(sprites.size() == glyphCount);
+    const uint32 flags = sprites[0].instance.textureAndFlags;
+    REQUIRE((flags & GpuSpriteInstance::TEXTURE_INDEX_MASK) == GpuSpriteInstance::NO_TEXTURE);
+    REQUIRE(modeOf(sprites[0]) == static_cast<uint32>(SpriteTextureMode::Sdf));
+    REQUIRE((flags & GpuSpriteInstance::POINT_FILTER_BIT) == 0);
+    REQUIRE(sprites[0].sortingLayer == 2);
+    REQUIRE(sprites[0].order == 5);
+    REQUIRE(sprites[0].radius > 0.0f);
+  }
+
+  SECTION("Shadow and outline go behind the fill")
+  {
+    Vector<SpriteItem> sprites;
+    SpriteDraw::appendTextSprites(*font,
+                                  layout,
+                                  {.outlineWidth = 2.0f,
+                                   .shadowColor = LinearColor(0.0f, 0.0f, 0.0f, 0.5f),
+                                   .shadowOffset = Vector2(0.1f, -0.1f)},
+                                  sprites);
+    REQUIRE(sprites.size() == glyphCount * 3);
+    // 2 of 8 pixels of spread move the edge by 32 of 255.
+    REQUIRE(edgeOf(sprites[0]) == 32);
+    REQUIRE(edgeOf(sprites[glyphCount]) == 32);
+    REQUIRE(edgeOf(sprites[glyphCount * 2]) == 0);
+    REQUIRE(sprites[0].instance.center.y ==
+            Approx(sprites[glyphCount * 2].instance.center.y + 0.1f));
+    REQUIRE(sprites[0].instance.center.z ==
+            Approx(sprites[glyphCount * 2].instance.center.z - 0.1f));
+    REQUIRE(highHalf(sprites[0].instance.colorBA) == Approx(0.5f));
+  }
+
+  SECTION("Placement and rotation")
+  {
+    Vector<SpriteItem> sprites;
+    SpriteDraw::appendTextSprites(*font,
+                                  layout,
+                                  {.position = Vector2(3.0f, 4.0f),
+                                   .depth = 2.0f,
+                                   .rotation = Radian(Math::HALF_PI),
+                                   .scale = 2.0f},
+                                  sprites);
+    const GpuSpriteInstance& first = sprites[0].instance;
+    REQUIRE(first.center.x == Approx(2.0f));
+    // Turned a quarter: the glyph's right side points up the screen.
+    REQUIRE(first.halfAxisU.y == Approx(0.0f).margin(1e-5f));
+    REQUIRE(first.halfAxisU.z == Approx(layout.getGlyphs()[0].size.x));
+  }
+
+  SECTION("Pixel fonts use coverage and the point filter")
+  {
+    const SPtr<Font> pixelFont = makeTestFont({.mode = FontRenderMode::Pixel, .rasterSize = 16});
+    layout.build(*pixelFont, "Hi", {});
+    Vector<SpriteItem> sprites;
+    SpriteDraw::appendTextSprites(*pixelFont, layout, {.outlineWidth = 2.0f}, sprites);
+    // Outlines need a distance field.
+    REQUIRE(sprites.size() == 2);
+    REQUIRE(modeOf(sprites[0]) == static_cast<uint32>(SpriteTextureMode::Coverage));
+    REQUIRE((sprites[0].instance.textureAndFlags & GpuSpriteInstance::POINT_FILTER_BIT) != 0);
+  }
+
+  SECTION("A text that does not fit is dropped whole")
+  {
+    SpriteDraw draw;
+    const int32 previousMax = g_cvarSpriteDrawMax.get();
+    g_cvarSpriteDrawMax.set(4);
+    draw.text(*font, layout, {});
+    REQUIRE(draw.getSprites().size() == 3);
+    draw.text(*font, layout, {});
+    REQUIRE(draw.getSprites().size() == 3);
+    g_cvarSpriteDrawMax.set(previousMax);
+  }
+}
+
+TEST_CASE("chCore - Font asset")
+{
+  AssetMetadata metadata;
+  metadata.uuid = chEngineSDK::UUID::createRandom();
+  metadata.assetType = AssetTypeTraits<FontAsset>::getTypeId();
+  StringUtils::copyToBuffer(metadata.name, "Inter");
+
+  const FontSettings settings{.mode = FontRenderMode::Sdf,
+                              .rasterSize = 40,
+                              .sdfSpread = 6,
+                              .bPreloadAscii = true,
+                              .bPreloadLatin1 = false,
+                              .preloadCharacters = "\xE2\x82\xAC"};
+  TestFontAsset asset(metadata, readTestFont(), settings);
+  REQUIRE(asset.getFont());
+
+  const SPtr<MemoryDataStream> stream = chMakeShared<MemoryDataStream>();
+  REQUIRE(asset.serialize(stream));
+  const SIZE_T size = stream->size();
+
+  SECTION("Round trip")
+  {
+    stream->seek(0);
+    TestFontAsset loaded(metadata);
+    REQUIRE(loaded.deserialize(stream));
+    const FontSettings& read = loaded.getSettings();
+    REQUIRE(read.mode == FontRenderMode::Sdf);
+    REQUIRE(read.rasterSize == 40);
+    REQUIRE(read.sdfSpread == 6);
+    REQUIRE(read.bPreloadAscii);
+    REQUIRE_FALSE(read.bPreloadLatin1);
+    REQUIRE(read.preloadCharacters == "\xE2\x82\xAC");
+    REQUIRE(loaded.getFont());
+    REQUIRE(loaded.getFont()->getFontData().size() == asset.getFont()->getFontData().size());
+  }
+
+  SECTION("A cut file is refused")
+  {
+    stream->seek(0);
+    Vector<uint8> bytes(size / 2);
+    REQUIRE(stream->read(bytes.data(), bytes.size()) == bytes.size());
+    const SPtr<MemoryDataStream> half = chMakeShared<MemoryDataStream>();
+    REQUIRE(half->write(bytes.data(), bytes.size()) == bytes.size());
+    half->seek(0);
+    TestFontAsset loaded(metadata);
+    REQUIRE_FALSE(loaded.deserialize(half));
   }
 }

@@ -4,8 +4,17 @@
 // Must match GpuSpriteInstance in chSpriteItem.h.
 static const uint kInstanceStride = 64;
 static const uint kPointFilterBit = 0x80000000u;
-static const uint kTextureIndexMask = 0x7FFFFFFFu;
-static const uint kNoTexture = 0x7FFFFFFFu;
+static const uint kTextureIndexMask = 0x000FFFFFu;
+static const uint kNoTexture = 0x000FFFFFu;
+static const uint kModeShift = 20;
+static const uint kModeMask = 0x3u;
+static const uint kEdgeShift = 22;
+static const uint kEdgeMask = 0xFFu;
+// SpriteTextureMode
+static const uint kModeCoverage = 1;
+static const uint kModeSdf = 2;
+// Where stb writes the edge of a distance field.
+static const float kSdfEdge = 128.0f / 255.0f;
 
 // Must match SpritePushConstants in chSpritePass.cpp.
 struct PushConstants
@@ -77,5 +86,19 @@ PSMain(VSOutput input) : SV_Target0
                                 : g_push.linearSamplerIndex;
   Texture2D spriteTexture = ResourceDescriptorHeap[NonUniformResourceIndex(textureIndex)];
   SamplerState spriteSampler = SamplerDescriptorHeap[NonUniformResourceIndex(samplerIndex)];
-  return spriteTexture.Sample(spriteSampler, input.texCoord) * input.color;
+  const float4 texel = spriteTexture.Sample(spriteSampler, input.texCoord);
+  // Taken here, where every pixel of the quad runs, so the derivative is defined.
+  const float fieldWidth = max(fwidth(texel.r), 1e-5f) * 0.5f;
+
+  const uint mode = (input.textureAndFlags >> kModeShift) & kModeMask;
+  if (mode == kModeCoverage) {
+    return float4(input.color.rgb, input.color.a * texel.r);
+  }
+  if (mode == kModeSdf) {
+    const float edgeOffset = (float)((input.textureAndFlags >> kEdgeShift) & kEdgeMask);
+    const float edge = kSdfEdge - edgeOffset / 255.0f;
+    const float coverage = smoothstep(edge - fieldWidth, edge + fieldWidth, texel.r);
+    return float4(input.color.rgb, input.color.a * coverage);
+  }
+  return texel * input.color;
 }

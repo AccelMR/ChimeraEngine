@@ -47,6 +47,13 @@ class CH_UTILITY_EXPORT UTF8
   NODISCARD static U32String
   toUTF32(const String& input);
 
+  /**
+   * Reads the character that starts at position and moves position past it, without
+   * allocating. Bad sequences give REPLACEMENT_CHAR. position must be below text.size().
+   */
+  NODISCARD static WCHAR32
+  decodeNext(StringView text, SIZE_T& position) noexcept;
+
   static constexpr WCHAR32 REPLACEMENT_CHAR = 0xFFFD;
 };
 

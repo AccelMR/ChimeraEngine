@@ -29,6 +29,7 @@
 #include "chSceneAsset.h"
 #include "chSkeletonAsset.h"
 #include "chSpriteAtlasAsset.h"
+#include "chFontAsset.h"
 #include "chAnimationClipAsset.h"
 #include "chAnimationGraphAsset.h"
 #include "chScriptAsset.h"
@@ -59,6 +60,7 @@ AssetManager::initialize() {
   m_assetRegister->registerAssetCreator<AnimationGraphAsset>();
   m_assetRegister->registerAssetCreator<ScriptAsset>();
   m_assetRegister->registerAssetCreator<SpriteAtlasAsset>();
+  m_assetRegister->registerAssetCreator<FontAsset>();
 }
 
 /*

@@ -111,6 +111,8 @@ class DX12Texture : public ITexture
   TextureType m_type = TextureType::Texture2D;
   TextureUsageFlags m_usage;
   bool m_ownsTexture = true;
+  // Set by the first upload, which leaves the texture in the shader resource layout.
+  bool m_bHasContents = false;
   // The whole texture as shaders read it; it holds the bindless index of the texture.
   SPtr<ITextureView> m_defaultView;
 };

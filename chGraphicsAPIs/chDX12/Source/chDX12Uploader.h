@@ -52,7 +52,7 @@ class DX12Uploader
    * the layout of the data.
    */
   void
-  uploadTexture(const DX12Texture& texture, const void* data, SIZE_T size);
+  uploadTexture(const DX12Texture& texture, const void* data, SIZE_T size, bool bHasContents);
 
   /**
    * Closes the copies recorded since the last call and returns their list, which must go

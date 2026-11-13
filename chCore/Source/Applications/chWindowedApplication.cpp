@@ -18,6 +18,7 @@
 #include "chEngineConfig.h"
 #include "chEnginePaths.h"
 #include "chEventDispatcherManager.h"
+#include "chFont.h"
 #include "chGraphicsSettings.h"
 #include "chGraphicsTypes.h"
 #include "chInputManager.h"
@@ -206,6 +207,7 @@ WindowedApplication::destroyModules()
   m_resizeEvent.disconnect();
 
   destroyRenderer();
+  Font::releaseDefault();
 
   // Every GPU object keeps a copy of the device, so all of them must be gone by now.
   if (IGraphicsAPI::isStarted()) {

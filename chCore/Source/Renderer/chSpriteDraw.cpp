@@ -10,10 +10,12 @@
 #include "chSpriteDraw.h"
 
 #include "chFloat16.h"
+#include "chFont.h"
 #include "chITexture.h"
 #include "chLogger.h"
 #include "chMath.h"
 #include "chRenderSettings.h"
+#include "chTextLayout.h"
 #include "chTextureAsset.h"
 
 namespace chEngineSDK {
@@ -26,6 +28,13 @@ packHalves(float low, float high)
 {
   return static_cast<uint32>(Float16::fromFloat(low)) |
          (static_cast<uint32>(Float16::fromFloat(high)) << 16);
+}
+
+NODISCARD uint32
+scaleHighHalf(uint32 packed, float factor)
+{
+  const float high = Float16::toFloat(static_cast<uint16>(packed >> 16));
+  return (packed & 0xFFFFu) | (static_cast<uint32>(Float16::fromFloat(high * factor)) << 16);
 }
 } // namespace
 
@@ -89,6 +98,111 @@ SpriteDraw::instance(const GpuSpriteInstance& instance,
 /*
  */
 void
+SpriteDraw::text(Font& font, const TextLayout& layout, const TextDrawDesc& desc)
+{
+  // A text is drawn whole or not at all, so a full list never shows half a word.
+  const SIZE_T passes = 1 + (desc.outlineWidth > 0.0f ? 1 : 0) + (desc.shadowColor.a > 0.0f ? 1 : 0);
+  if (!hasRoom(layout.getGlyphs().size() * passes)) {
+    return;
+  }
+  appendTextSprites(font, layout, desc, m_sprites);
+}
+
+/*
+ */
+void
+SpriteDraw::appendTextSprites(Font& font,
+                              const TextLayout& layout,
+                              const TextDrawDesc& desc,
+                              Vector<SpriteItem>& outSprites)
+{
+  const Span<const TextGlyph> glyphs = layout.getGlyphs();
+  if (glyphs.empty() || !font.isValid()) {
+    return;
+  }
+
+  const uint32 atlasIndex = font.prepareGpuAtlas();
+  const FontSettings& settings = font.getSettings();
+  const bool bSdf = settings.mode == FontRenderMode::Sdf;
+  const SpriteTextureMode mode = bSdf ? SpriteTextureMode::Sdf : SpriteTextureMode::Coverage;
+  // The field falls by 128 over sdfSpread pixels, in 1/255 steps.
+  const uint32 outlineEdge =
+      bSdf ? static_cast<uint32>(Math::clamp(desc.outlineWidth * 128.0f /
+                                                 static_cast<float>(settings.sdfSpread),
+                                             0.0f,
+                                             static_cast<float>(GpuSpriteInstance::EDGE_MASK)) +
+                                 0.5f)
+           : 0u;
+  const uint32 fillFlags = GpuSpriteInstance::makeTextureFlags(atlasIndex, !bSdf, mode);
+  const uint32 outlineFlags =
+      GpuSpriteInstance::makeTextureFlags(atlasIndex, !bSdf, mode, outlineEdge);
+  const bool bOutline = outlineEdge > 0 && desc.outlineColor.a * desc.opacity > 0.0f;
+  const bool bShadow = desc.shadowColor.a * desc.opacity > 0.0f;
+
+  float sine = 0.0f;
+  float cosine = 1.0f;
+  Math::sinCos(desc.rotation.valueRadian(), sine, cosine);
+  const Vector3 axisU(0.0f, cosine, sine);
+  const Vector3 axisV(0.0f, -sine, cosine);
+  const Vector3 origin(desc.depth, desc.position.x, desc.position.y);
+  const float inverseWidth = 1.0f / static_cast<float>(font.getAtlasWidth());
+  const float inverseHeight = 1.0f / static_cast<float>(font.getAtlasHeight());
+
+  const auto addPass = [&](const Vector2& offset,
+                           uint32 textureAndFlags,
+                           const LinearColor* passColor) {
+    const Vector3 shift(0.0f, offset.x, offset.y);
+    uint32 colorRG = 0;
+    uint32 colorBA = 0;
+    if (passColor != nullptr) {
+      LinearColor color = *passColor;
+      color.a *= desc.opacity;
+      packColor(color, colorRG, colorBA);
+    }
+    for (const TextGlyph& glyph : glyphs) {
+      const FontGlyph& image = font.getGlyph(glyph.slot);
+      const Vector2 size = glyph.size * desc.scale;
+      const Vector2 center = glyph.position * desc.scale + size * 0.5f;
+
+      SpriteItem& sprite = outSprites.emplace_back();
+      GpuSpriteInstance& gpu = sprite.instance;
+      gpu.center = origin + axisU * center.x + axisV * center.y + shift;
+      gpu.textureAndFlags = textureAndFlags;
+      gpu.halfAxisU = axisU * (size.x * 0.5f);
+      gpu.halfAxisV = axisV * (size.y * 0.5f);
+      if (passColor != nullptr) {
+        gpu.colorRG = colorRG;
+        gpu.colorBA = colorBA;
+      }
+      else {
+        gpu.colorRG = glyph.colorRG;
+        gpu.colorBA = desc.opacity == 1.0f ? glyph.colorBA : scaleHighHalf(glyph.colorBA, desc.opacity);
+      }
+      gpu.uvRect[0] = static_cast<float>(image.atlasX) * inverseWidth;
+      gpu.uvRect[1] = static_cast<float>(image.atlasY) * inverseHeight;
+      gpu.uvRect[2] = static_cast<float>(image.width) * inverseWidth;
+      gpu.uvRect[3] = static_cast<float>(image.height) * inverseHeight;
+      sprite.radius = (Math::abs(size.x) + Math::abs(size.y)) * 0.5f;
+      sprite.sortingLayer = desc.sortingLayer;
+      sprite.order = desc.order;
+      sprite.blendMode = desc.blendMode;
+      sprite.bInUse = true;
+    }
+  };
+
+  // Same layer, order and depth, so the sort keeps them in this order: shadow at the back.
+  if (bShadow) {
+    addPass(desc.shadowOffset, bOutline ? outlineFlags : fillFlags, &desc.shadowColor);
+  }
+  if (bOutline) {
+    addPass(Vector2::ZERO, outlineFlags, &desc.outlineColor);
+  }
+  addPass(Vector2::ZERO, fillFlags, nullptr);
+}
+
+/*
+ */
+void
 SpriteDraw::clear() noexcept
 {
   m_sprites.clear();
@@ -103,7 +217,7 @@ SpriteDraw::makeTextureFlags(const TextureAsset* texture, SpriteFilter filter)
   const ITexture* gpuTexture = texture ? texture->getTexture().get() : nullptr;
   const uint32 index =
       gpuTexture ? gpuTexture->getBindlessIndex() : GpuSpriteInstance::NO_TEXTURE;
-  return index | (filter == SpriteFilter::Point ? GpuSpriteInstance::POINT_FILTER_BIT : 0u);
+  return GpuSpriteInstance::makeTextureFlags(index, filter == SpriteFilter::Point);
 }
 
 /*
@@ -153,10 +267,10 @@ SpriteDraw::packColor(const LinearColor& color, uint32& outRG, uint32& outBA)
 /*
  */
 bool
-SpriteDraw::hasRoom()
+SpriteDraw::hasRoom(SIZE_T count)
 {
   const SIZE_T maxSprites = static_cast<SIZE_T>(Math::max(g_cvarSpriteDrawMax.get(), 1));
-  if (m_sprites.size() < maxSprites) {
+  if (m_sprites.size() + count <= maxSprites) {
     return true;
   }
   if (!m_bWarnedFull) {

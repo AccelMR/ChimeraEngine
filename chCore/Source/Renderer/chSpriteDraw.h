@@ -17,6 +17,8 @@
 #include "chVector2.h"
 
 namespace chEngineSDK {
+class Font;
+class TextLayout;
 class TextureAsset;
 
 /**
@@ -42,6 +44,34 @@ struct SpriteQuad
   int16 sortingLayer = 0;
   int16 order = 0;
   SpriteBlendMode blendMode = SpriteBlendMode::Alpha;
+};
+
+/**
+ * Where and how SpriteDraw draws a TextLayout, in the YZ plane like SpriteQuad.
+ */
+struct TextDrawDesc
+{
+  // Y and Z of the layout's pivot.
+  Vector2 position = Vector2::ZERO;
+  // World X.
+  float depth = 0.0f;
+  // Counterclockwise on screen, around the pivot.
+  Radian rotation = Radian(0.0f);
+  // Times the layout's size.
+  float scale = 1.0f;
+  int16 sortingLayer = 0;
+  int16 order = 0;
+  SpriteBlendMode blendMode = SpriteBlendMode::Alpha;
+  // SDF fonts only: pixels of the font's raster size the outline reaches past the glyph,
+  // up to its FontSettings::sdfSpread; 0 draws none.
+  float outlineWidth = 0.0f;
+  LinearColor outlineColor = LinearColor::BLACK;
+  // A shadow is drawn when its alpha is above zero, moved by shadowOffset in world units
+  // (not turned with the text).
+  LinearColor shadowColor = LinearColor::TRANSPARENT_BLACK;
+  Vector2 shadowOffset{0.05f, -0.05f};
+  // Times the alpha of every glyph, its outline and its shadow, for fading a whole text.
+  float opacity = 1.0f;
 };
 
 /**
@@ -72,6 +102,24 @@ class CH_CORE_EXPORT SpriteDraw
            int16 sortingLayer = 0,
            int16 order = 0,
            SpriteBlendMode blendMode = SpriteBlendMode::Alpha);
+
+  /**
+   * One sprite per glyph, plus one per glyph for the shadow and for the outline when desc
+   * asks for them, drawn behind it. Uploads the font's new glyphs first.
+   */
+  void
+  text(Font& font, const TextLayout& layout, const TextDrawDesc& desc);
+
+  /**
+   * The sprites text() adds, appended to outSprites, for callers that keep them between
+   * frames. They read the font's atlas as it is at the call: rebuild them when
+   * Font::getRevision() changes.
+   */
+  static void
+  appendTextSprites(Font& font,
+                    const TextLayout& layout,
+                    const TextDrawDesc& desc,
+                    Vector<SpriteItem>& outSprites);
 
   /**
    * Forgets every sprite but keeps the memory.
@@ -111,7 +159,7 @@ class CH_CORE_EXPORT SpriteDraw
 
  private:
   NODISCARD bool
-  hasRoom();
+  hasRoom(SIZE_T count = 1);
 
   Vector<SpriteItem> m_sprites;
   bool m_bWarnedFull = false;

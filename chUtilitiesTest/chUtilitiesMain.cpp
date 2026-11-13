@@ -31,6 +31,7 @@
 #include "chMatrix4.h"
 #include "chMatrixHelpers.h"
 #include "chModule.h"
+#include "chNumberFormat.h"
 #include "chOrientedBox.h"
 #include "chPath.h"
 #include "chPlane.h"
@@ -3454,4 +3455,91 @@ TEST_CASE("chUtilities - Spatial hash 2D")
     REQUIRE(hash.getCellSize() == SpatialHash2D::MIN_CELL_SIZE);
     REQUIRE(hash.getShapeCount() == 0);
   }
+}
+
+TEST_CASE("chUtilities - Number format")
+{
+  ANSICHAR buffer[NumberFormat::MAX_CHARS];
+  const auto text = [&buffer](double value, const NumberFormatDesc& desc = {}) {
+    return String(NumberFormat::format(buffer, value, desc));
+  };
+
+  SECTION("Suffixes")
+  {
+    REQUIRE(text(0.0) == "0");
+    REQUIRE(text(999.0) == "999");
+    REQUIRE(text(999.4) == "999");
+    // Rounds up to 1000, which is not written plainly.
+    REQUIRE(text(999.6) == "1K");
+    REQUIRE(text(1234.0) == "1.23K");
+    REQUIRE(text(1500.0) == "1.5K");
+    REQUIRE(text(2000.0) == "2K");
+    REQUIRE(text(999999.0) == "1M");
+    REQUIRE(text(1e9) == "1B");
+    REQUIRE(text(1e12) == "1T");
+    REQUIRE(text(1e15) == "1aa");
+    REQUIRE(text(1.5e18) == "1.5ab");
+    REQUIRE(text(-2500.0) == "-2.5K");
+    REQUIRE(text(1e308) == "100dt");
+    REQUIRE(text(1500.0, {.bTrimZeros = false}) == "1.50K");
+    REQUIRE(text(1234.0, {.decimals = 0}) == "1K");
+    REQUIRE(text(12.5, {.plainDecimals = 1}) == "12.5");
+    REQUIRE(text(12.0, {.plainDecimals = 1}) == "12");
+  }
+
+  SECTION("Scientific and engineering")
+  {
+    const NumberFormatDesc scientific{.notation = NumberNotation::Scientific};
+    REQUIRE(text(123456.0, scientific) == "1.23e5");
+    REQUIRE(text(1e100, scientific) == "1e100");
+    REQUIRE(text(999.6, scientific) == "1e3");
+    REQUIRE(text(9.999e5, scientific) == "1e6");
+    REQUIRE(text(500.0, scientific) == "500");
+
+    const NumberFormatDesc engineering{.notation = NumberNotation::Engineering};
+    REQUIRE(text(123456.0, engineering) == "123.46e3");
+    REQUIRE(text(1234567.0, engineering) == "1.23e6");
+    REQUIRE(text(12345678.0, engineering) == "12.35e6");
+  }
+
+  SECTION("Plain")
+  {
+    const NumberFormatDesc plain{.notation = NumberNotation::Plain};
+    REQUIRE(text(1234567.0, plain) == "1234567");
+    // Too long for the buffer, so it falls back to scientific notation.
+    REQUIRE(text(1e300, plain) == "1e300");
+  }
+
+  SECTION("Values that are not numbers")
+  {
+    REQUIRE(text(std::numeric_limits<double>::quiet_NaN()) == "NaN");
+    REQUIRE(text(std::numeric_limits<double>::infinity()) == "Inf");
+    REQUIRE(text(-std::numeric_limits<double>::infinity()) == "-Inf");
+  }
+
+  SECTION("Suffix names")
+  {
+    ANSICHAR suffix[2];
+    REQUIRE(NumberFormat::getSuffix(0, suffix).empty());
+    REQUIRE(NumberFormat::getSuffix(1, suffix) == "K");
+    REQUIRE(NumberFormat::getSuffix(4, suffix) == "T");
+    REQUIRE(NumberFormat::getSuffix(5, suffix) == "aa");
+    REQUIRE(NumberFormat::getSuffix(30, suffix) == "az");
+    REQUIRE(NumberFormat::getSuffix(31, suffix) == "ba");
+    REQUIRE(NumberFormat::getSuffix(NumberFormat::MAX_SUFFIX_THOUSANDS, suffix) == "zz");
+    REQUIRE(NumberFormat::getSuffix(NumberFormat::MAX_SUFFIX_THOUSANDS + 1, suffix).empty());
+  }
+}
+
+TEST_CASE("chUtilities - UTF8 decodeNext")
+{
+  // "a", e with acute (2 bytes), euro sign (3 bytes), a broken lead byte, "b".
+  const StringView text("a\xC3\xA9\xE2\x82\xAC\xFF" "b");
+  SIZE_T position = 0;
+  REQUIRE(UTF8::decodeNext(text, position) == 'a');
+  REQUIRE(UTF8::decodeNext(text, position) == 0xE9);
+  REQUIRE(UTF8::decodeNext(text, position) == 0x20AC);
+  REQUIRE(UTF8::decodeNext(text, position) == UTF8::REPLACEMENT_CHAR);
+  REQUIRE(UTF8::decodeNext(text, position) == 'b');
+  REQUIRE(position == text.size());
 }

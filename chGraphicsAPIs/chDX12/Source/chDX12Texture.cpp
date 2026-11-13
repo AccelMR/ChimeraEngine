@@ -176,7 +176,8 @@ DX12Texture::createView(const TextureViewCreateInfo& createInfo)
 void
 DX12Texture::uploadData(const void* data, SIZE_T size)
 {
-  g_dx12API().getUploader().uploadTexture(*this, data, size);
+  g_dx12API().getUploader().uploadTexture(*this, data, size, m_bHasContents);
+  m_bHasContents = true;
 }
 
 } // namespace chEngineSDK

@@ -262,6 +262,17 @@ UTF8::fromUTF32(const U32String& input)
 
 /*
  */
+WCHAR32
+UTF8::decodeNext(StringView text, SIZE_T& position) noexcept
+{
+  const ANSICHAR* it = text.data() + position;
+  const WCHAR32 c = decodeUTF8(it, text.data() + text.size());
+  position = static_cast<SIZE_T>(it - text.data());
+  return c;
+}
+
+/*
+ */
 U32String
 UTF8::toUTF32(const String& input)
 {

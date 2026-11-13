@@ -174,7 +174,10 @@ DX12Uploader::uploadBuffer(ID3D12Resource* buffer,
 /*
  */
 void
-DX12Uploader::uploadTexture(const DX12Texture& texture, const void* data, SIZE_T size)
+DX12Uploader::uploadTexture(const DX12Texture& texture,
+                            const void* data,
+                            SIZE_T size,
+                            bool bHasContents)
 {
   CH_ASSERT(data != nullptr && size > 0);
   const Format format = texture.getFormat();
@@ -241,11 +244,20 @@ DX12Uploader::uploadTexture(const DX12Texture& texture, const void* data, SIZE_T
   }
 
   ID3D12GraphicsCommandList7* commandList = getCommandList();
-  // The old contents are replaced, so the texture starts from the undefined layout.
-  recordTextureBarrier(commandList, resource, D3D12_BARRIER_SYNC_NONE,
-                       D3D12_BARRIER_SYNC_COPY, D3D12_BARRIER_ACCESS_NO_ACCESS,
-                       D3D12_BARRIER_ACCESS_COPY_DEST, D3D12_BARRIER_LAYOUT_UNDEFINED,
-                       D3D12_BARRIER_LAYOUT_COPY_DEST);
+  if (bHasContents) {
+    // An earlier upload left it readable, maybe in this same list, and shaders may read it.
+    recordTextureBarrier(commandList, resource, D3D12_BARRIER_SYNC_ALL_SHADING,
+                         D3D12_BARRIER_SYNC_COPY, D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
+                         D3D12_BARRIER_ACCESS_COPY_DEST, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE,
+                         D3D12_BARRIER_LAYOUT_COPY_DEST);
+  }
+  else {
+    // Nothing used it yet, so it starts from the undefined layout.
+    recordTextureBarrier(commandList, resource, D3D12_BARRIER_SYNC_NONE,
+                         D3D12_BARRIER_SYNC_COPY, D3D12_BARRIER_ACCESS_NO_ACCESS,
+                         D3D12_BARRIER_ACCESS_COPY_DEST, D3D12_BARRIER_LAYOUT_UNDEFINED,
+                         D3D12_BARRIER_LAYOUT_COPY_DEST);
+  }
 
   for (uint32 mip = 0; mip < uploadedMips; ++mip) {
     for (uint32 layer = 0; layer < layers; ++layer) {

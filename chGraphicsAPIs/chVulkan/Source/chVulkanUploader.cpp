@@ -197,10 +197,11 @@ VulkanUploader::uploadTexture(const VulkanTexture& texture, const void* data, SI
                                            .baseArrayLayer = 0,
                                            .layerCount = VK_REMAINING_ARRAY_LAYERS};
 
-  // The old contents are replaced, so the image starts from UNDEFINED.
+  // The old contents are replaced, so the image starts from UNDEFINED. A texture uploaded
+  // again may still be read by the shaders of an earlier frame, so the copy waits for them.
   VkImageMemoryBarrier2 barrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
                                 .pNext = nullptr,
-                                .srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT,
+                                .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                                 .srcAccessMask = VK_ACCESS_2_NONE,
                                 .dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT,
                                 .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
