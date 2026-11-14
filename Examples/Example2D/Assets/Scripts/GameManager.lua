@@ -105,6 +105,11 @@ function GameManager:onStart()
   -- its own; it is made the first time P is pressed.
   self.stressOn = false
   self.frameTime = 1 / 60
+  -- The worst frame of the last two seconds, and when the stress test last turned on, so a
+  -- hitch can be told apart from a slow average.
+  self.worstFrame = 0
+  self.worstFrameAge = 0
+  self.stressStarted = -1
   self.stressStyle = Text.makeStyle{ size = 0.4, pivot = Vector2(0, 1), layer = 12,
                                      outlineWidth = 3, color = Color(0.6, 1, 0.6, 1) }
   self.stressHintStyle = Text.makeStyle{ size = 0.3, pivot = Vector2(0, 0), layer = 12,
@@ -164,12 +169,25 @@ function GameManager:updateStress(dt)
   if Input.wasActionPressed("Stress") then
     self.stressOn = not self.stressOn
     if self.stressOn then
+      self.stressStarted = Time.time
       self:applyStress()
     else
       self:stopStress()
     end
   end
   self.frameTime = self.frameTime * 0.95 + dt * 0.05
+  self.worstFrameAge = self.worstFrameAge + dt
+  if dt > self.worstFrame or self.worstFrameAge > 2 then
+    self.worstFrame = dt
+    self.worstFrameAge = 0
+  end
+  if dt > 0.05 then
+    Log.warning(string.format("Long frame: %.1f ms, %.1f s after the start, %s", dt * 1000,
+                              Time.time, self.stressStarted >= 0
+                                and string.format("%.2f s after the stress test started",
+                                                  Time.time - self.stressStarted)
+                                or "before the stress test"))
+  end
   if not self.stressOn then
     Text.draw(self.stressHintStyle, "P: stress test", -self.halfWidth + 0.3,
               -self.halfHeight + 0.2)
@@ -204,10 +222,10 @@ function GameManager:updateStress(dt)
 
   Text.draw(self.stressStyle,
             string.format("STRESS %.0fK numbers + %.0fK particles (P)\nNumber runs: %d\n"
-                          .. "Particles: %d\nFrame: %.2f ms (%d FPS)",
+                          .. "Particles: %d\nFrame: %.2f ms (%d FPS)\nWorst frame: %.1f ms",
                           self.stressNumbers / 1000, self.stressParticles / 1000,
                           numbers:getCount(), particles:getCount(), self.frameTime * 1000,
-                          math.floor(1 / self.frameTime + 0.5)),
+                          math.floor(1 / self.frameTime + 0.5), self.worstFrame * 1000),
             -self.halfWidth + 0.3, self.halfHeight - 0.9)
 end
 
