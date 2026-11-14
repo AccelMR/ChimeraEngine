@@ -86,6 +86,8 @@ escapeJson(StringView text)
   return result;
 }
 
+
+#if USING(CH_PLATFORM_WIN32)
 String
 escapeXml(StringView text)
 {
@@ -102,6 +104,7 @@ escapeXml(StringView text)
   }
   return result;
 }
+#endif // USING(CH_PLATFORM_WIN32)
 
 String
 readText(const Path& path)
