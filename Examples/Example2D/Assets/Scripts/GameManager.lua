@@ -8,6 +8,9 @@
 ---@field minSpawnInterval number
 ---@field halfWidth number
 ---@field halfHeight number
+---@field stressNumbers integer
+---@field stressParticles integer
+---@field stressLifetime number
 local GameManager = {}
 
 -- Damage numbers by size: plain, gold, orange and flashing, huge red and shaking.
@@ -25,10 +28,7 @@ local DAMAGE_TIERS = {
     flashColor = Color(1, 1, 1, 1), flashRate = 14 },
 }
 
--- How many numbers and particles each press of Stress (P) keeps alive.
-local STRESS_LEVELS = { 0, 100000, 200000 }
-local STRESS_NUMBER_LIFETIME = 2.5
-local STRESS_PARTICLE_LIFETIME = 3
+-- Particles of the stress test leave in rings of this many.
 local STRESS_RING = 64
 
 GameManager.properties = {
@@ -37,6 +37,12 @@ GameManager.properties = {
   { "minSpawnInterval", 0.35, min = 0.1, max = 2, tooltip = "The fastest spawning gets" },
   { "halfWidth", 13.5, tooltip = "Half the width the camera shows, in world units" },
   { "halfHeight", 8, tooltip = "Half the height the camera shows, in world units" },
+  { "stressNumbers", 75000, type = "integer", min = 0, max = 200000,
+    tooltip = "Damage numbers the stress test (P) keeps alive; changes apply while it runs" },
+  { "stressParticles", 75000, type = "integer", min = 0, max = 200000,
+    tooltip = "Particles the stress test (P) keeps alive" },
+  { "stressLifetime", 1.2, min = 0.3, max = 5,
+    tooltip = "Seconds a stress number lives; particles live a little longer" },
 }
 
 function GameManager:onStart()
@@ -97,7 +103,7 @@ function GameManager:onStart()
 
   -- The stress test lives on the Background object, which has no projectiles or numbers of
   -- its own; it is made the first time P is pressed.
-  self.stressLevel = 1
+  self.stressOn = false
   self.frameTime = 1 / 60
   self.stressStyle = Text.makeStyle{ size = 0.4, pivot = Vector2(0, 1), layer = 12,
                                      outlineWidth = 3, color = Color(0.6, 1, 0.6, 1) }
@@ -105,50 +111,74 @@ function GameManager:onStart()
                                          color = Color(0.6, 0.7, 0.9, 1) }
 end
 
--- P cycles off, 100K and 200K: that many numbers and particles stay alive, spawned at the
--- rate that keeps the count as they die.
-function GameManager:setStress(count)
-  if count == 0 then
-    if self.stressParticles then
-      self.stressParticles:clear()
-      self.stressNumbers:clear()
-    end
-    return
-  end
-  if not self.stressParticles then
+-- P turns it on and off: stressNumbers numbers and stressParticles particles stay alive,
+-- spawned at the rate that keeps the count as they die. The three properties are sliders in
+-- the Inspector, so the load can be tuned while it runs.
+function GameManager:applyStress()
+  local numbers = self.stressNumbers
+  local particles = self.stressParticles
+  local lifetime = self.stressLifetime
+  self.appliedStress = { numbers, particles, lifetime }
+  if not self.stressNumberSystem then
     local host = Scene.find("Background")
-    self.stressParticles = host:addProjectiles()
-    self.stressParticles:setLook(Sprites.makeStyle{ texture = "T_Spark", pixelsPerUnit = 48,
-                                                     blend = "Additive", layer = 1 }, false)
-    self.stressParticles:setHitTeams({})
-    self.stressNumbers = host:addFloatingNumbers()
-    self.stressNumbers:setTiers(DAMAGE_TIERS)
+    self.stressParticleSystem = host:addProjectiles()
+    self.stressParticleSystem:setLook(Sprites.makeStyle{ texture = "T_Spark", pixelsPerUnit = 48,
+                                                          blend = "Additive", layer = 1 },
+                                      false)
+    self.stressParticleSystem:setHitTeams({})
+    self.stressNumberSystem = host:addFloatingNumbers()
+    self.stressNumberSystem:setTiers(DAMAGE_TIERS)
   end
-  self.stressParticles:configure{ capacity = count, speed = 3, lifetime = STRESS_PARTICLE_LIFETIME,
-                                  radius = 0, acceleration = Vector2(0, -1) }
+  local particleLifetime = lifetime * 1.2
+  self.stressParticleSystem:configure{ capacity = math.max(particles, 1), speed = 3,
+                                       lifetime = particleLifetime, radius = 0,
+                                       acceleration = Vector2(0, -1) }
   -- An outlined number takes two runs.
-  self.stressNumbers:configure{ capacity = count * 2 + 4096, size = 0.3, angle = 90,
-                                spread = 60, speed = 3, speedVariance = 1.5,
-                                gravity = Vector2(0, -4), lifetime = STRESS_NUMBER_LIFETIME,
-                                lifetimeVariance = 0, fadeOut = 0.4, layer = 11,
-                                notation = "Suffix", decimals = 1 }
-  self.stressNumberRate = count / STRESS_NUMBER_LIFETIME
-  self.stressParticleRate = count / STRESS_PARTICLE_LIFETIME
+  self.stressNumberSystem:configure{ capacity = numbers * 2 + 4096, size = 0.25, angle = 90,
+                                     spread = 60, speed = 3, speedVariance = 1.5,
+                                     gravity = Vector2(0, -5), lifetime = lifetime,
+                                     lifetimeVariance = 0, fadeOut = math.min(0.3, lifetime * 0.5),
+                                     layer = 11, notation = "Suffix", decimals = 1 }
+  self.stressNumberRate = numbers / lifetime
+  self.stressParticleRate = particles / particleLifetime
   self.stressNumberDebt = 0
   self.stressParticleDebt = 0
 end
 
+function GameManager:stopStress()
+  if self.stressNumberSystem then
+    self.stressNumberSystem:clear()
+    self.stressParticleSystem:clear()
+  end
+end
+
+-- Mostly small numbers, so the screen is not all huge criticals: 70% below a thousand, 2%
+-- in the top tier.
+local function stressValue(random)
+  local roll = random()
+  local power = roll < 0.7 and 0 or roll < 0.9 and 1 or roll < 0.98 and 2 or 3
+  return random(10, 999) * 10 ^ power
+end
+
 function GameManager:updateStress(dt)
   if Input.wasActionPressed("Stress") then
-    self.stressLevel = self.stressLevel % #STRESS_LEVELS + 1
-    self:setStress(STRESS_LEVELS[self.stressLevel])
+    self.stressOn = not self.stressOn
+    if self.stressOn then
+      self:applyStress()
+    else
+      self:stopStress()
+    end
   end
   self.frameTime = self.frameTime * 0.95 + dt * 0.05
-  local count = STRESS_LEVELS[self.stressLevel]
-  if count == 0 then
+  if not self.stressOn then
     Text.draw(self.stressHintStyle, "P: stress test", -self.halfWidth + 0.3,
               -self.halfHeight + 0.2)
     return
+  end
+  local applied = self.appliedStress
+  if applied[1] ~= self.stressNumbers or applied[2] ~= self.stressParticles or
+     applied[3] ~= self.stressLifetime then
+    self:applyStress()
   end
 
   -- A long frame must not spawn a burst that makes the next one longer.
@@ -156,28 +186,27 @@ function GameManager:updateStress(dt)
   local random = math.random
   local w, h = self.halfWidth, self.halfHeight
   self.stressNumberDebt = self.stressNumberDebt + self.stressNumberRate * dt
-  local numbers = math.floor(self.stressNumberDebt)
-  self.stressNumberDebt = self.stressNumberDebt - numbers
-  local system = self.stressNumbers
-  for _ = 1, numbers do
-    system:spawn(random(10, 999) * 10 ^ random(0, 3), (random() * 2 - 1) * w,
-                 (random() * 2 - 1) * h)
+  local count = math.floor(self.stressNumberDebt)
+  self.stressNumberDebt = self.stressNumberDebt - count
+  local numbers = self.stressNumberSystem
+  for _ = 1, count do
+    numbers:spawn(stressValue(random), (random() * 2 - 1) * w, (random() * 2 - 1) * h)
   end
 
   self.stressParticleDebt = self.stressParticleDebt + self.stressParticleRate * dt
   local rings = math.floor(self.stressParticleDebt / STRESS_RING)
   self.stressParticleDebt = self.stressParticleDebt - rings * STRESS_RING
-  local particles = self.stressParticles
+  local particles = self.stressParticleSystem
   for _ = 1, rings do
     particles:fireRing((random() * 2 - 1) * w, (random() * 2 - 1) * h, STRESS_RING,
                        random() * 360, 1 + random() * 4)
   end
 
   Text.draw(self.stressStyle,
-            string.format("STRESS %dK numbers + %dK particles (P)\nNumber runs: %d\n"
+            string.format("STRESS %.0fK numbers + %.0fK particles (P)\nNumber runs: %d\n"
                           .. "Particles: %d\nFrame: %.2f ms (%d FPS)",
-                          count // 1000, count // 1000, system:getCount(),
-                          particles:getCount(), self.frameTime * 1000,
+                          self.stressNumbers / 1000, self.stressParticles / 1000,
+                          numbers:getCount(), particles:getCount(), self.frameTime * 1000,
                           math.floor(1 / self.frameTime + 0.5)),
             -self.halfWidth + 0.3, self.halfHeight - 0.9)
 end
