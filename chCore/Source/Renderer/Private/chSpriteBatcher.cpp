@@ -12,6 +12,7 @@
 #include <bit>
 
 #include "chFrustum.h"
+#include "chMath.h"
 #include "chProfiler.h"
 #include "chShapeOverlap.h"
 #include "chSphere.h"
@@ -142,7 +143,8 @@ SpriteBatcher::build(Span<const SpriteItem> sprites,
                         .kind = SpriteRunKind::GlyphRunBatch,
                         .bufferIndex = batch.bufferIndex,
                         .motionIndex = batch.motionIndex,
-                        .time = batch.time});
+                        .time = batch.time,
+                        .maxGlyphs = Math::clamp(batch.maxGlyphs, 1u, GpuGlyphRun::MAX_GLYPHS)});
       continue;
     }
 

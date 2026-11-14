@@ -230,6 +230,9 @@ struct GlyphRunBatch
   uint32 motionIndex = NO_MOTION;
   // Now, on the clock the runs' times were written with, in seconds.
   float time = 0.0f;
+  // The most glyphs a run of the batch has: only that many quads are drawn per run, so a
+  // batch of short numbers costs a third of the vertices of one of 16-glyph texts.
+  uint32 maxGlyphs = GpuGlyphRun::MAX_GLYPHS;
   int16 sortingLayer = 0;
   int16 order = 0;
   SpriteBlendMode blendMode = SpriteBlendMode::Alpha;

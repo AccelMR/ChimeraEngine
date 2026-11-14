@@ -181,6 +181,7 @@ FloatingNumberSystemComponent::clear()
   m_liveCount = 0;
   m_pendingStart = 0;
   m_pendingCount = 0;
+  m_maxGlyphs = 1;
 }
 
 /*
@@ -355,6 +356,7 @@ FloatingNumberSystemComponent::update(float deltaTime)
   }
   if (m_liveCount == 0) {
     m_pendingCount = 0;
+    m_maxGlyphs = 1;
     return;
   }
 
@@ -619,6 +621,7 @@ FloatingNumberSystemComponent::writeRun(const GpuGlyphRun& run, float lifetime)
 {
   const uint32 slot = m_writeCursor;
   m_runs[slot] = run;
+  m_maxGlyphs = Math::max(m_maxGlyphs, run.glyphCount);
   m_deaths[slot] = m_time + lifetime;
   m_writeCursor = (m_writeCursor + 1) % m_capacity;
 
@@ -722,6 +725,7 @@ FloatingNumberSystemComponent::addBatch(uint32 first, uint32 count)
        .runCount = count,
        .motionIndex = m_motionBuffer->getBindlessIndex(),
        .time = m_time,
+       .maxGlyphs = m_maxGlyphs,
        .sortingLayer = m_sortingLayer,
        .order = m_order,
        .blendMode = m_blendMode});

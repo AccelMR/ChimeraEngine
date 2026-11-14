@@ -41,6 +41,8 @@ struct SpriteRun
   uint32 bufferIndex = 0;
   uint32 motionIndex = GlyphRunBatch::NO_MOTION;
   float time = 0.0f;
+  // The most glyphs a run of the draw has.
+  uint32 maxGlyphs = GpuGlyphRun::MAX_GLYPHS;
 };
 
 /**

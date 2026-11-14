@@ -2,7 +2,7 @@
 
 A small 2D shooter made with Chimera's 2D tools. Move with WASD, the arrows or the left
 stick; fire with Space, the left mouse button or the South button; after a game over, R or
-Start plays again.
+Start plays again; P (or Back) cycles a stress test of 100K and 200K numbers and particles.
 
 Open it with `chEditor -project=Examples/Example2D` (the editor starts in its 2D view) or
 play it with `chGame -project=Examples/Example2D`.
@@ -19,6 +19,7 @@ play it with `chGame -project=Examples/Example2D`.
 | Hits reported to scripts | `onHit` in `PlayerShip.lua` and `GameManager.lua`, targets added with `addProjectileTarget` |
 | Sprites drawn every frame without GameObjects | `Background.lua` (star field), the lives in `PlayerShip.lua` (`Sprites.draw`) |
 | Text and numbers drawn every frame | the score and the game over screen in `GameManager.lua` (`Text.makeStyle`, `Text.draw` with a number) |
+| A stress test: P cycles off, 100K and 200K numbers plus as many particles, with the frame time on screen | `updateStress` in `GameManager.lua` |
 | Damage numbers that fly, pop, shake and flash on the GPU | `showDamage` in `GameManager.lua`, called by the bullets' `onHit` in `PlayerShip.lua` (the chFloatingNumbers plugin: `addFloatingNumbers`, `configure`, `setTiers`, `spawn`) |
 | Spawning from a prefab property | `GameManager.lua` (`Scene.instantiate`, the `enemy` property) |
 | Opening a map again | `GameManager.lua` (`Scene.openMap("Main")`) |

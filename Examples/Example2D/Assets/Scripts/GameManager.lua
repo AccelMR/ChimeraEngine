@@ -10,6 +10,27 @@
 ---@field halfHeight number
 local GameManager = {}
 
+-- Damage numbers by size: plain, gold, orange and flashing, huge red and shaking.
+local DAMAGE_TIERS = {
+  { min = 0, color = Color(1, 1, 1, 1), outline = 2, outlineColor = Color(0, 0, 0, 1),
+    pop = 1.3, popDuration = 0.12 },
+  { min = 1000, color = Color(1, 0.8, 0.15, 1), outline = 3,
+    outlineColor = Color(0.35, 0.12, 0, 1), scale = 1.3, pop = 1.8, popDuration = 0.15 },
+  { min = 10000, color = Color(1, 0.4, 0.08, 1), outline = 3,
+    outlineColor = Color(0.3, 0, 0, 1), scale = 1.7, pop = 2.4, popDuration = 0.18,
+    flash = 0.25, flashColor = Color(1, 1, 0.6, 1), flashRate = 12 },
+  { min = 100000, color = Color(1, 0.12, 0.18, 1), outline = 4,
+    outlineColor = Color(0.15, 0, 0.05, 1), scale = 2.3, pop = 3, popDuration = 0.2,
+    shake = 0.12, shakeFrequency = 25, shakeDuration = 0.35, flash = 0.4,
+    flashColor = Color(1, 1, 1, 1), flashRate = 14 },
+}
+
+-- How many numbers and particles each press of Stress (P) keeps alive.
+local STRESS_LEVELS = { 0, 100000, 200000 }
+local STRESS_NUMBER_LIFETIME = 2.5
+local STRESS_PARTICLE_LIFETIME = 3
+local STRESS_RING = 64
+
 GameManager.properties = {
   { "enemy", type = "Prefab", tooltip = "What spawns at the top of the screen" },
   { "spawnInterval", 1.4, min = 0.2, max = 5, tooltip = "Seconds between enemies at the start" },
@@ -72,19 +93,93 @@ function GameManager:onStart()
                                 speed = 6, speedVariance = 2, gravity = Vector2(0, -14),
                                 lifetime = 0.9, lifetimeVariance = 0.2, fadeOut = 0.35,
                                 layer = 11, notation = "Suffix", decimals = 1 }
-  self.damageNumbers:setTiers{
-    { min = 0, color = Color(1, 1, 1, 1), outline = 2, outlineColor = Color(0, 0, 0, 1),
-      pop = 1.3, popDuration = 0.12 },
-    { min = 1000, color = Color(1, 0.8, 0.15, 1), outline = 3,
-      outlineColor = Color(0.35, 0.12, 0, 1), scale = 1.3, pop = 1.8, popDuration = 0.15 },
-    { min = 10000, color = Color(1, 0.4, 0.08, 1), outline = 3,
-      outlineColor = Color(0.3, 0, 0, 1), scale = 1.7, pop = 2.4, popDuration = 0.18,
-      flash = 0.25, flashColor = Color(1, 1, 0.6, 1), flashRate = 12 },
-    { min = 100000, color = Color(1, 0.12, 0.18, 1), outline = 4,
-      outlineColor = Color(0.15, 0, 0.05, 1), scale = 2.3, pop = 3, popDuration = 0.2,
-      shake = 0.12, shakeFrequency = 25, shakeDuration = 0.35, flash = 0.4,
-      flashColor = Color(1, 1, 1, 1), flashRate = 14 },
-  }
+  self.damageNumbers:setTiers(DAMAGE_TIERS)
+
+  -- The stress test lives on the Background object, which has no projectiles or numbers of
+  -- its own; it is made the first time P is pressed.
+  self.stressLevel = 1
+  self.frameTime = 1 / 60
+  self.stressStyle = Text.makeStyle{ size = 0.4, pivot = Vector2(0, 1), layer = 12,
+                                     outlineWidth = 3, color = Color(0.6, 1, 0.6, 1) }
+  self.stressHintStyle = Text.makeStyle{ size = 0.3, pivot = Vector2(0, 0), layer = 12,
+                                         color = Color(0.6, 0.7, 0.9, 1) }
+end
+
+-- P cycles off, 100K and 200K: that many numbers and particles stay alive, spawned at the
+-- rate that keeps the count as they die.
+function GameManager:setStress(count)
+  if count == 0 then
+    if self.stressParticles then
+      self.stressParticles:clear()
+      self.stressNumbers:clear()
+    end
+    return
+  end
+  if not self.stressParticles then
+    local host = Scene.find("Background")
+    self.stressParticles = host:addProjectiles()
+    self.stressParticles:setLook(Sprites.makeStyle{ texture = "T_Spark", pixelsPerUnit = 48,
+                                                     blend = "Additive", layer = 1 }, false)
+    self.stressParticles:setHitTeams({})
+    self.stressNumbers = host:addFloatingNumbers()
+    self.stressNumbers:setTiers(DAMAGE_TIERS)
+  end
+  self.stressParticles:configure{ capacity = count, speed = 3, lifetime = STRESS_PARTICLE_LIFETIME,
+                                  radius = 0, acceleration = Vector2(0, -1) }
+  -- An outlined number takes two runs.
+  self.stressNumbers:configure{ capacity = count * 2 + 4096, size = 0.3, angle = 90,
+                                spread = 60, speed = 3, speedVariance = 1.5,
+                                gravity = Vector2(0, -4), lifetime = STRESS_NUMBER_LIFETIME,
+                                lifetimeVariance = 0, fadeOut = 0.4, layer = 11,
+                                notation = "Suffix", decimals = 1 }
+  self.stressNumberRate = count / STRESS_NUMBER_LIFETIME
+  self.stressParticleRate = count / STRESS_PARTICLE_LIFETIME
+  self.stressNumberDebt = 0
+  self.stressParticleDebt = 0
+end
+
+function GameManager:updateStress(dt)
+  if Input.wasActionPressed("Stress") then
+    self.stressLevel = self.stressLevel % #STRESS_LEVELS + 1
+    self:setStress(STRESS_LEVELS[self.stressLevel])
+  end
+  self.frameTime = self.frameTime * 0.95 + dt * 0.05
+  local count = STRESS_LEVELS[self.stressLevel]
+  if count == 0 then
+    Text.draw(self.stressHintStyle, "P: stress test", -self.halfWidth + 0.3,
+              -self.halfHeight + 0.2)
+    return
+  end
+
+  -- A long frame must not spawn a burst that makes the next one longer.
+  dt = math.min(dt, 0.1)
+  local random = math.random
+  local w, h = self.halfWidth, self.halfHeight
+  self.stressNumberDebt = self.stressNumberDebt + self.stressNumberRate * dt
+  local numbers = math.floor(self.stressNumberDebt)
+  self.stressNumberDebt = self.stressNumberDebt - numbers
+  local system = self.stressNumbers
+  for _ = 1, numbers do
+    system:spawn(random(10, 999) * 10 ^ random(0, 3), (random() * 2 - 1) * w,
+                 (random() * 2 - 1) * h)
+  end
+
+  self.stressParticleDebt = self.stressParticleDebt + self.stressParticleRate * dt
+  local rings = math.floor(self.stressParticleDebt / STRESS_RING)
+  self.stressParticleDebt = self.stressParticleDebt - rings * STRESS_RING
+  local particles = self.stressParticles
+  for _ = 1, rings do
+    particles:fireRing((random() * 2 - 1) * w, (random() * 2 - 1) * h, STRESS_RING,
+                       random() * 360, 1 + random() * 4)
+  end
+
+  Text.draw(self.stressStyle,
+            string.format("STRESS %dK numbers + %dK particles (P)\nNumber runs: %d\n"
+                          .. "Particles: %d\nFrame: %.2f ms (%d FPS)",
+                          count // 1000, count // 1000, system:getCount(),
+                          particles:getCount(), self.frameTime * 1000,
+                          math.floor(1 / self.frameTime + 0.5)),
+            -self.halfWidth + 0.3, self.halfHeight - 0.9)
 end
 
 -- The damage is made up: most hits are small, some are criticals and a few are huge, so
@@ -115,6 +210,7 @@ end
 
 function GameManager:update(dt)
   self:drawHud()
+  self:updateStress(dt)
   if self.over then
     if Input.wasActionPressed("Restart") then
       Scene.openMap("Main")

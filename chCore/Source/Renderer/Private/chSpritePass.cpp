@@ -56,7 +56,6 @@ constexpr uint32 kInitialGlyphRunCapacity = 1024;
 
 // Two triangles of a quad, made in the vertex shader from the vertex index.
 constexpr uint32 kVerticesPerSprite = 6;
-constexpr uint32 kVerticesPerGlyphRun = kVerticesPerSprite * GpuGlyphRun::MAX_GLYPHS;
 
 NODISCARD SPtr<IBuffer>
 createInstanceBuffer(SIZE_T bytes)
@@ -195,7 +194,9 @@ SpritePass::addPass(RenderGraph& graph,
           glyph.firstRun = run.firstInstance;
           commandList.bindPipeline(*pipelines[blend + kBlendModes]);
           commandList.pushConstants(&glyph, sizeof(glyph));
-          commandList.draw(kVerticesPerGlyphRun, run.instanceCount);
+          // Runs of the frame's own list may hold any count; batches say their most.
+          const uint32 glyphs = bBatch ? run.maxGlyphs : GpuGlyphRun::MAX_GLYPHS;
+          commandList.draw(kVerticesPerSprite * glyphs, run.instanceCount);
         }
       });
 }

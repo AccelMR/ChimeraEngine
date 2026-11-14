@@ -309,6 +309,9 @@ class FloatingNumberSystemComponent : public Component
   // When each run stops living, to know where the live part of the ring starts.
   Vector<float> m_deaths;
   uint32 m_writeCursor = 0;
+  // The most glyphs a run written since the ring was last empty has, which is how many
+  // quads each run of the batch draws.
+  uint32 m_maxGlyphs = 1;
   uint32 m_liveStart = 0;
   uint32 m_liveCount = 0;
   // Runs written since the last upload, from m_pendingStart.
