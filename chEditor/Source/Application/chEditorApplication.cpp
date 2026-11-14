@@ -41,6 +41,7 @@
 #include "chQuaternion.h"
 #include "chRayCast.h"
 #include "chSpriteAtlasAsset.h"
+#include "chFont.h"
 #include "chFontAsset.h"
 #include "chSpriteComponent.h"
 #include "chTextComponent.h"
@@ -495,6 +496,9 @@ EditorApplication::initializeEditorComponents() {
   assetManager.initialize();
   assetManager.lazyLoadAssetsFromDirectory(EnginePaths::getGameAssetDirectory());
   ScriptManager::startUp();
+  // Drawing its atlas takes tens of milliseconds, which belong in the load, not in the
+  // first frame that shows a text.
+  CH_PARAMETER_UNUSED(Font::getDefault());
   ScriptDefinitionsUI::requestUpdate();
 
   m_sceneRenderer = chMakeUnique<SceneRenderer>();

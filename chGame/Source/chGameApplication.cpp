@@ -14,6 +14,7 @@
 #include "chConsoleVariable.h"
 #include "chEnginePaths.h"
 #include "chEnginePlugins.h"
+#include "chFont.h"
 #include "chIGraphicsAPI.h"
 #include "chISwapChain.h"
 #include "chLinearColor.h"
@@ -63,6 +64,9 @@ GameApplication::onPostInitialize()
   assetManager.initialize();
   assetManager.lazyLoadAssetsFromDirectory(EnginePaths::getGameAssetDirectory());
   ScriptManager::startUp();
+  // Drawing its atlas takes tens of milliseconds, which belong in the load, not in the
+  // first frame that shows a text.
+  CH_PARAMETER_UNUSED(Font::getDefault());
 
   SceneManager::startUp();
   m_sceneRenderer = chMakeUnique<SceneRenderer>();
