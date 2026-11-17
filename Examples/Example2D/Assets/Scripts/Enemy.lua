@@ -62,6 +62,7 @@ end
 
 function Enemy:fire(y, z)
   local bullets = Game.enemyBullets
+  Game:playSound(Game.sounds.enemyShot, 0.3)
   if self.pattern == "ring" then
     bullets:fireRing(y, z, 12, self.age * 40, 3.5)
     return

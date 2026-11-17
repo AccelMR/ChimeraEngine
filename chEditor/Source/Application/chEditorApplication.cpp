@@ -11,7 +11,9 @@
 #include "chEditorApplication.h"
 #include "chAssetDragDrop.h"
 #include "chAssetManager.h"
+#include "chAudioClipAsset.h"
 #include "chAudioManager.h"
+#include "chAudioSourceComponent.h"
 #include "chCameraComponent.h"
 #include "chEditorCamera.h"
 #include "chCoreComponentEditors.h"
@@ -811,6 +813,9 @@ EditorApplication::renderViewportPanel()
     if (m_editorCamera->is2D() && !EditorScene::isPlaying()) {
       acceptSpriteDrop(scene, parent);
     }
+    if (!EditorScene::isPlaying()) {
+      acceptAudioDrop(scene, parent);
+    }
     ImGui::EndDragDropTarget();
   }
 
@@ -934,6 +939,29 @@ EditorApplication::acceptFontDrop(Scene& scene, GameObject* parent)
   placeAtMouse(gameObject);
   EditorSelection::setSelectedGameObject(gameObject);
   EditorScene::recordCreated(*gameObject, "Drop Font");
+}
+
+/*
+ */
+void
+EditorApplication::acceptAudioDrop(Scene& scene, GameObject* parent)
+{
+  // Clips travel as any asset; only one that is a clip is taken.
+  const SPtr<IAsset> dragged = AssetDragDrop::peekAnyAsset();
+  if (!dragged || !dragged->isTypeOf<AudioClipAsset>()) {
+    return;
+  }
+  const SPtr<IAsset> asset = AssetDragDrop::acceptAnyAsset();
+  if (!asset || (!asset->isLoaded() && !AssetManager::instance().syncLoadAsset(asset))) {
+    return;
+  }
+  const SPtr<GameObject> gameObject = scene.createGameObject(asset->getName(), parent);
+  AudioSourceComponent& source =
+      gameObject->addComponent<AudioSourceComponent>(asset->as<AudioClipAsset>());
+  source.setSpatial(!m_editorCamera->is2D());
+  placeAtMouse(gameObject);
+  EditorSelection::setSelectedGameObject(gameObject);
+  EditorScene::recordCreated(*gameObject, "Drop Audio Clip");
 }
 
 /*

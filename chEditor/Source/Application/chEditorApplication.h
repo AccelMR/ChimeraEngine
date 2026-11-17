@@ -127,6 +127,13 @@ class EditorApplication : public WindowedApplication
   void
   acceptFontDrop(Scene& scene, GameObject* parent);
 
+  /**
+   * Makes an object that plays an audio clip dropped on the view: spatial in 3D, not in 2D,
+   * where the camera stands far from the plane the objects are on.
+   */
+  void
+  acceptAudioDrop(Scene& scene, GameObject* parent);
+
   void
   updateGameInput();
 

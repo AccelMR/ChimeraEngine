@@ -27,6 +27,7 @@
 #include "chSkeletonAsset.h"
 #include "chAnimationClipAsset.h"
 #include "chAnimationGraphAsset.h"
+#include "chAudioClipAsset.h"
 #include "chScriptAsset.h"
 #include "chSpriteAtlasAsset.h"
 #include "chFontAsset.h"
@@ -212,6 +213,9 @@ UIHelpers::getIconFromAssetType(const SPtr<IAsset>& asset)
   }
   if (asset->isTypeOf<FontAsset>()) {
     return {AssetType::Font, ICON_FA_FONT};
+  }
+  if (asset->isTypeOf<AudioClipAsset>()) {
+    return {AssetType::Audio, ICON_FA_VOLUME_UP};
   }
   return {AssetType::Unknown, ICON_FA_FILE};
 }

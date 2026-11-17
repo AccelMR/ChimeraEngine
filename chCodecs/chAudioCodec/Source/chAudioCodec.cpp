@@ -70,7 +70,7 @@ class AudioImportTask final : public IImportTask
       CH_LOG_ERROR(AudioCodecLog, "Failed to save audio clip asset: {0}", m_assetName);
       return nullptr;
     }
-    CH_LOG_INFO(AudioCodecLog, "Imported sound {0} ({1:.2f} s, {2} channels, {3} Hz{4}) from {5}",
+    CH_LOG_INFO(AudioCodecLog, "Imported sound {0} ({1:.2f} s, {2} ch, {3} Hz{4}) from {5}",
                 asset->getName(), m_info.getDuration(), m_info.channels, m_info.sampleRate,
                 bStream ? ", streamed" : "", m_filePath);
     return asset;

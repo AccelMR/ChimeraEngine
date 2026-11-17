@@ -25,11 +25,22 @@ play it with `chGame -project=Examples/Example2D`.
 | Spawning from a prefab property | `GameManager.lua` (`Scene.instantiate`, the `enemy` property) |
 | Opening a map again | `GameManager.lua` (`Scene.openMap("Main")`) |
 | Input actions | `Config/Input.ini` (Move, Fire, Restart) |
+| Sounds and music | `GameManager.lua` (`AudioClip.find`, `Audio.play` with plain numbers, the looping streamed music kept in the global `MusicVoice` across map reloads), called from `PlayerShip.lua` and `Enemy.lua`; each clip's voice limit is set in the Asset Inspector |
 
 The world is the YZ plane: Y is right and Z is up, and in scripts the x and y of 2D
 functions are world Y and Z. Angles are degrees counterclockwise from +Y, so 90 is up.
 Teams: the player is team 1, enemies team 2; each projectile system says which teams it
 hits.
+
+## Sounds
+
+`SourceAssets/Sounds` holds `generate_sounds.py`, which makes the WAV files with plain
+Python (`python generate_sounds.py`): two shots, an explosion, a hurt sound and a 17 second
+music loop at 22050 Hz. The WAV files are not kept, since an asset holds its whole file and
+the script makes them again to import them anew. They were imported into `Assets/Audio` as
+`S_*`; the music is longer than `Audio.ImportStreamSeconds`, so it streams on the music bus,
+and the shots and explosions have a voice limit (6 and 8) so rapid fire keeps voices for the
+rest.
 
 ## Images
 
