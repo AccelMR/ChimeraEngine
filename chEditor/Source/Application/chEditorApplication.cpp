@@ -11,6 +11,7 @@
 #include "chEditorApplication.h"
 #include "chAssetDragDrop.h"
 #include "chAssetManager.h"
+#include "chAudioManager.h"
 #include "chCameraComponent.h"
 #include "chEditorCamera.h"
 #include "chCoreComponentEditors.h"
@@ -225,6 +226,10 @@ EditorApplication::destroyModules()
   if (ScriptManager::isStarted()) {
     ScriptManager::shutDown();
   }
+  // Voices keep the clips they play alive, so nothing above needs it.
+  if (AudioManager::isStarted()) {
+    AudioManager::shutDown();
+  }
 #if USING(CH_CODECS)
   // The codec objects live in the codec libraries, which stay loaded until the parent
   // shuts down the library manager.
@@ -354,6 +359,7 @@ EditorApplication::update(const float deltaTime)
     updatedScene.updateTransforms();
   }
   updateViewCamera(updatedScene);
+  AudioManager::instance().update();
 
   // Like the grid, the editor's lines hide with the rest of the UI, and while the viewport
   // shows the game.
@@ -491,6 +497,7 @@ EditorApplication::initializeEditorComponents() {
   EnginePlugins::loadEnabled();
   CoreComponentEditors::registerDescriptions();
 
+  AudioManager::startUp();
   AssetManager::startUp();
   AssetManager& assetManager = AssetManager::instance();
   assetManager.initialize();

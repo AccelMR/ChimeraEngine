@@ -23,3 +23,6 @@
 [submodule "chImgui/Externals/imgui-node-editor"]
 	path = chEditor/Externals/imgui-node-editor
 	url = https://github.com/thedmd/imgui-node-editor.git
+[submodule "Externals/miniaudio"]
+	path = Externals/miniaudio
+	url = https://github.com/mackron/miniaudio.git

@@ -30,6 +30,7 @@
 #include "chSkeletonAsset.h"
 #include "chSpriteAtlasAsset.h"
 #include "chFontAsset.h"
+#include "chAudioClipAsset.h"
 #include "chAnimationClipAsset.h"
 #include "chAnimationGraphAsset.h"
 #include "chScriptAsset.h"
@@ -61,6 +62,7 @@ AssetManager::initialize() {
   m_assetRegister->registerAssetCreator<ScriptAsset>();
   m_assetRegister->registerAssetCreator<SpriteAtlasAsset>();
   m_assetRegister->registerAssetCreator<FontAsset>();
+  m_assetRegister->registerAssetCreator<AudioClipAsset>();
 }
 
 /*

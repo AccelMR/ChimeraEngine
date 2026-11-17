@@ -10,6 +10,7 @@
 #include "chGameApplication.h"
 
 #include "chAssetManager.h"
+#include "chAudioManager.h"
 #include "chCameraComponent.h"
 #include "chConsoleVariable.h"
 #include "chEnginePaths.h"
@@ -59,6 +60,7 @@ GameApplication::onPostInitialize()
   // bindings the state is made with.
   EnginePlugins::loadEnabled();
 
+  AudioManager::startUp();
   AssetManager::startUp();
   AssetManager& assetManager = AssetManager::instance();
   assetManager.initialize();
@@ -128,6 +130,10 @@ GameApplication::destroyModules()
   if (ScriptManager::isStarted()) {
     ScriptManager::shutDown();
   }
+  // Last: voices keep the clips they play alive, so nothing above needs it.
+  if (AudioManager::isStarted()) {
+    AudioManager::shutDown();
+  }
 
   WindowedApplication::destroyModules();
 }
@@ -159,6 +165,7 @@ GameApplication::update(const float deltaTime)
     CH_PROFILE_SCOPE("UpdateTransforms");
     m_scene->updateTransforms();
   }
+  AudioManager::instance().update();
 
   // After the transforms, which the camera follows.
   const ISwapChain& swapChain = *getSwapChain();
