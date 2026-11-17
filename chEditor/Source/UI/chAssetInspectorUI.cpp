@@ -31,6 +31,8 @@
 #include "chModelAsset.h"
 #include "chRotator.h"
 #include "chSkeleton.h"
+#include "chShaderAsset.h"
+#include "chShaderHotReload.h"
 #include "chSkeletonAsset.h"
 #include "chSpriteAtlasAsset.h"
 #include "chSpriteAtlasEditorUI.h"
@@ -407,6 +409,108 @@ renderFont(const SPtr<FontAsset>& asset)
   }
 }
 
+/*
+ */
+void
+renderShader(const SPtr<ShaderAsset>& asset)
+{
+  const String& error = asset->getCompileError();
+  if (!error.empty()) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+    ImGui::TextWrapped("The last compile failed; the asset keeps the code that worked.");
+    ImGui::TextWrapped("%s", error.c_str());
+    ImGui::PopStyleColor();
+  }
+
+  const AssetEditorData& editorData = asset->getEditorData();
+  ImGui::Text("Post-process, %s",
+              asset->getStage() == PostProcessStage::BeforeTonemap
+                  ? "before the tonemap (linear HDR)"
+                  : "after the tonemap (final image)");
+  if (!editorData.sourceFile.empty()) {
+    ImGui::TextWrapped("Source: %s", editorData.sourceFile.toString().c_str());
+    if (ImGui::Button(ICON_FA_SYNC "  Compile Again")) {
+      static_cast<void>(ShaderHotReload::compileAgain(asset));
+    }
+    ImGui::SetItemTooltip("Compiles the source now; it also compiles by itself when the "
+                          "file or one it includes is saved");
+    ImGui::SameLine();
+    if (ImGui::Button(ICON_FA_EDIT "  Open Source")) {
+      chUIHelpers::UIHelpers::openScript(editorData.sourceFile);
+    }
+  }
+  const Vector<Path>& includes = asset->getIncludedFiles();
+  if (!includes.empty() &&
+      ImGui::TreeNode("##Includes", "Includes (%u)", static_cast<uint32>(includes.size()))) {
+    for (const Path& file : includes) {
+      ImGui::TextUnformatted(file.toString().c_str());
+    }
+    ImGui::TreePop();
+  }
+
+  ImGui::SeparatorText("Code");
+  for (const ShaderBinary& binary : asset->getData().binaries) {
+    if (binary.vertexCode.empty()) {
+      ImGui::Text("%s: pixel %.1f KB, the engine's vertex shader", binary.format.c_str(),
+                  static_cast<float>(binary.pixelCode.size()) / 1024.0f);
+    }
+    else {
+      ImGui::Text("%s: pixel %.1f KB, vertex %.1f KB", binary.format.c_str(),
+                  static_cast<float>(binary.pixelCode.size()) / 1024.0f,
+                  static_cast<float>(binary.vertexCode.size()) / 1024.0f);
+    }
+  }
+
+  ImGui::SeparatorText("Parameters");
+  const Span<const ShaderParameter> parameters = asset->getParameters();
+  if (parameters.empty()) {
+    ImGui::TextDisabled("None. Declare them with // CH_PARAM lines in the source.");
+    return;
+  }
+  if (!ImGui::BeginTable("##ShaderParameters", 4,
+                         ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
+                             ImGuiTableFlags_SizingStretchProp)) {
+    return;
+  }
+  ImGui::TableSetupColumn("Name");
+  ImGui::TableSetupColumn("Type");
+  ImGui::TableSetupColumn("Default");
+  ImGui::TableSetupColumn("Range");
+  ImGui::TableHeadersRow();
+  for (const ShaderParameter& parameter : parameters) {
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    ImGui::TextUnformatted(parameter.name.c_str());
+    if (!parameter.tooltip.empty()) {
+      ImGui::SetItemTooltip("%s", parameter.tooltip.c_str());
+    }
+    ImGui::TableNextColumn();
+    const StringView typeName = ShaderParameters::getTypeName(parameter.type);
+    ImGui::TextUnformatted(typeName.data(), typeName.data() + typeName.size());
+    ImGui::TableNextColumn();
+    const Vector4& value = parameter.defaultValue;
+    switch (ShaderParameters::getComponentCount(parameter.type)) {
+    case 1:
+      ImGui::Text("%g", value.x);
+      break;
+    case 2:
+      ImGui::Text("%g, %g", value.x, value.y);
+      break;
+    case 3:
+      ImGui::Text("%g, %g, %g", value.x, value.y, value.z);
+      break;
+    default:
+      ImGui::Text("%g, %g, %g, %g", value.x, value.y, value.z, value.w);
+      break;
+    }
+    ImGui::TableNextColumn();
+    if (parameter.minimum < parameter.maximum) {
+      ImGui::Text("%g to %g", parameter.minimum, parameter.maximum);
+    }
+  }
+  ImGui::EndTable();
+}
+
 NODISCARD bool
 sameSettings(const AudioClipSettings& a, const AudioClipSettings& b)
 {
@@ -552,6 +656,9 @@ renderAsset(const SPtr<IAsset>& asset)
   }
   else if (const SPtr<AudioClipAsset> audioClip = asset->as<AudioClipAsset>()) {
     renderAudioClip(audioClip);
+  }
+  else if (const SPtr<ShaderAsset> shader = asset->as<ShaderAsset>()) {
+    renderShader(shader);
   }
   else {
     ImGui::TextDisabled("Nothing to show for this type.");

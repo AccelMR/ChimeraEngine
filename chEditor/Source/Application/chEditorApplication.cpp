@@ -63,6 +63,7 @@
 #include "chScriptDefinitionsUI.h"
 #include "chScriptHotReload.h"
 #include "chScriptManager.h"
+#include "chShaderHotReload.h"
 #include "chStringUtils.h"
 
 #include "chContentAssetUI.h"
@@ -187,6 +188,7 @@ EditorApplication::destroyModules()
   m_onKeyReleasedEvent.disconnect();
   m_updateInjection.disconnect();
   ScriptHotReload::shutDown();
+  ShaderHotReload::shutDown();
 
   // Its node editor lives in the ImGui context.
   AnimationGraphEditorUI::shutDown();
@@ -292,6 +294,7 @@ EditorApplication::update(const float deltaTime)
   }
   ImportDialog::update();
   ScriptHotReload::update(deltaTime);
+  ShaderHotReload::update(deltaTime);
   Path chosenProject;
   if (ProjectBrowserUI::takeChosenProject(chosenProject) &&
       !(FileSystem::absolutePath(chosenProject) ==
