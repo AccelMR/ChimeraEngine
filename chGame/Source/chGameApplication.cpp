@@ -165,7 +165,6 @@ GameApplication::update(const float deltaTime)
     CH_PROFILE_SCOPE("UpdateTransforms");
     m_scene->updateTransforms();
   }
-  AudioManager::instance().update();
 
   // After the transforms, which the camera follows.
   const ISwapChain& swapChain = *getSwapChain();
@@ -181,6 +180,9 @@ GameApplication::update(const float deltaTime)
     }
     m_camera.setViewportSize(width, height);
   }
+  AudioManager& audio = AudioManager::instance();
+  audio.updateListener(m_camera, deltaTime);
+  audio.update();
 
   m_sceneRenderer->extract(*m_scene, m_camera, LinearColor::BLACK);
 }

@@ -11,6 +11,7 @@
 
 #include "chPrerequisitesCore.h"
 
+#include "chAudioTypes.h"
 #include "chScriptBinder.h"
 #include "chUUID.h"
 
@@ -105,6 +106,23 @@ struct ScriptFont
 };
 
 CH_SCRIPT_VALUE_TYPE(ScriptFont, "Font");
+
+/**
+ * Exists so scripts hold an audio clip as a plain value (AudioClip.find and AudioClip
+ * properties give one; Audio.play and AudioSource:setClip take it). Only the asset's UUID is
+ * kept, so it never keeps the asset loaded and never dangles.
+ */
+struct ScriptAudioClip
+{
+  NODISCARD bool
+  operator==(const ScriptAudioClip& other) const { return clip == other.clip; }
+
+  UUID clip;
+};
+
+CH_SCRIPT_VALUE_TYPE(ScriptAudioClip, "AudioClip");
+// The handle Audio.play gives: a stale one (its sound ended) does nothing.
+CH_SCRIPT_VALUE_TYPE(AudioVoice, "AudioVoice");
 
 /**
  * Exists so what a text looks like is worked out once (Text.makeStyle) and then only placed

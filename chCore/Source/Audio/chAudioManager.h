@@ -17,6 +17,7 @@
 namespace chEngineSDK {
 
 class AudioClip;
+class Camera;
 
 struct AudioManagerDesc
 {
@@ -124,6 +125,13 @@ class CH_CORE_EXPORT AudioManager : public Module<AudioManager>
               const Vector3& up,
               const Vector3& velocity);
 
+  /**
+   * Puts the listener at the camera, its velocity from how far the camera moved since the
+   * last call (a jump of TELEPORT_DISTANCE or more counts as standing still).
+   */
+  void
+  updateListener(const Camera& camera, float deltaTime);
+
   void
   setBusVolume(AudioBus bus, float volume);
 
@@ -159,6 +167,9 @@ class CH_CORE_EXPORT AudioManager : public Module<AudioManager>
   readMix(Span<float> output, uint64 frameCount);
 
   static constexpr uint32 MAX_VOICES = 1024;
+  // World units moved in one frame past which a listener or source is taken to have jumped
+  // (a map change), so it gets no doppler shift.
+  static constexpr float TELEPORT_DISTANCE = 50.0f;
 
  private:
   struct Impl;

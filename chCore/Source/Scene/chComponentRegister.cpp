@@ -8,6 +8,7 @@
  */
 /************************************************************************/
 #include "chAnimatorComponent.h"
+#include "chAudioSourceComponent.h"
 #include "chCameraComponent.h"
 #include "chComponentRegister.h"
 
@@ -53,6 +54,7 @@ getTypes()
     addBuiltIn.operator()<SpriteComponent>();
     addBuiltIn.operator()<SpriteAnimatorComponent>();
     addBuiltIn.operator()<TextComponent>();
+    addBuiltIn.operator()<AudioSourceComponent>();
     addBuiltIn.operator()<CameraComponent>();
     addBuiltIn.operator()<ScriptComponent>();
     return builtIn;

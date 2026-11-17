@@ -10,6 +10,7 @@
 #include "chAudioManager.h"
 
 #include "chAudioClip.h"
+#include "chCamera.h"
 #include "chConsoleVariable.h"
 #include "chLogger.h"
 #include "chMath.h"
@@ -114,6 +115,8 @@ struct AudioManager::Impl
   Vector<uint32> freeVoices;
   Atomic<uint64> mixPasses{0};
   uint64 nextStartOrder = 0;
+  Vector3 lastListenerPosition = Vector3::ZERO;
+  bool bListenerPlaced = false;
   float busVolumes[static_cast<uint32>(AudioBus::COUNT)] = {1.0f, 1.0f};
   float masterVolume = 1.0f;
   bool bEngineReady = false;
@@ -771,6 +774,25 @@ AudioManager::setListener(const Vector3& position,
   ma_engine_listener_set_world_up(&impl.engine, 0, x, y, z);
   toMixerSpace(velocity, x, y, z);
   ma_engine_listener_set_velocity(&impl.engine, 0, x, y, z);
+}
+
+/*
+ */
+void
+AudioManager::updateListener(const Camera& camera, float deltaTime)
+{
+  Impl& impl = *m_impl;
+  const Vector3 position = camera.getPosition();
+  Vector3 velocity = Vector3::ZERO;
+  if (impl.bListenerPlaced && deltaTime > 0.0f) {
+    const Vector3 moved = position - impl.lastListenerPosition;
+    if (moved.sqrMagnitude() < TELEPORT_DISTANCE * TELEPORT_DISTANCE) {
+      velocity = moved / deltaTime;
+    }
+  }
+  impl.lastListenerPosition = position;
+  impl.bListenerPlaced = true;
+  setListener(position, camera.getForwardVector(), camera.getUpVector(), velocity);
 }
 
 /*

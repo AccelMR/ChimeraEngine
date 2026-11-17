@@ -21,6 +21,7 @@
 #include "chAnimatorComponent.h"
 #include "chAudioClipAsset.h"
 #include "chAudioManager.h"
+#include "chAudioSourceComponent.h"
 #include "chBox.h"
 #include "chCamera.h"
 #include "chCameraComponent.h"
@@ -11441,5 +11442,282 @@ TEST_CASE("chCore - Audio manager")
     mixAverage(audio, 0, kTestAudioRate / 5, left, right);
     audio.update();
     REQUIRE_FALSE(audio.isPlaying(voice));
+  }
+}
+
+namespace {
+/*
+ * The component and script tests need the module; it cannot start twice, so it starts once
+ * (without a device) and stays.
+ */
+AudioManager&
+getTestAudioManager()
+{
+  if (!AudioManager::isStarted()) {
+    AudioManager::startUp(AudioManagerDesc{
+        .bNoDevice = true, .maxVoices = 16, .channels = 2, .sampleRate = kTestAudioRate});
+  }
+  AudioManager& audio = AudioManager::instance();
+  audio.stopAll();
+  audio.update();
+  audio.setListener(Vector3::ZERO, Vector3::FORWARD, Vector3::UP, Vector3::ZERO);
+  return audio;
+}
+
+SPtr<AudioClipAsset>
+makeTestClipAsset(const ANSICHAR* name, uint32 frameCount)
+{
+  AssetMetadata metadata;
+  metadata.uuid = chEngineSDK::UUID::createRandom();
+  metadata.assetType = AssetTypeTraits<AudioClipAsset>::getTypeId();
+  StringUtils::copyToBuffer(metadata.name, name);
+  return chMakeShared<AudioClipAsset>(
+      metadata, makeTestWav(1, kTestAudioRate, frameCount, kTestAudioValue),
+      AudioClipSettings{});
+}
+} // namespace
+
+TEST_CASE("chCore - Audio source component")
+{
+  AudioManager& audio = getTestAudioManager();
+  const SPtr<AudioClipAsset> clip = makeTestClipAsset("Hum", kTestAudioRate * 2);
+  REQUIRE(clip->getClip());
+
+  Scene scene("Sounds", chEngineSDK::UUID::createRandom());
+  const SPtr<GameObject> speaker = scene.createGameObject("Speaker");
+  AudioSourceComponent& source = speaker->addComponent<AudioSourceComponent>(clip);
+  REQUIRE(source.getClipId() == clip->getUUID());
+  REQUIRE(source.isPlayOnStart());
+
+  float left = 0.0f;
+  float right = 0.0f;
+
+  SECTION("Play on start waits for a playing scene")
+  {
+    scene.update(0.016f);
+    REQUIRE_FALSE(source.isPlaying());
+    scene.setPlaying(true);
+    scene.update(0.016f);
+    REQUIRE(source.isPlaying());
+    mixAverage(audio, 256, 1024, left, right);
+    REQUIRE(left > 0.2f);
+    // Only once per registration.
+    source.stop();
+    scene.update(0.016f);
+    REQUIRE_FALSE(source.isPlaying());
+  }
+
+  SECTION("Settings reach the voice")
+  {
+    source.play();
+    REQUIRE(source.isPlaying());
+    source.setVolume(0.5f);
+    mixAverage(audio, 1024, 1024, left, right);
+    const float half = left;
+    source.setVolume(1.0f);
+    mixAverage(audio, 1024, 1024, left, right);
+    REQUIRE(left == Approx(half * 2.0f).epsilon(0.05f));
+    source.setPaused(true);
+    REQUIRE(source.isPaused());
+    mixAverage(audio, 256, 1024, left, right);
+    REQUIRE(left == 0.0f);
+    REQUIRE(source.isPlaying());
+  }
+
+  SECTION("A spatial source is heard where its object is")
+  {
+    source.setSpatial(true);
+    speaker->getTransform().setLocalPosition(Vector3(0.0f, 5.0f, 0.0f));
+    scene.updateTransforms();
+    source.play();
+    scene.update(0.016f);
+    mixAverage(audio, 2048, 1024, left, right);
+    REQUIRE(right > left * 1.5f);
+
+    speaker->getTransform().setLocalPosition(Vector3(0.0f, -5.0f, 0.0f));
+    scene.updateTransforms();
+    scene.update(0.016f);
+    mixAverage(audio, 2048, 1024, left, right);
+    REQUIRE(left > right * 1.5f);
+  }
+
+  SECTION("Leaving the scene stops the sound")
+  {
+    source.play();
+    REQUIRE(source.isPlaying());
+    source.setEnabled(false);
+    REQUIRE_FALSE(source.isPlaying());
+    source.setEnabled(true);
+    source.play();
+    REQUIRE(source.isPlaying());
+    scene.destroyGameObject(*speaker);
+    REQUIRE(audio.getActiveVoiceCount() == 0);
+  }
+
+  SECTION("A new clip stops the old one")
+  {
+    source.play();
+    source.setClip(makeTestClipAsset("Other", kTestAudioRate));
+    REQUIRE_FALSE(source.isPlaying());
+  }
+
+  SECTION("Save and read")
+  {
+    source.setVolume(0.25f);
+    source.setPitch(1.5f);
+    source.setPan(-0.5f);
+    source.setLooping(true);
+    source.setPlayOnStart(false);
+    source.setSpatial(true);
+    source.setSpatialSettings({.attenuation = AudioAttenuation::Linear,
+                               .minDistance = 2.0f,
+                               .maxDistance = 30.0f,
+                               .dopplerFactor = 0.0f,
+                               .coneInnerAngle = 90.0f,
+                               .coneOuterAngle = 180.0f,
+                               .coneOuterGain = 0.25f});
+    MemoryDataStream stream;
+    source.serialize(stream);
+    stream.seek(0);
+    AudioSourceComponent loaded;
+    REQUIRE(loaded.deserialize(stream));
+    // Without an AssetManager the clip is not found, but its id is kept.
+    REQUIRE(loaded.getClipId() == clip->getUUID());
+    REQUIRE_FALSE(loaded.getClipAsset());
+    REQUIRE(loaded.getVolume() == 0.25f);
+    REQUIRE(loaded.getPitch() == 1.5f);
+    REQUIRE(loaded.getPan() == -0.5f);
+    REQUIRE(loaded.isLooping());
+    REQUIRE_FALSE(loaded.isPlayOnStart());
+    REQUIRE(loaded.isSpatial());
+    const AudioSpatialSettings& spatial = loaded.getSpatialSettings();
+    REQUIRE(spatial.attenuation == AudioAttenuation::Linear);
+    REQUIRE(spatial.minDistance == 2.0f);
+    REQUIRE(spatial.maxDistance == 30.0f);
+    REQUIRE(spatial.dopplerFactor == 0.0f);
+    REQUIRE(spatial.coneInnerAngle == 90.0f);
+    REQUIRE(spatial.coneOuterGain == 0.25f);
+
+    Vector<chEngineSDK::UUID> references;
+    loaded.collectReferences(references);
+    REQUIRE(references.size() == 1);
+    REQUIRE(references[0] == clip->getUUID());
+
+    // A cut file is refused.
+    MemoryDataStream cut;
+    cut.write(&AudioSourceComponent::SERIALIZATION_VERSION, sizeof(uint32));
+    cut.seek(0);
+    AudioSourceComponent broken;
+    REQUIRE_FALSE(broken.deserialize(cut));
+  }
+
+  SECTION("Registered for scenes")
+  {
+    const UniquePtr<Component> made =
+        ComponentRegister::create(TypeTraits<AudioSourceComponent>::getTypeId());
+    REQUIRE(made);
+  }
+}
+
+TEST_CASE("chCore - Script audio")
+{
+  AudioManager& audio = getTestAudioManager();
+  ScriptManager& scripts = getTestScriptManager();
+  Scene scene("Sounds", chEngineSDK::UUID::createRandom());
+  struct SceneGuard
+  {
+    ScriptManager& scripts;
+    ~SceneGuard() { scripts.setCurrentScene(nullptr); }
+  } guard{scripts};
+  scripts.setCurrentScene(&scene);
+
+  const SPtr<AudioClipAsset> clip = makeTestClipAsset("Hum", kTestAudioRate * 2);
+  const SPtr<GameObject> speaker = scene.createGameObject("Speaker");
+  speaker->addComponent<AudioSourceComponent>(clip).setPlayOnStart(false);
+  const SPtr<GameObject> silent = scene.createGameObject("Silent");
+
+  SECTION("Bus and master volumes")
+  {
+    REQUIRE(scripts.runString(R"lua(
+      Audio.setBusVolume("Music", 0.5)
+      assert(Audio.getBusVolume("music") == 0.5)
+      assert(Audio.getBusVolume("Sfx") == 1)
+      Audio.setMasterVolume(0.75)
+      assert(Audio.getMasterVolume() == 0.75)
+      assert(Audio.getVoiceCount() == 0)
+      Audio.setBusVolume("Music", 1)
+      Audio.setMasterVolume(1)
+    )lua"));
+    REQUIRE(audio.getMasterVolume() == 1.0f);
+    REQUIRE_FALSE(scripts.runString(R"lua(Audio.setBusVolume("Voices", 1))lua"));
+    // Without an AssetManager no clip can be named.
+    REQUIRE_FALSE(scripts.runString(R"lua(Audio.play("Hum"))lua"));
+  }
+
+  SECTION("The AudioSource of a GameObject")
+  {
+    REQUIRE(scripts.runString(R"lua(
+      local source = Scene.find("Speaker"):getAudioSource()
+      assert(source ~= nil)
+      assert(source == Scene.find("Speaker"):getAudioSource())
+      assert(source:getGameObject() == Scene.find("Speaker"))
+      assert(not source:isPlaying())
+      source:setVolume(0.5)
+      source:setLooping(true)
+      source:play()
+      assert(source:isPlaying())
+      assert(source:getVolume() == 0.5)
+      assert(source:isLooping())
+      source:pause()
+      assert(source:isPaused())
+      source:resume()
+      assert(getmetatable(source:getClip()) == "AudioClip")
+      assert(tostring(source:getClip()) == "AudioClip(missing)")
+      assert(Audio.getVoiceCount() == 1)
+      source:stop()
+      assert(not source:isPlaying())
+      assert(Scene.find("Silent"):getAudioSource() == nil)
+      local added = Scene.find("Silent"):addAudioSource()
+      assert(added == Scene.find("Silent"):getAudioSource())
+      assert(added:getClip() == nil)
+      added:play()
+      assert(not added:isPlaying())
+    )lua"));
+    const AudioSourceComponent* added = silent->getComponent<AudioSourceComponent>();
+    REQUIRE(added);
+    REQUIRE_FALSE(added->isPlayOnStart());
+  }
+
+  SECTION("AudioClip properties are picked in the editor and go into packages")
+  {
+    ScriptPropertyType type = ScriptPropertyType::Number;
+    REQUIRE(ScriptPropertyUtils::fromTypeName("AudioClip", type));
+    REQUIRE(type == ScriptPropertyType::AudioClip);
+
+    ScriptPropertyValue value = ScriptPropertyValue::makeDefault(ScriptPropertyType::AudioClip);
+    value.object = chEngineSDK::UUID::createRandom();
+    MemoryDataStream stream;
+    ScriptPropertyUtils::writeValue(stream, value);
+    stream.seek(0);
+    ScriptPropertyValue loaded;
+    REQUIRE(ScriptPropertyUtils::readValue(stream, loaded));
+    REQUIRE(loaded.type == ScriptPropertyType::AudioClip);
+    REQUIRE(loaded.object == value.object);
+
+    const SPtr<ScriptAsset> player = createTestScriptAsset("SoundUser", R"lua(
+      local SoundUser = {}
+      SoundUser.properties = { { "hit", type = "AudioClip" } }
+      return SoundUser
+    )lua");
+    const ScriptClassInfo* soundClass = scripts.getClass(*player);
+    REQUIRE(soundClass);
+    REQUIRE(soundClass->bValid);
+    REQUIRE(soundClass->properties[0].defaultValue.type == ScriptPropertyType::AudioClip);
+
+    ScriptComponent component(player);
+    component.setOverride("hit", value);
+    Vector<chEngineSDK::UUID> references;
+    component.collectReferences(references);
+    REQUIRE(Algorithm::contains(references, value.object));
   }
 }

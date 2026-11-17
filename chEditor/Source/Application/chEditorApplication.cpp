@@ -359,7 +359,12 @@ EditorApplication::update(const float deltaTime)
     updatedScene.updateTransforms();
   }
   updateViewCamera(updatedScene);
-  AudioManager::instance().update();
+  {
+    AudioManager& audio = AudioManager::instance();
+    audio.setAllPaused(EditorScene::isPlaying() && EditorScene::isPaused());
+    audio.updateListener(getViewCamera(), deltaTime);
+    audio.update();
+  }
 
   // Like the grid, the editor's lines hide with the rest of the UI, and while the viewport
   // shows the game.
@@ -995,6 +1000,11 @@ EditorApplication::updateViewCamera(const Scene& scene)
   // did while ejected.
   const bool bPlaying = EditorScene::isPlaying();
   const Camera& editorCamera = m_editorCamera->getCamera();
+  if (bPlaying != m_bWasPlaying) {
+    // Sounds of the game (one-shots of scripts included) end with it, and none of the
+    // edited scene carries into Play.
+    AudioManager::instance().stopAll();
+  }
   if (bPlaying && !m_bWasPlaying) {
     m_positionBeforePlay = editorCamera.getPosition();
     m_lookAtBeforePlay = editorCamera.getLookAt();

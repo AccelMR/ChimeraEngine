@@ -34,6 +34,7 @@ enum class ScriptPropertyType : uint8
   Texture = 11,
   Font = 12,
   SpriteAtlas = 13,
+  AudioClip = 14,
   COUNT
 };
 
