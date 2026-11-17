@@ -1,13 +1,12 @@
 /************************************************************************/
 /**
- * @file chProjectilesTestMain.cpp
+ * @file chProjectilesTests.cpp
  * @author AccelMR
  * @date 2026/11/13
  * @brief
  *  Tests of the projectiles plugin, built with its sources.
  */
 /************************************************************************/
-#define CATCH_CONFIG_MAIN
 #include "catch.hpp"
 
 #include <chrono>
@@ -70,7 +69,7 @@ makeTarget(Scene& scene, const ANSICHAR* name, const Vector2& position, const ui
 constexpr float kStep = 1.0f / 60.0f;
 } // namespace
 
-TEST_CASE("Projectiles - movement and lifetime")
+TEST_CASE("Projectiles - movement and lifetime", "[Projectiles]")
 {
   Scene scene("Projectiles", chEngineSDK::UUID::createRandom());
   ProjectileSystemComponent& system =
@@ -118,7 +117,7 @@ TEST_CASE("Projectiles - movement and lifetime")
   }
 }
 
-TEST_CASE("Projectiles - patterns")
+TEST_CASE("Projectiles - patterns", "[Projectiles]")
 {
   Scene scene("Projectiles", chEngineSDK::UUID::createRandom());
   GameObject& gun = *scene.createGameObject("Gun", nullptr);
@@ -167,7 +166,7 @@ TEST_CASE("Projectiles - patterns")
   }
 }
 
-TEST_CASE("Projectiles - hits")
+TEST_CASE("Projectiles - hits", "[Projectiles]")
 {
   Scene scene("Projectiles", chEngineSDK::UUID::createRandom());
   GameObject& gun = *scene.createGameObject("Gun", nullptr);
@@ -255,7 +254,7 @@ TEST_CASE("Projectiles - hits")
   }
 }
 
-TEST_CASE("Projectiles - homing")
+TEST_CASE("Projectiles - homing", "[Projectiles]")
 {
   Scene scene("Projectiles", chEngineSDK::UUID::createRandom());
   ProjectileSystemComponent& system =
@@ -290,7 +289,7 @@ TEST_CASE("Projectiles - homing")
   }
 }
 
-TEST_CASE("Projectiles - drawing")
+TEST_CASE("Projectiles - drawing", "[Projectiles]")
 {
   Scene scene("Projectiles", chEngineSDK::UUID::createRandom());
   ProjectileSystemComponent& system =
@@ -342,7 +341,7 @@ TEST_CASE("Projectiles - drawing")
   }
 }
 
-TEST_CASE("Projectiles - saving")
+TEST_CASE("Projectiles - saving", "[Projectiles]")
 {
   ComponentRegister::registerType<ProjectileSystemComponent>();
   ComponentRegister::registerType<ProjectileTargetComponent>();
@@ -423,7 +422,7 @@ TEST_CASE("Projectiles - saving")
   }
 }
 
-TEST_CASE("Projectiles - scripts")
+TEST_CASE("Projectiles - scripts", "[Projectiles]")
 {
   ScriptManager& scripts = getScripts();
   Scene scene("Projectiles", chEngineSDK::UUID::createRandom());
@@ -526,7 +525,7 @@ TEST_CASE("Projectiles - scripts")
 }
 
 #if USING(CH_EDITOR)
-TEST_CASE("Projectiles - editor")
+TEST_CASE("Projectiles - editor", "[Projectiles]")
 {
   ProjectilesEditor::registerDescriptions();
   const ComponentEditorDesc* systemDesc =
@@ -617,7 +616,7 @@ TEST_CASE("Projectiles - editor")
 /*
  * Hidden: run it by name in a Release build to measure a step with many projectiles.
  */
-TEST_CASE("Projectiles - benchmark", "[.]")
+TEST_CASE("Projectiles - benchmark", "[Projectiles][.]")
 {
   constexpr uint32 kProjectiles = 20000;
   constexpr uint32 kTargets = 200;

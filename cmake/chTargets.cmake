@@ -81,9 +81,18 @@ function(ch_target_defaults TARGET_NAME FOLDER_NAME)
   set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "${FOLDER_NAME}")
 
   # Visual Studio shows the files in their real folders instead of "Header Files" and
-  # "Source Files".
+  # "Source Files". A tree only takes files inside it, so files from elsewhere (the shared
+  # test main) are left out.
   get_target_property(SOURCES ${TARGET_NAME} SOURCES)
-  source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${SOURCES})
+  set(TREE_SOURCES "")
+  foreach(SOURCE ${SOURCES})
+    get_filename_component(SOURCE_PATH "${SOURCE}" ABSOLUTE)
+    file(RELATIVE_PATH SOURCE_RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "${SOURCE_PATH}")
+    if(NOT SOURCE_RELATIVE MATCHES "^\\.\\./")
+      list(APPEND TREE_SOURCES "${SOURCE_PATH}")
+    endif()
+  endforeach()
+  source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${TREE_SOURCES})
 endfunction()
 
 # Includes are flat, so two of our headers with the same name would silently pick whichever
@@ -158,11 +167,23 @@ function(ch_add_executable TARGET_NAME)
   ch_target_defaults(${TARGET_NAME} ${ARG_FOLDER})
 endfunction()
 
-# A unit test executable, also registered with CTest. PRIVATE_ACCESS gives it the Private/
-# folders of those modules, for tests of internal classes.
+# A unit test executable, also registered with CTest. Its sources are every .cpp/.h under
+# DIRECTORY at any depth (one file per topic), plus the Catch main every test shares, and
+# DIRECTORY with its subfolders is on the include path (test helper headers). PRIVATE_ACCESS
+# gives it the Private/ folders of those modules, for tests of internal classes.
 function(ch_add_test TARGET_NAME)
-  cmake_parse_arguments(ARG "" "SOURCE" "PRIVATE_ACCESS" ${ARGN})
-  ch_add_executable(${TARGET_NAME} FOLDER Tests SOURCES ${ARG_SOURCE})
+  cmake_parse_arguments(ARG "" "DIRECTORY" "PRIVATE_ACCESS" ${ARGN})
+  if(NOT IS_DIRECTORY "${ARG_DIRECTORY}")
+    message(FATAL_ERROR "ch_add_test(${TARGET_NAME}): DIRECTORY '${ARG_DIRECTORY}' is not a folder.")
+  endif()
+  file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
+    "${ARG_DIRECTORY}/*.cpp"
+    "${ARG_DIRECTORY}/*.h")
+  ch_add_executable(${TARGET_NAME} FOLDER Tests SOURCES
+    ${TEST_SOURCES} "${CMAKE_SOURCE_DIR}/TestSupport/chTestMain.cpp")
+  ch_include_subfolders(${TARGET_NAME} PRIVATE "${ARG_DIRECTORY}")
+  # SYSTEM keeps our warning level out of catch.hpp.
+  target_include_directories(${TARGET_NAME} SYSTEM PRIVATE "${CMAKE_SOURCE_DIR}/Externals/catch")
   foreach(MODULE ${ARG_PRIVATE_ACCESS})
     target_include_directories(${TARGET_NAME} PRIVATE
       $<TARGET_PROPERTY:${MODULE},CH_PRIVATE_INCLUDE_DIRS>)
