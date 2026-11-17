@@ -7,6 +7,9 @@
 # into <name>_<suffix>.<stage>.<format>, so a shader can have versions without copies of
 # its source. A change to any .hlsli in the same folder recompiles every shader of that
 # folder.
+#
+# Engine plugins compile their own shaders with ch_add_plugin_shaders: they go next to the
+# plugin, in Plugins/Shaders/<plugin>/<format>, and may include the engine's .hlsli files.
 
 find_program(CH_DXC_EXECUTABLE dxc
   HINTS "$ENV{VULKAN_SDK}/Bin" "$ENV{VULKAN_SDK}/bin"
@@ -17,12 +20,29 @@ endif()
 
 set(CH_SHADER_MODEL "6_6")
 set(CH_SHADER_OUTPUT_DIR "${CH_OUTPUT_DIR}/Shaders")
+set(CH_CORE_SHADER_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../chCore/Content/Shaders")
+cmake_path(NORMAL_PATH CH_CORE_SHADER_SOURCE_DIR)
 
-# ch_add_shaders(<target> <source folder>)
-# Creates <target>, which builds every shader of <source folder>.
+# ch_add_shaders(<target> <source folder> [OUTPUT_DIR <folder>] [INCLUDE_DIRS <folders>...])
+# Creates <target>, which builds every shader of <source folder> into OUTPUT_DIR
+# (CH_SHADER_OUTPUT_DIR by default). The .hlsli files of INCLUDE_DIRS can be included too,
+# and a change to one of them recompiles every shader of the target.
 function(ch_add_shaders TARGET_NAME SOURCE_DIR)
+  cmake_parse_arguments(ARG "" "OUTPUT_DIR" "INCLUDE_DIRS" ${ARGN})
+  set(OUTPUT_ROOT "${CH_SHADER_OUTPUT_DIR}")
+  if(ARG_OUTPUT_DIR)
+    set(OUTPUT_ROOT "${ARG_OUTPUT_DIR}")
+  endif()
+
   file(GLOB HLSL_FILES CONFIGURE_DEPENDS "${SOURCE_DIR}/*.hlsl")
   file(GLOB HLSL_INCLUDES CONFIGURE_DEPENDS "${SOURCE_DIR}/*.hlsli")
+  set(INCLUDE_FLAGS -I "${SOURCE_DIR}")
+  set(EXTRA_INCLUDES "")
+  foreach(INCLUDE_DIR ${ARG_INCLUDE_DIRS})
+    file(GLOB DIR_INCLUDES CONFIGURE_DEPENDS "${INCLUDE_DIR}/*.hlsli")
+    list(APPEND EXTRA_INCLUDES ${DIR_INCLUDES})
+    list(APPEND INCLUDE_FLAGS -I "${INCLUDE_DIR}")
+  endforeach()
 
   set(FORMATS SPIRV)
   if(WIN32)
@@ -78,17 +98,17 @@ function(ch_add_shaders TARGET_NAME SOURCE_DIR)
           # CH_OUTPUT_DIR holds $<CONFIG> with Visual Studio; OUTPUT accepts it since
           # CMake 3.20.
           set(OUTPUT_FILE
-              "${CH_SHADER_OUTPUT_DIR}/${FORMAT}/${OUTPUT_NAME}.${STAGE}.${EXTENSION}")
+              "${OUTPUT_ROOT}/${FORMAT}/${OUTPUT_NAME}.${STAGE}.${EXTENSION}")
           add_custom_command(
             OUTPUT ${OUTPUT_FILE}
-            COMMAND ${CMAKE_COMMAND} -E make_directory "${CH_SHADER_OUTPUT_DIR}/${FORMAT}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${OUTPUT_ROOT}/${FORMAT}"
             COMMAND ${CH_DXC_EXECUTABLE}
                     -T ${STAGE}_${CH_SHADER_MODEL} -E ${ENTRY_POINT} -HV 2021
                     ${FORMAT_FLAGS} ${DEFINE_FLAGS}
                     "$<IF:$<CONFIG:Debug>,-Od;-Zi;-Qembed_debug,-O3>"
-                    -I "${SOURCE_DIR}"
+                    ${INCLUDE_FLAGS}
                     -Fo ${OUTPUT_FILE} ${HLSL_FILE}
-            DEPENDS ${HLSL_FILE} ${HLSL_INCLUDES}
+            DEPENDS ${HLSL_FILE} ${HLSL_INCLUDES} ${EXTRA_INCLUDES}
             COMMENT "Compiling ${OUTPUT_NAME}.${STAGE} (${FORMAT})"
             COMMAND_EXPAND_LISTS
             VERBATIM)
@@ -103,4 +123,19 @@ function(ch_add_shaders TARGET_NAME SOURCE_DIR)
   add_custom_target(${TARGET_NAME} ALL
     DEPENDS ${OUTPUTS}
     SOURCES ${HLSL_FILES} ${HLSL_INCLUDES})
+endfunction()
+
+# ch_add_plugin_shaders(<plugin target>)
+# Builds the shaders of the plugin's Shaders folder into Plugins/Shaders/<plugin>, with the
+# engine's shader folder on the include path, and makes the plugin depend on them.
+function(ch_add_plugin_shaders PLUGIN_TARGET)
+  set(SHADER_TARGET ${PLUGIN_TARGET}Shaders)
+  ch_add_shaders(${SHADER_TARGET} "${CMAKE_CURRENT_SOURCE_DIR}/Shaders"
+    OUTPUT_DIR "${CH_PLUGIN_OUTPUT_DIR}/Shaders/${PLUGIN_TARGET}"
+    INCLUDE_DIRS "${CH_CORE_SHADER_SOURCE_DIR}")
+  get_target_property(PLUGIN_FOLDER ${PLUGIN_TARGET} FOLDER)
+  if(PLUGIN_FOLDER)
+    set_target_properties(${SHADER_TARGET} PROPERTIES FOLDER "${PLUGIN_FOLDER}")
+  endif()
+  add_dependencies(${PLUGIN_TARGET} ${SHADER_TARGET})
 endfunction()

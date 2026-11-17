@@ -333,11 +333,11 @@ setTiers(lua_State* state)
   FloatingNumberSystemComponent& system = checkSystem(state, 1);
   luaL_checktype(state, 2, LUA_TTABLE);
   const lua_Integer count = luaL_len(state, 2);
-  if (count > GpuGlyphRunMotion::MAX_TIERS) {
+  if (count > GpuFloatingNumberMotion::MAX_TIERS) {
     return luaL_error(state, "FloatingNumbers.setTiers: at most %d tiers",
-                      static_cast<int32>(GpuGlyphRunMotion::MAX_TIERS));
+                      static_cast<int32>(GpuFloatingNumberMotion::MAX_TIERS));
   }
-  Array<FloatingNumberTier, GpuGlyphRunMotion::MAX_TIERS> tiers;
+  Array<FloatingNumberTier, GpuFloatingNumberMotion::MAX_TIERS> tiers;
   for (lua_Integer i = 1; i <= count; ++i) {
     lua_rawgeti(state, 2, i);
     tiers[static_cast<SIZE_T>(i - 1)] = readTier(state, lua_gettop(state));
@@ -367,9 +367,9 @@ readSpawnOptions(lua_State* state, const int32 index)
     const StringView key = lua_tostring(state, -2);
     if (key == "tier") {
       const lua_Integer tier = luaL_checkinteger(state, value);
-      if (tier < 1 || tier > GpuGlyphRunMotion::MAX_TIERS) {
+      if (tier < 1 || tier > GpuFloatingNumberMotion::MAX_TIERS) {
         luaL_error(state, "tier must be between 1 and %d",
-                   static_cast<int32>(GpuGlyphRunMotion::MAX_TIERS));
+                   static_cast<int32>(GpuFloatingNumberMotion::MAX_TIERS));
       }
       options.tier = static_cast<int32>(tier - 1);
     }

@@ -88,6 +88,11 @@ RenderFrame::extract(const Scene& scene,
   m_glyphRunBatches.insert(m_glyphRunBatches.end(),
                            fixedDraw.getGlyphRunBatches().begin(),
                            fixedDraw.getGlyphRunBatches().end());
+  m_customBatches.assign(frameDraw.getCustomBatches().begin(),
+                         frameDraw.getCustomBatches().end());
+  m_customBatches.insert(m_customBatches.end(),
+                         fixedDraw.getCustomBatches().begin(),
+                         fixedDraw.getCustomBatches().end());
 
   const SkyLightItem* skyLight = scene.getActiveSkyLight();
   m_bHasSkyLight = skyLight != nullptr;

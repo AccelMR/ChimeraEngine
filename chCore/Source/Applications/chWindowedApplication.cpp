@@ -19,6 +19,7 @@
 #include "chEnginePaths.h"
 #include "chEventDispatcherManager.h"
 #include "chFont.h"
+#include "chSpriteShader.h"
 #include "chGraphicsSettings.h"
 #include "chGraphicsTypes.h"
 #include "chInputManager.h"
@@ -208,6 +209,7 @@ WindowedApplication::destroyModules()
 
   destroyRenderer();
   Font::releaseDefault();
+  SpriteShader::releaseAll();
 
   // Every GPU object keeps a copy of the device, so all of them must be gone by now.
   if (IGraphicsAPI::isStarted()) {

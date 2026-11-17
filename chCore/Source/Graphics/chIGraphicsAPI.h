@@ -73,10 +73,18 @@ class CH_CORE_EXPORT IGraphicsAPI : public Module<IGraphicsAPI> {
 
   /**
    * Loads the compiled shader <name>.<vs|ps|cs> in the format of this API, with the entry
-   * point the build compiled for its stage (VSMain, PSMain, CSMain).
+   * point the build compiled for its stage (VSMain, PSMain, CSMain). Null when the file is
+   * missing.
    */
   NODISCARD SPtr<IShader>
   loadShader(ShaderStage stage, StringView name);
+
+  /**
+   * Same, from another folder that holds one folder per format, such as
+   * EnginePaths::getEnginePluginShaderDirectory.
+   */
+  NODISCARD SPtr<IShader>
+  loadShader(ShaderStage stage, StringView name, const Path& directory);
 
   /**
    * Builds a pipeline every time; use PipelineCache to reuse one with the same description.

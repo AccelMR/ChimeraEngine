@@ -11,9 +11,13 @@
 
 #include "chPrerequisitesCore.h"
 
+#include <bit>
+#include <type_traits>
+
 #include "chVector3.h"
 
 namespace chEngineSDK {
+class SpriteShader;
 
 /**
  * How a sprite mixes with what is drawn before it. Saved in scenes, so the values are fixed.
@@ -111,14 +115,6 @@ struct GpuGlyphRun
   // Pens are stored in 1/PEN_SCALE of the font's height, so a run reaches 64 heights.
   static constexpr float PEN_SCALE = 1024.0f;
 
-  // userData of runs drawn by a batch with a GpuGlyphRunMotion: [0] the time the run was
-  // made (float), [1] its velocity in world units per second (halves, Y then Z), [2] how
-  // long it lives (float), [3] its tier, MOTION_OUTLINE_BIT and a seed for the shake.
-  static constexpr uint32 MOTION_TIER_MASK = 0xFFu;
-  // The run is the outline of the next one: it takes its tier's outline color.
-  static constexpr uint32 MOTION_OUTLINE_BIT = 0x100u;
-  static constexpr uint32 MOTION_SEED_SHIFT = 16;
-
   // World position of the run's pivot.
   Vector3 position;
   // Bindless index of the font's glyph table.
@@ -145,59 +141,6 @@ struct GpuGlyphRun
 static_assert(sizeof(GpuGlyphRun) == 128, "GpuGlyphRun must match glyphrun.hlsl");
 
 /**
- * How runs of one tier look as they age (see GpuGlyphRunMotion). 80 bytes; must match
- * glyphrun.hlsl.
- */
-struct GpuGlyphRunTier
-{
-  // Times the run's own color.
-  float color[4];
-  // The color the run blinks to while it flashes.
-  float flashColor[4];
-  // The color of outline runs (GpuGlyphRun::MOTION_OUTLINE_BIT).
-  float outlineColor[4];
-  // Times the run's size.
-  float scale;
-  // The size the run is born at, times scale, shrinking to scale over popDuration.
-  float popScale;
-  float popDuration;
-  // World units the run shakes by, fading to none over shakeDuration.
-  float shakeAmplitude;
-  // Shakes per second.
-  float shakeFrequency;
-  float shakeDuration;
-  // Seconds it blinks for, and blinks per second.
-  float flashDuration;
-  float flashRate;
-};
-static_assert(sizeof(GpuGlyphRunTier) == 80, "GpuGlyphRunTier must match glyphrun.hlsl");
-
-/**
- * Exists so a system that keeps thousands of short texts (damage numbers) writes each once
- * and the GPU moves it: runs drawn by a GlyphRunBatch with one of these move from where they
- * were made along their velocity under gravity, slowed by drag, and pop, shake, flash and
- * fade by their age, with the look of their tier. A storage buffer; must match
- * glyphrun.hlsl.
- */
-struct GpuGlyphRunMotion
-{
-  static constexpr uint32 MAX_TIERS = 8;
-
-  // World units per second squared, Y then Z.
-  float gravity[2];
-  // Per second; 0 keeps the velocity.
-  float drag;
-  // Seconds to fade in and out.
-  float fadeIn;
-  float fadeOut;
-  uint32 tierCount;
-  float padding[2];
-  GpuGlyphRunTier tiers[MAX_TIERS];
-};
-static_assert(sizeof(GpuGlyphRunMotion) == 32 + 80 * GpuGlyphRunMotion::MAX_TIERS,
-              "GpuGlyphRunMotion must match glyphrun.hlsl");
-
-/**
  * A glyph run as the renderer sorts it with the sprites.
  */
 struct GlyphRunItem
@@ -219,23 +162,50 @@ struct GlyphRunItem
  */
 struct GlyphRunBatch
 {
-  static constexpr uint32 NO_MOTION = 0xFFFFFFFFu;
-
   // Bindless index of a storage buffer of GpuGlyphRun.
   uint32 bufferIndex = 0;
   uint32 firstRun = 0;
   uint32 runCount = 0;
-  // Bindless index of a storage buffer holding a GpuGlyphRunMotion, or NO_MOTION to draw
-  // the runs as they are.
-  uint32 motionIndex = NO_MOTION;
-  // Now, on the clock the runs' times were written with, in seconds.
-  float time = 0.0f;
   // The most glyphs a run of the batch has: only that many quads are drawn per run, so a
   // batch of short numbers costs a third of the vertices of one of 16-glyph texts.
   uint32 maxGlyphs = GpuGlyphRun::MAX_GLYPHS;
   int16 sortingLayer = 0;
   int16 order = 0;
   SpriteBlendMode blendMode = SpriteBlendMode::Alpha;
+};
+
+/**
+ * Exists so a plugin can draw with shaders of its own (a SpriteShader) in the sprite order:
+ * one instanced draw of vertexCount vertices per instance, sorted with the sprites at depth 0
+ * of its layer and order, never culled. The shader reads the push constants laid out by
+ * chSpriteBatch.hlsli: the engine's header, then the batch's parameters (bindless indexes of
+ * its buffers, where its instances start, a time...).
+ */
+struct CustomSpriteBatch
+{
+  // 128 bytes of push constants minus the header (view projection and the two samplers).
+  static constexpr uint32 MAX_PARAMETER_BYTES = 56;
+
+  template<typename T>
+  void
+  setParameters(const T& value) noexcept
+  {
+    static_assert(std::is_trivially_copyable_v<T>, "Parameters are copied as bytes.");
+    static_assert(sizeof(T) <= MAX_PARAMETER_BYTES, "Parameters do not fit push constants.");
+    const auto bytes = std::bit_cast<Array<uint8, sizeof(T)>>(value);
+    for (SIZE_T i = 0; i < sizeof(T); ++i) {
+      parameters[i] = bytes[i];
+    }
+  }
+
+  // Kept alive by its owner (a plugin) for as long as it adds batches.
+  SpriteShader* shader = nullptr;
+  uint32 vertexCount = 6;
+  uint32 instanceCount = 0;
+  int16 sortingLayer = 0;
+  int16 order = 0;
+  SpriteBlendMode blendMode = SpriteBlendMode::Alpha;
+  Array<uint8, MAX_PARAMETER_BYTES> parameters{};
 };
 
 /**

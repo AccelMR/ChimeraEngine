@@ -28,6 +28,7 @@ constexpr uint32 kIndexMask = (1u << kKindShift) - 1;
 constexpr uint32 kSpriteKind = 0;
 constexpr uint32 kGlyphRunKind = 1;
 constexpr uint32 kBatchKind = 2;
+constexpr uint32 kCustomKind = 3;
 
 /*
  * Unsigned numbers in the same order as the floats, negative ones included.
@@ -62,7 +63,8 @@ SpriteBatcher::build(Span<const SpriteItem> sprites,
                      const Frustum& frustum,
                      const Vector3& depthAxis,
                      Span<const GlyphRunItem> glyphRuns,
-                     Span<const GlyphRunBatch> batches)
+                     Span<const GlyphRunBatch> batches,
+                     Span<const CustomSpriteBatch> customBatches)
 {
   CH_PROFILE_SCOPE("BatchSprites");
   m_entries.clear();
@@ -95,6 +97,11 @@ SpriteBatcher::build(Span<const SpriteItem> sprites,
     }
     m_entries.push_back({.key = makeSortKey(batches[i].sortingLayer, batches[i].order, 0.0f),
                          .sprite = static_cast<uint32>(i) | (kBatchKind << kKindShift)});
+  }
+  for (SIZE_T i = 0; i < customBatches.size(); ++i) {
+    const CustomSpriteBatch& batch = customBatches[i];
+    m_entries.push_back({.key = makeSortKey(batch.sortingLayer, batch.order, 0.0f),
+                         .sprite = static_cast<uint32>(i) | (kCustomKind << kKindShift)});
   }
   const SIZE_T count = m_entries.size();
   if (count == 0) {
@@ -142,9 +149,16 @@ SpriteBatcher::build(Span<const SpriteItem> sprites,
                         .instanceCount = batch.runCount,
                         .kind = SpriteRunKind::GlyphRunBatch,
                         .bufferIndex = batch.bufferIndex,
-                        .motionIndex = batch.motionIndex,
-                        .time = batch.time,
                         .maxGlyphs = Math::clamp(batch.maxGlyphs, 1u, GpuGlyphRun::MAX_GLYPHS)});
+      continue;
+    }
+    if (kind == kCustomKind) {
+      const CustomSpriteBatch& batch = customBatches[index];
+      m_runs.push_back({.blendMode = batch.blendMode,
+                        .firstInstance = 0,
+                        .instanceCount = batch.instanceCount,
+                        .kind = SpriteRunKind::Custom,
+                        .bufferIndex = index});
       continue;
     }
 

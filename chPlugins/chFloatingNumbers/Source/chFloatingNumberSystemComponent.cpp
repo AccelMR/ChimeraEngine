@@ -16,6 +16,7 @@
 #include "chAssetManager.h"
 #include "chFileStream.h"
 #include "chFloat16.h"
+#include "chFloatingNumberGpu.h"
 #include "chFont.h"
 #include "chFontAsset.h"
 #include "chGameObject.h"
@@ -26,6 +27,7 @@
 #include "chMatrix4.h"
 #include "chScene.h"
 #include "chSpriteDraw.h"
+#include "chSpriteShader.h"
 
 namespace chEngineSDK {
 
@@ -295,9 +297,8 @@ FloatingNumberSystemComponent::setMotion(const FloatingNumberMotion& motion)
 void
 FloatingNumberSystemComponent::setTiers(Span<const FloatingNumberTier> tiers)
 {
-  m_tiers.assign(tiers.begin(),
-                 tiers.begin() + Math::min(tiers.size(),
-                                           static_cast<SIZE_T>(GpuGlyphRunMotion::MAX_TIERS)));
+  constexpr SIZE_T kMaxTiers = GpuFloatingNumberMotion::MAX_TIERS;
+  m_tiers.assign(tiers.begin(), tiers.begin() + Math::min(tiers.size(), kMaxTiers));
   if (m_tiers.empty()) {
     m_tiers.push_back(FloatingNumberTier{});
   }
@@ -441,7 +442,7 @@ FloatingNumberSystemComponent::deserialize(DataStream& stream)
       !AssetFile::readValue(stream, data) ||
       data.blendMode >= static_cast<uint8>(SpriteBlendMode::COUNT) ||
       data.notation >= static_cast<uint8>(NumberNotation::COUNT) || data.tierCount == 0 ||
-      data.tierCount > GpuGlyphRunMotion::MAX_TIERS || !Math::isFinite(data.size)) {
+      data.tierCount > GpuFloatingNumberMotion::MAX_TIERS || !Math::isFinite(data.size)) {
     return false;
   }
   Vector<FloatingNumberTier> tiers(data.tierCount);
@@ -524,7 +525,7 @@ FloatingNumberSystemComponent::onRegister()
         {.size = static_cast<uint32>(m_capacity * sizeof(GpuGlyphRun)),
          .usage = BufferUsage::StorageBuffer,
          .memoryUsage = MemoryUsage::GpuOnly});
-    m_motionBuffer = graphicsAPI.createBuffer({.size = sizeof(GpuGlyphRunMotion),
+    m_motionBuffer = graphicsAPI.createBuffer({.size = sizeof(GpuFloatingNumberMotion),
                                                .usage = BufferUsage::StorageBuffer,
                                                .memoryUsage = MemoryUsage::GpuOnly});
   }
@@ -597,8 +598,8 @@ FloatingNumberSystemComponent::spawnRuns(StringView text,
   run.userData[0] = std::bit_cast<uint32>(m_time);
   run.userData[1] = packHalves(cosine * speed, sine * speed);
   run.userData[2] = std::bit_cast<uint32>(lifetime);
-  run.userData[3] = (tier & GpuGlyphRun::MOTION_TIER_MASK) |
-                    (seed << GpuGlyphRun::MOTION_SEED_SHIFT);
+  run.userData[3] = (tier & FloatingNumberGpu::TIER_MASK) |
+                    (seed << FloatingNumberGpu::SEED_SHIFT);
 
   // Written first, so the fill draws over it.
   const uint32 edge = SpriteDraw::makeOutlineEdge(*font, m_tiers[tier].outlineWidth);
@@ -607,7 +608,7 @@ FloatingNumberSystemComponent::spawnRuns(StringView text,
     outline.textureAndFlags =
         (run.textureAndFlags & ~(GpuSpriteInstance::EDGE_MASK << GpuSpriteInstance::EDGE_SHIFT)) |
         (edge << GpuSpriteInstance::EDGE_SHIFT);
-    outline.userData[3] |= GpuGlyphRun::MOTION_OUTLINE_BIT;
+    outline.userData[3] |= FloatingNumberGpu::OUTLINE_BIT;
     writeRun(outline, lifetime);
   }
   writeRun(run, lifetime);
@@ -644,7 +645,7 @@ void
 FloatingNumberSystemComponent::rebuildGpuMotion()
 {
   m_bMotionDirty = false;
-  GpuGlyphRunMotion& motion = m_gpuMotion;
+  GpuFloatingNumberMotion& motion = m_gpuMotion;
   motion = {};
   motion.gravity[0] = m_motion.gravity.x;
   motion.gravity[1] = m_motion.gravity.y;
@@ -654,7 +655,7 @@ FloatingNumberSystemComponent::rebuildGpuMotion()
   motion.tierCount = static_cast<uint32>(m_tiers.size());
   for (SIZE_T i = 0; i < m_tiers.size(); ++i) {
     const FloatingNumberTier& tier = m_tiers[i];
-    GpuGlyphRunTier& gpu = motion.tiers[i];
+    GpuFloatingNumberTier& gpu = motion.tiers[i];
     copyColor(tier.color, gpu.color);
     copyColor(tier.flashColor, gpu.flashColor);
     copyColor(tier.outlineColor, gpu.outlineColor);
@@ -719,16 +720,19 @@ FloatingNumberSystemComponent::addBatch(uint32 first, uint32 count)
   if (!m_runBuffer || !m_motionBuffer || count == 0) {
     return;
   }
-  getOwner()->getScene()->getSpriteDraw().glyphRunBatch(
-      {.bufferIndex = m_runBuffer->getBindlessIndex(),
-       .firstRun = first,
-       .runCount = count,
-       .motionIndex = m_motionBuffer->getBindlessIndex(),
-       .time = m_time,
-       .maxGlyphs = m_maxGlyphs,
-       .sortingLayer = m_sortingLayer,
-       .order = m_order,
-       .blendMode = m_blendMode});
+  const uint32 glyphs = Math::clamp(m_maxGlyphs, 1u, GpuGlyphRun::MAX_GLYPHS);
+  CustomSpriteBatch batch{.shader = &FloatingNumberGpu::getShader(),
+                          .vertexCount = 6 * glyphs,
+                          .instanceCount = count,
+                          .sortingLayer = m_sortingLayer,
+                          .order = m_order,
+                          .blendMode = m_blendMode};
+  batch.setParameters(FloatingNumberBatchParameters{
+      .runBufferIndex = m_runBuffer->getBindlessIndex(),
+      .firstRun = first,
+      .motionIndex = m_motionBuffer->getBindlessIndex(),
+      .time = m_time});
+  getOwner()->getScene()->getSpriteDraw().customBatch(batch);
 }
 
 } // namespace chEngineSDK

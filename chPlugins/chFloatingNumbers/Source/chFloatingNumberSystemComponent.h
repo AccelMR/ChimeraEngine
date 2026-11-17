@@ -12,6 +12,7 @@
 #include "chPrerequisitesCore.h"
 
 #include "chComponent.h"
+#include "chFloatingNumberGpu.h"
 #include "chLinearColor.h"
 #include "chNumberFormat.h"
 #include "chRandom.h"
@@ -90,8 +91,8 @@ struct FloatingNumberSpawn
  * bullet hell) without paying for them every frame: a number is formatted and written once,
  * as a glyph run in a GPU ring buffer of up to `getCapacity()` runs, and the GPU moves it
  * along an arc, pops, shakes, flashes and fades it by its age with the look of its tier
- * (GpuGlyphRunMotion). Each frame only the runs made since the last one are uploaded, and
- * only the part of the ring that can still be alive is drawn. When the ring is full the
+ * (GpuFloatingNumberMotion). Each frame only the runs made since the last one are uploaded,
+ * and only the part of the ring that can still be alive is drawn. When the ring is full the
  * oldest numbers are written over.
  *
  * Costs: a spawn is one number format and one glyph run (two with an outline), about a
@@ -194,7 +195,8 @@ class FloatingNumberSystemComponent : public Component
   getMotion() const noexcept { return m_motion; }
 
   /**
-   * Up to GpuGlyphRunMotion::MAX_TIERS, kept sorted by minValue. None gives one plain tier.
+   * Up to GpuFloatingNumberMotion::MAX_TIERS, kept sorted by minValue. None gives one plain
+   * tier.
    */
   void
   setTiers(Span<const FloatingNumberTier> tiers);
@@ -226,7 +228,7 @@ class FloatingNumberSystemComponent : public Component
   /**
    * The motion the GPU reads, as last built.
    */
-  NODISCARD FORCEINLINE const GpuGlyphRunMotion&
+  NODISCARD FORCEINLINE const GpuFloatingNumberMotion&
   getGpuMotion() const noexcept { return m_gpuMotion; }
 
 #if USING(CH_EDITOR)
@@ -320,7 +322,7 @@ class FloatingNumberSystemComponent : public Component
   float m_time = 0.0f;
   Random m_random{0x5EED1234u};
 
-  GpuGlyphRunMotion m_gpuMotion{};
+  GpuFloatingNumberMotion m_gpuMotion{};
   bool m_bMotionDirty = true;
   SPtr<IBuffer> m_runBuffer;
   SPtr<IBuffer> m_motionBuffer;

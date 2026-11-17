@@ -1,4 +1,5 @@
 ch_add_plugin(chFloatingNumbers FOLDER Plugins ENGINE_PLUGIN)
+ch_add_plugin_shaders(chFloatingNumbers)
 
 target_link_libraries(chFloatingNumbers PRIVATE chCore)
 

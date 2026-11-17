@@ -176,6 +176,12 @@ class CH_CORE_EXPORT SpriteDraw
   glyphRunBatch(const GlyphRunBatch& batch);
 
   /**
+   * A draw with a plugin's own shaders, in the sprite order.
+   */
+  void
+  customBatch(const CustomSpriteBatch& batch);
+
+  /**
    * Fills outItem with the fill run of text, without its outline or shadow. False when the
    * font cannot be read or text has no characters. Draws new glyphs into the font and
    * uploads its atlas and glyph table, so main thread only.
@@ -217,6 +223,12 @@ class CH_CORE_EXPORT SpriteDraw
   getGlyphRunBatches() const noexcept
   {
     return m_glyphRunBatches;
+  }
+
+  NODISCARD FORCEINLINE Span<const CustomSpriteBatch>
+  getCustomBatches() const noexcept
+  {
+    return m_customBatches;
   }
 
   /**
@@ -262,6 +274,7 @@ class CH_CORE_EXPORT SpriteDraw
   Vector<SpriteItem> m_sprites;
   Vector<GlyphRunItem> m_glyphRuns;
   Vector<GlyphRunBatch> m_glyphRunBatches;
+  Vector<CustomSpriteBatch> m_customBatches;
   bool m_bWarnedFull = false;
 };
 

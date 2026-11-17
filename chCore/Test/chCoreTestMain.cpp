@@ -25,6 +25,7 @@
 #include "chCapsule.h"
 #include "chDebugDraw.h"
 #include "chDynamicLibrary.h"
+#include "chEnginePaths.h"
 #include "chAngle.h"
 #include "chAssetFile.h"
 #include "chAssetMeta.h"
@@ -95,6 +96,7 @@
 #include "chSpriteAtlasAsset.h"
 #include "chSpriteComponent.h"
 #include "chSpriteDraw.h"
+#include "chSpriteShader.h"
 #include "chStringUtils.h"
 #include "chTextComponent.h"
 #include "chTextLayout.h"
@@ -2053,12 +2055,18 @@ TEST_CASE("chCore - Project packager")
     otherPlugin += DynamicLibrary::EXTENSION;
     writeTestFile(binaries.join(Path("Plugins")).join(Path(plugin)), "plugin");
     writeTestFile(binaries.join(Path("Plugins")).join(Path(otherPlugin)), "plugin");
+    const Path shaderFile("Plugins/Shaders/chProjectiles/SPIRV/bullet.vs.spv");
+    const Path otherShaderFile("Plugins/Shaders/chOther/SPIRV/other.vs.spv");
+    writeTestFile(binaries.join(shaderFile), "shader");
+    writeTestFile(binaries.join(otherShaderFile), "shader");
     writeTestFile(project.join(Path("Project.chproject")),
                   "[Modules]\nGameModules=GameCode\n[Plugins]\nEnabled=chProjectiles\n");
     const PackageResult result = ProjectPackager::package(desc);
     REQUIRE(result.bSucceeded);
     REQUIRE(FileSystem::isFile(output.join(Path("Plugins")).join(Path(plugin))));
     REQUIRE_FALSE(FileSystem::exists(output.join(Path("Plugins")).join(Path(otherPlugin))));
+    REQUIRE(FileSystem::isFile(output.join(shaderFile)));
+    REQUIRE_FALSE(FileSystem::exists(output.join(otherShaderFile)));
     ProjectDescriptor packagedProject;
     REQUIRE(packagedProject.load(output.join(Path("MyGame.chproject"))));
     REQUIRE(packagedProject.plugins == Vector<String>{"chProjectiles"});
@@ -10841,5 +10849,84 @@ TEST_CASE("chCore - Script text")
     scripts.setCurrentScene(nullptr);
     REQUIRE(scripts.runString("Text.draw(nil, 'x', 0, 0)"));
     REQUIRE(scene.getSpriteDraw().getGlyphRuns().empty());
+  }
+}
+
+TEST_CASE("chCore - Custom sprite batches")
+{
+  struct Parameters
+  {
+    uint32 bufferIndex;
+    float time;
+  };
+
+  SECTION("Parameters are copied as bytes")
+  {
+    CustomSpriteBatch batch;
+    batch.setParameters(Parameters{.bufferIndex = 0x01020304u, .time = 2.5f});
+    uint32 bufferIndex = 0;
+    float time = 0.0f;
+    std::memcpy(&bufferIndex, batch.parameters.data(), sizeof(bufferIndex));
+    std::memcpy(&time, batch.parameters.data() + 4, sizeof(time));
+    REQUIRE(bufferIndex == 0x01020304u);
+    REQUIRE(time == 2.5f);
+    REQUIRE(batch.parameters[8] == 0);
+  }
+
+  SECTION("SpriteDraw keeps only batches that draw something")
+  {
+    SpriteShader shader(Path("Nowhere"), "none");
+    SpriteDraw draw;
+    draw.customBatch({.shader = &shader, .instanceCount = 3});
+    draw.customBatch({.shader = &shader, .instanceCount = 0});
+    draw.customBatch({.shader = nullptr, .instanceCount = 3});
+    draw.customBatch({.shader = &shader, .vertexCount = 0, .instanceCount = 3});
+    REQUIRE(draw.getCustomBatches().size() == 1);
+    draw.clear();
+    REQUIRE(draw.getCustomBatches().empty());
+  }
+
+  SECTION("They sort with the sprites, after batches of equal keys")
+  {
+    const Camera camera = createSpriteTestCamera();
+    const auto spriteAt = [](int16 layer) {
+      SpriteItem sprite;
+      sprite.instance.center = Vector3::ZERO;
+      sprite.radius = 1.0f;
+      sprite.sortingLayer = layer;
+      sprite.bInUse = true;
+      return sprite;
+    };
+    const Vector<SpriteItem> sprites{spriteAt(0), spriteAt(2)};
+    const Vector<GlyphRunBatch> batches{{.bufferIndex = 4, .runCount = 2, .sortingLayer = 1}};
+    SpriteShader shader(Path("Nowhere"), "none");
+    const Vector<CustomSpriteBatch> customBatches{
+        {.shader = &shader, .vertexCount = 12, .instanceCount = 5, .sortingLayer = 1},
+        {.shader = &shader,
+         .instanceCount = 7,
+         .sortingLayer = 3,
+         .blendMode = SpriteBlendMode::Additive}};
+
+    SpriteBatcher batcher;
+    batcher.build(
+        sprites, camera.getFrustum(), camera.getForwardVector(), {}, batches, customBatches);
+    const Span<const SpriteRun> order = batcher.getRuns();
+    REQUIRE(order.size() == 5);
+    REQUIRE(order[0].kind == SpriteRunKind::Sprites);
+    REQUIRE(order[1].kind == SpriteRunKind::GlyphRunBatch);
+    REQUIRE(order[2].kind == SpriteRunKind::Custom);
+    REQUIRE(order[2].bufferIndex == 0);
+    REQUIRE(order[2].instanceCount == 5);
+    REQUIRE(order[3].kind == SpriteRunKind::Sprites);
+    REQUIRE(order[4].kind == SpriteRunKind::Custom);
+    REQUIRE(order[4].bufferIndex == 1);
+    REQUIRE(order[4].blendMode == SpriteBlendMode::Additive);
+  }
+
+  SECTION("Plugin shaders live next to the plugins")
+  {
+    const Path directory = EnginePaths::getEnginePluginShaderDirectory("chSomething");
+    REQUIRE(directory ==
+            EnginePaths::getEnginePluginDirectory().join(Path("Shaders/chSomething")));
   }
 }

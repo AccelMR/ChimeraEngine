@@ -25,7 +25,9 @@ enum class SpriteRunKind : uint8
   // SpriteBatcher::getGlyphRuns.
   GlyphRuns,
   // A GlyphRunBatch's own buffer.
-  GlyphRunBatch
+  GlyphRunBatch,
+  // A CustomSpriteBatch, drawn with its own shaders.
+  Custom
 };
 
 /**
@@ -37,10 +39,9 @@ struct SpriteRun
   uint32 firstInstance = 0;
   uint32 instanceCount = 0;
   SpriteRunKind kind = SpriteRunKind::Sprites;
-  // GlyphRunBatch only: the bindless index of its buffer, its motion and its time.
+  // GlyphRunBatch: the bindless index of its buffer. Custom: the batch's index in the list
+  // given to build.
   uint32 bufferIndex = 0;
-  uint32 motionIndex = GlyphRunBatch::NO_MOTION;
-  float time = 0.0f;
   // The most glyphs a run of the draw has.
   uint32 maxGlyphs = GpuGlyphRun::MAX_GLYPHS;
 };
@@ -60,15 +61,16 @@ class CH_CORE_EXPORT SpriteBatcher
   /**
    * Replaces the instances and runs. depthAxis (unit) breaks ties inside an order: sprites
    * farther along it draw first. Sprites that sort equal keep the order they come in, with
-   * sprites before glyph runs and glyph runs before batches. Batches are not culled and
-   * sort at depth 0.
+   * sprites before glyph runs, glyph runs before glyph run batches and those before custom
+   * batches. Batches are not culled and sort at depth 0.
    */
   void
   build(Span<const SpriteItem> sprites,
         const Frustum& frustum,
         const Vector3& depthAxis,
         Span<const GlyphRunItem> glyphRuns = {},
-        Span<const GlyphRunBatch> batches = {});
+        Span<const GlyphRunBatch> batches = {},
+        Span<const CustomSpriteBatch> customBatches = {});
 
   NODISCARD FORCEINLINE Span<const GpuSpriteInstance>
   getInstances() const noexcept { return m_instances; }

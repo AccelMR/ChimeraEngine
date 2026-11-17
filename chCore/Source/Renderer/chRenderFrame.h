@@ -112,6 +112,12 @@ class CH_CORE_EXPORT RenderFrame
     return m_glyphRunBatches;
   }
 
+  NODISCARD FORCEINLINE Span<const CustomSpriteBatch>
+  getCustomBatches() const
+  {
+    return m_customBatches;
+  }
+
   /**
    * The sky light that lights the scene, null when there is none.
    */
@@ -154,6 +160,7 @@ class CH_CORE_EXPORT RenderFrame
   Vector<SpriteItem> m_sprites;
   Vector<GlyphRunItem> m_glyphRuns;
   Vector<GlyphRunBatch> m_glyphRunBatches;
+  Vector<CustomSpriteBatch> m_customBatches;
   SkyLightItem m_skyLight;
   bool m_bHasSkyLight = false;
   DebugDraw m_sceneLines;

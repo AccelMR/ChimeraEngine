@@ -183,6 +183,15 @@ addBinaries(const PackageDesc& desc, Vector<FileCopy>& outCopies, String& outErr
     outCopies.push_back({source,
                          desc.outputDirectory.join(pluginDirectory).join(Path(fileName)),
                          CopyKind::Binary});
+
+    // Plugins without shaders of their own have no folder.
+    const Path pluginShaders =
+        pluginDirectory.join(Path("Shaders")).join(Path(String(plugin)));
+    const Path shaderSource = desc.binaryDirectory.join(pluginShaders);
+    if (FileSystem::isDirectory(shaderSource)) {
+      addFolder(shaderSource, desc.outputDirectory.join(pluginShaders), {}, CopyKind::Binary,
+                outCopies);
+    }
   }
 
   const Path shaders = desc.binaryDirectory.join(Path("Shaders"));

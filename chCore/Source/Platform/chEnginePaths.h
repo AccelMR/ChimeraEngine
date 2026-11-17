@@ -114,6 +114,13 @@ class CH_CORE_EXPORT EnginePaths
   getEnginePluginDirectory();
 
   /**
+   * Real folder of an engine plugin's compiled shaders, with one folder per shader format:
+   * Plugins/Shaders/<plugin>.
+   */
+  NODISCARD static Path
+  getEnginePluginShaderDirectory(StringView pluginName);
+
+  /**
    * Virtual folder of the project assets, "/Game".
    */
   NODISCARD static const Path&

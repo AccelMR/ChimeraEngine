@@ -302,6 +302,16 @@ SpriteDraw::glyphRunBatch(const GlyphRunBatch& batch)
 
 /*
  */
+void
+SpriteDraw::customBatch(const CustomSpriteBatch& batch)
+{
+  if (batch.shader != nullptr && batch.instanceCount > 0 && batch.vertexCount > 0) {
+    m_customBatches.push_back(batch);
+  }
+}
+
+/*
+ */
 bool
 SpriteDraw::makeGlyphRun(Font& font,
                          StringView text,
@@ -399,6 +409,7 @@ SpriteDraw::clear() noexcept
 {
   m_glyphRuns.clear();
   m_glyphRunBatches.clear();
+  m_customBatches.clear();
   m_sprites.clear();
   m_bWarnedFull = false;
 }

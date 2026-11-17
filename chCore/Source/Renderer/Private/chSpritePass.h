@@ -39,8 +39,8 @@ class CH_CORE_EXPORT SpritePass
   ~SpritePass();
 
   /**
-   * Draws the sprites the camera sees into output, cleared first to clearColor. The sprites
-   * and the camera are read here, not when the graph runs.
+   * Draws the sprites the camera sees into output, cleared first to clearColor. The sprites,
+   * the batches and the camera are read here, not when the graph runs.
    */
   void
   addPass(RenderGraph& graph,
@@ -48,6 +48,7 @@ class CH_CORE_EXPORT SpritePass
           Span<const SpriteItem> sprites,
           Span<const GlyphRunItem> glyphRuns,
           Span<const GlyphRunBatch> glyphRunBatches,
+          Span<const CustomSpriteBatch> customBatches,
           const LinearColor& clearColor,
           RGTextureHandle output);
 
@@ -83,7 +84,18 @@ class CH_CORE_EXPORT SpritePass
   // Sprites first, then glyph runs, per blend mode.
   Array<const IPipeline*, static_cast<SIZE_T>(SpriteBlendMode::COUNT) * 2> m_pipelines{};
   Format m_pipelineFormat = Format::Unknown;
+  struct CustomDraw
+  {
+    // Null when the batch's shaders could not be loaded: nothing is drawn.
+    const IPipeline* pipeline;
+    uint32 vertexCount;
+    uint32 instanceCount;
+    Array<uint8, CustomSpriteBatch::MAX_PARAMETER_BYTES> parameters;
+  };
+
   SpriteBatcher m_batcher;
+  // The custom runs of the last addPass, in the order of the batcher's runs.
+  Vector<CustomDraw> m_customDraws;
   Array<SPtr<IBuffer>, GraphicsLimits::MAX_FRAMES_IN_FLIGHT> m_instanceBuffers;
   // In instances.
   Array<uint32, GraphicsLimits::MAX_FRAMES_IN_FLIGHT> m_capacities{};

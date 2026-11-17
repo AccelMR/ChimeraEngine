@@ -231,6 +231,7 @@ SceneRenderer::addSpritePasses(const RenderView& view, RGTextureHandle output)
                         m_frame.getSprites(),
                         m_frame.getGlyphRuns(),
                         m_frame.getGlyphRunBatches(),
+                        m_frame.getCustomBatches(),
                         view.clearColor,
                         sceneColor);
   m_visibleSprites = m_spritePass->getLastInstanceCount();

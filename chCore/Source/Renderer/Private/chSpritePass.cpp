@@ -19,6 +19,7 @@
 #include "chMath.h"
 #include "chMatrix4.h"
 #include "chRenderSettings.h"
+#include "chSpriteShader.h"
 
 namespace chEngineSDK {
 
@@ -44,10 +45,17 @@ struct GlyphRunPushConstants
   uint32 linearSamplerIndex;
   // A GpuOnly buffer is bound as writable storage, the frame's own buffer as read only.
   uint32 bWritableBuffer;
-  // GlyphRunBatch::motionIndex and time.
-  uint32 motionIndex;
-  float time;
 };
+
+// Must match CH_SPRITE_BATCH_HEADER in chSpriteBatch.hlsli.
+struct CustomPushConstants
+{
+  Matrix4 viewProjection;
+  uint32 pointSamplerIndex;
+  uint32 linearSamplerIndex;
+  Array<uint8, CustomSpriteBatch::MAX_PARAMETER_BYTES> parameters;
+};
+static_assert(sizeof(CustomPushConstants) == 128, "Custom push constants must fill 128 bytes");
 
 // A few thousand sprites, so small scenes never make the buffer again.
 constexpr uint32 kInitialInstanceCapacity = 4096;
@@ -127,6 +135,7 @@ SpritePass::addPass(RenderGraph& graph,
                     Span<const SpriteItem> sprites,
                     Span<const GlyphRunItem> glyphRuns,
                     Span<const GlyphRunBatch> glyphRunBatches,
+                    Span<const CustomSpriteBatch> customBatches,
                     const LinearColor& clearColor,
                     RGTextureHandle output)
 {
@@ -134,7 +143,8 @@ SpritePass::addPass(RenderGraph& graph,
                   camera.getFrustum(),
                   g_cvarSpriteYSort.get() ? camera.getUpVector() : camera.getForwardVector(),
                   glyphRuns,
-                  glyphRunBatches);
+                  glyphRunBatches,
+                  customBatches);
 
   const uint32 frameIndex = IGraphicsAPI::instance().getFrameIndex();
   const IBuffer* instanceBuffer = uploadToFrameBuffer(m_batcher.getInstances(),
@@ -162,6 +172,19 @@ SpritePass::addPass(RenderGraph& graph,
       .linearSamplerIndex = m_linearSampler->getBindlessIndex()};
   const uint32 glyphRunBufferIndex = glyphRunBuffer ? glyphRunBuffer->getBindlessIndex() : 0;
 
+  m_customDraws.clear();
+  for (const SpriteRun& run : m_batcher.getRuns()) {
+    if (run.kind != SpriteRunKind::Custom) {
+      continue;
+    }
+    const CustomSpriteBatch& batch = customBatches[run.bufferIndex];
+    const IPipeline* pipeline = batch.shader->getPipeline(batch.blendMode, colorFormat);
+    m_customDraws.push_back({.pipeline = pipeline,
+                             .vertexCount = batch.vertexCount,
+                             .instanceCount = batch.instanceCount,
+                             .parameters = batch.parameters});
+  }
+
   graph.addPass("Sprites")
       .setOptional()
       .writeColor(output, LoadOp::Clear, clearColor)
@@ -174,11 +197,25 @@ SpritePass::addPass(RenderGraph& graph,
                                     .firstRun = 0,
                                     .pointSamplerIndex = spriteConstants.pointSamplerIndex,
                                     .linearSamplerIndex = spriteConstants.linearSamplerIndex,
-                                    .bWritableBuffer = 0,
-                                    .motionIndex = GlyphRunBatch::NO_MOTION,
-                                    .time = 0.0f};
+                                    .bWritableBuffer = 0};
+        CustomPushConstants custom{.viewProjection = spriteConstants.viewProjection,
+                                   .pointSamplerIndex = spriteConstants.pointSamplerIndex,
+                                   .linearSamplerIndex = spriteConstants.linearSamplerIndex,
+                                   .parameters = {}};
+        SIZE_T customIndex = 0;
         for (const SpriteRun& run : m_batcher.getRuns()) {
           const uint32 blend = static_cast<uint32>(run.blendMode);
+          if (run.kind == SpriteRunKind::Custom) {
+            const CustomDraw& draw = m_customDraws[customIndex++];
+            if (draw.pipeline == nullptr) {
+              continue;
+            }
+            custom.parameters = draw.parameters;
+            commandList.bindPipeline(*draw.pipeline);
+            commandList.pushConstants(&custom, sizeof(custom));
+            commandList.draw(draw.vertexCount, draw.instanceCount);
+            continue;
+          }
           if (run.kind == SpriteRunKind::Sprites) {
             sprite.firstInstance = run.firstInstance;
             commandList.bindPipeline(*pipelines[blend]);
@@ -189,8 +226,6 @@ SpritePass::addPass(RenderGraph& graph,
           const bool bBatch = run.kind == SpriteRunKind::GlyphRunBatch;
           glyph.runBufferIndex = bBatch ? run.bufferIndex : glyphRunBufferIndex;
           glyph.bWritableBuffer = bBatch ? 1u : 0u;
-          glyph.motionIndex = bBatch ? run.motionIndex : GlyphRunBatch::NO_MOTION;
-          glyph.time = run.time;
           glyph.firstRun = run.firstInstance;
           commandList.bindPipeline(*pipelines[blend + kBlendModes]);
           commandList.pushConstants(&glyph, sizeof(glyph));
@@ -217,21 +252,11 @@ SpritePass::getPipeline(SpriteBlendMode blendMode, bool bGlyphRuns, Format color
     return *pipeline;
   }
 
-  GraphicsPipelineDesc pipelineDesc{
-      .vertexShader = bGlyphRuns ? m_glyphVertexShader : m_vertexShader,
-      .fragmentShader = bGlyphRuns ? m_glyphFragmentShader : m_fragmentShader,
-      .raster = {.cullMode = CullMode::None},
-      .depth = {.testEnable = false, .writeEnable = false},
-      .colorAttachmentCount = 1};
-  pipelineDesc.colorFormats[0] = colorFormat;
-  BlendAttachmentState& blend = pipelineDesc.blendStates[0];
-  blend.enable = true;
-  blend.srcColorFactor = BlendFactor::SrcAlpha;
-  blend.dstColorFactor = blendMode == SpriteBlendMode::Additive
-                             ? BlendFactor::One
-                             : BlendFactor::OneMinusSrcAlpha;
-  blend.srcAlphaFactor = BlendFactor::One;
-  blend.dstAlphaFactor = BlendFactor::OneMinusSrcAlpha;
+  const GraphicsPipelineDesc pipelineDesc = SpriteShader::makePipelineDesc(
+      bGlyphRuns ? m_glyphVertexShader : m_vertexShader,
+      bGlyphRuns ? m_glyphFragmentShader : m_fragmentShader,
+      blendMode,
+      colorFormat);
   pipeline = m_pipelineCache.getOrCreate(pipelineDesc).get();
   return *pipeline;
 }

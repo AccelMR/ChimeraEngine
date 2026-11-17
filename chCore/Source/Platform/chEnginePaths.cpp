@@ -324,6 +324,14 @@ EnginePaths::getEnginePluginDirectory()
   return pathState().enginePluginDirectory;
 }
 
+/*
+ */
+Path
+EnginePaths::getEnginePluginShaderDirectory(StringView pluginName)
+{
+  return getEnginePluginDirectory().join(Path("Shaders")).join(Path(String(pluginName)));
+}
+
 const Path&
 EnginePaths::getGameAssetDirectory()
 {

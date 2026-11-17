@@ -11,9 +11,12 @@
 
 #include "chEnginePaths.h"
 #include "chFileSystem.h"
+#include "chLogger.h"
 #include "chStringUtils.h"
 
 namespace chEngineSDK {
+CH_LOG_DECLARE_STATIC(GraphicsAPILog, All);
+
 namespace {
 struct ShaderStageNames
 {
@@ -44,16 +47,28 @@ getStageNames(ShaderStage stage)
 SPtr<IShader>
 IGraphicsAPI::loadShader(ShaderStage stage, StringView name)
 {
+  return loadShader(stage, name, EnginePaths::getShaderBinaryDirectory());
+}
+
+/*
+ */
+SPtr<IShader>
+IGraphicsAPI::loadShader(ShaderStage stage, StringView name, const Path& directory)
+{
   const ShaderBinaryFormat format = getShaderBinaryFormat();
   const ShaderStageNames stageNames = getStageNames(stage);
   const String fileName =
       StringUtils::format("{0}.{1}.{2}", name, stageNames.suffix, format.extension);
-  const Path path(EnginePaths::getShaderBinaryDirectory(), Path(String(format.folder)),
-                  Path(fileName));
+  const Path path(directory, Path(String(format.folder)), Path(fileName));
 
+  Vector<uint8> code = FileSystem::fastRead(path);
+  if (code.empty()) {
+    CH_LOG_ERROR(GraphicsAPILog, "Shader {0} has no compiled code.", path);
+    return nullptr;
+  }
   return createShader({.stage = stage,
                        .entryPoint = stageNames.entryPoint,
-                       .sourceCode = FileSystem::fastRead(path),
+                       .sourceCode = std::move(code),
                        .filePath = path.toString(),
                        .defines = {}});
 }

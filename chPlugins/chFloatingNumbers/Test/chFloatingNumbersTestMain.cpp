@@ -107,7 +107,7 @@ TEST_CASE("Floating numbers - tiers")
   // More than the GPU holds are dropped.
   const Vector<FloatingNumberTier> many(12);
   system.setTiers(many);
-  REQUIRE(system.getTiers().size() == GpuGlyphRunMotion::MAX_TIERS);
+  REQUIRE(system.getTiers().size() == GpuFloatingNumberMotion::MAX_TIERS);
   system.setTiers({});
   REQUIRE(system.getTiers().size() == 1);
 }
@@ -137,8 +137,8 @@ TEST_CASE("Floating numbers - spawning")
     REQUIRE(lowHalf(run.userData[1]) == Approx(0.0f).margin(1e-3f));
     REQUIRE(highHalf(run.userData[1]) == Approx(4.0f));
     REQUIRE(std::bit_cast<float>(run.userData[2]) == Approx(1.0f));
-    REQUIRE((run.userData[3] & GpuGlyphRun::MOTION_TIER_MASK) == 0);
-    REQUIRE((run.userData[3] & GpuGlyphRun::MOTION_OUTLINE_BIT) == 0);
+    REQUIRE((run.userData[3] & FloatingNumberGpu::TIER_MASK) == 0);
+    REQUIRE((run.userData[3] & FloatingNumberGpu::OUTLINE_BIT) == 0);
   }
 
   SECTION("An outlined tier writes the outline first")
@@ -149,8 +149,8 @@ TEST_CASE("Floating numbers - spawning")
     const GpuGlyphRun& fill = system.getRuns()[1];
     // "1.5K"
     REQUIRE(fill.glyphCount == 4);
-    REQUIRE((outline.userData[3] & GpuGlyphRun::MOTION_OUTLINE_BIT) != 0);
-    REQUIRE((fill.userData[3] & GpuGlyphRun::MOTION_TIER_MASK) == 1);
+    REQUIRE((outline.userData[3] & FloatingNumberGpu::OUTLINE_BIT) != 0);
+    REQUIRE((fill.userData[3] & FloatingNumberGpu::TIER_MASK) == 1);
     REQUIRE(outline.userData[1] == fill.userData[1]);
     REQUIRE(((outline.textureAndFlags >> GpuSpriteInstance::EDGE_SHIFT) &
              GpuSpriteInstance::EDGE_MASK) > 0);
@@ -161,7 +161,7 @@ TEST_CASE("Floating numbers - spawning")
     REQUIRE(system.spawn(5.0, Vector2::ZERO, {.tier = 1, .tint = LinearColor(1, 0, 0, 1),
                                               .scale = 2.0f}));
     const GpuGlyphRun& fill = system.getRuns()[1];
-    REQUIRE((fill.userData[3] & GpuGlyphRun::MOTION_TIER_MASK) == 1);
+    REQUIRE((fill.userData[3] & FloatingNumberGpu::TIER_MASK) == 1);
     REQUIRE(fill.size == Approx(system.getSize() * 2.0f));
     REQUIRE(highHalf(fill.colorRG) == Approx(0.0f));
     REQUIRE(system.spawnText("CRIT!", Vector2::ZERO));
@@ -277,8 +277,8 @@ TEST_CASE("Floating numbers - scripts")
   // The two tier 2 spawns are outlined: 12, outline and fill of 25000, the forced tier 3,
   // outline and fill of CRIT.
   REQUIRE(system->getLiveCount() == 6);
-  REQUIRE((system->getRuns()[3].userData[3] & GpuGlyphRun::MOTION_TIER_MASK) == 2);
-  REQUIRE((system->getRuns()[4].userData[3] & GpuGlyphRun::MOTION_OUTLINE_BIT) != 0);
+  REQUIRE((system->getRuns()[3].userData[3] & FloatingNumberGpu::TIER_MASK) == 2);
+  REQUIRE((system->getRuns()[4].userData[3] & FloatingNumberGpu::OUTLINE_BIT) != 0);
 
   REQUIRE_FALSE(scripts.runString("Scene.find('Damage'):getFloatingNumbers():configure{ sped = 1 }"));
   REQUIRE_FALSE(scripts.runString("Scene.find('Damage'):getFloatingNumbers():setTiers{ { mni = 1 } }"));
