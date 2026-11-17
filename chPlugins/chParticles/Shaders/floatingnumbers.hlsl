@@ -1,7 +1,8 @@
 // Floating numbers: glyph runs written once, moved by their age. Each run flies from where
-// it was made along its velocity under gravity, slowed by drag, and pops, shakes, flashes
-// and fades with the look of its tier (GpuFloatingNumberMotion).
+// it was made along its velocity under gravity, slowed by drag (chAgeMotion.hlsli), and
+// pops, shakes, flashes and fades with the look of its tier (GpuFloatingNumberMotion).
 
+#include "chAgeMotion.hlsli"
 #include "chGlyphRun.hlsli"
 #include "chSpriteBatch.hlsli"
 
@@ -9,9 +10,9 @@
 static const uint kTierMask = 0xFFu;
 static const uint kOutlineBit = 0x100u;
 static const uint kSeedShift = 16;
-static const uint kMotionHeaderSize = 32;
+static const uint kTierCountAddress = kAgeMotionSize;
+static const uint kTiersAddress = kAgeMotionSize + 16;
 static const uint kTierStride = 80;
-static const float kTwoPi = 6.28318530718f;
 
 // Must match FloatingNumberBatchParameters in chFloatingNumberGpu.h.
 struct PushConstants
@@ -42,40 +43,24 @@ VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     return makeEmptyGlyphVertex();
   }
 
-  RWByteAddressBuffer motion = ResourceDescriptorHeap[g_push.motionIndex];
-  const float4 header = asfloat(motion.Load4(0));
-  const float4 header2 = asfloat(motion.Load4(16));
-  const float2 gravity = header.xy;
-  const float drag = header.z;
-  const float fadeIn = header.w;
-  const float fadeOut = header2.x;
-  const uint tierCount = asuint(header2.y);
+  RWByteAddressBuffer motionBuffer = ResourceDescriptorHeap[g_push.motionIndex];
+  const AgeMotion motion = loadAgeMotion(motionBuffer, 0);
+  const uint tierCount = motionBuffer.Load(kTierCountAddress);
   const uint tierIndex = min(run.userData.w & kTierMask, max(tierCount, 1u) - 1u);
-  const uint tierAddress = kMotionHeaderSize + tierIndex * kTierStride;
-  const float4 tierColor = asfloat(motion.Load4(tierAddress));
-  const float4 flashColor = asfloat(motion.Load4(tierAddress + 16));
-  const float4 outlineColor = asfloat(motion.Load4(tierAddress + 32));
+  const uint tierAddress = kTiersAddress + tierIndex * kTierStride;
+  const float4 tierColor = asfloat(motionBuffer.Load4(tierAddress));
+  const float4 flashColor = asfloat(motionBuffer.Load4(tierAddress + 16));
+  const float4 outlineColor = asfloat(motionBuffer.Load4(tierAddress + 32));
   // scale, popScale, popDuration, shakeAmplitude
-  const float4 sizeAndShake = asfloat(motion.Load4(tierAddress + 48));
+  const float4 sizeAndShake = asfloat(motionBuffer.Load4(tierAddress + 48));
   // shakeFrequency, shakeDuration, flashDuration, flashRate
-  const float4 timing = asfloat(motion.Load4(tierAddress + 64));
+  const float4 timing = asfloat(motionBuffer.Load4(tierAddress + 64));
 
-  // An arc: the velocity, slowed by drag, plus gravity.
   const float2 velocity = unpackHalves(run.userData.y);
-  const float travel = drag > 0.0f ? (1.0f - exp(-drag * age)) / drag : age;
-  float2 offset = velocity * travel + 0.5f * gravity * age * age;
-
-  // Born at popScale times its size, settling quickly with an ease out.
-  const float pop = sizeAndShake.z > 0.0f ? saturate(age / sizeAndShake.z) : 1.0f;
-  const float settle = 1.0f - pop;
-  const float scale = sizeAndShake.x * lerp(1.0f, sizeAndShake.y, settle * settle * settle);
-
-  const float phase = (float)(run.userData.w >> kSeedShift) * (kTwoPi / 65536.0f);
-  if (age < timing.y && timing.y > 0.0f) {
-    const float strength = sizeAndShake.w * (1.0f - age / timing.y);
-    const float angle = age * timing.x * kTwoPi + phase;
-    offset += strength * float2(sin(angle), cos(angle * 1.37f + phase));
-  }
+  const float phase = getSeedPhase(run.userData.w >> kSeedShift);
+  const float2 offset = getAgeOffset(motion, velocity, age) +
+                        getAgeShake(age, sizeAndShake.w, timing.x, timing.y, phase);
+  const float scale = sizeAndShake.x * getAgePop(age, sizeAndShake.y, sizeAndShake.z);
 
   const bool bOutline = (run.userData.w & kOutlineBit) != 0;
   float4 look = bOutline ? outlineColor : tierColor;
@@ -84,8 +69,7 @@ VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     look = lerp(tierColor, flashColor, blink);
   }
   float4 color = getRunColor(run) * look;
-  const float fade = (fadeIn > 0.0f ? saturate(age / fadeIn) : 1.0f) *
-                     (fadeOut > 0.0f ? saturate((lifetime - age) / fadeOut) : 1.0f);
+  const float fade = getAgeFade(motion, age, lifetime);
   color.a *= fade;
 
   return makeGlyphVertex(run,

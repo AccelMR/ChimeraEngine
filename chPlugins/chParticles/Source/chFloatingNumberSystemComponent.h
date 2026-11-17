@@ -11,8 +11,10 @@
 
 #include "chPrerequisitesCore.h"
 
+#include "chAgeMotion.h"
 #include "chComponent.h"
 #include "chFloatingNumberGpu.h"
+#include "chGpuAgeRing.h"
 #include "chLinearColor.h"
 #include "chNumberFormat.h"
 #include "chRandom.h"
@@ -49,26 +51,6 @@ struct FloatingNumberTier
   float flashDuration = 0.0f;
   // Blinks per second.
   float flashRate = 8.0f;
-};
-
-/**
- * How every number of a system moves. Angles in degrees, counterclockwise from +Y, so 90 is
- * up; world units and seconds.
- */
-struct FloatingNumberMotion
-{
-  // Where numbers fly, and how far to each side they may leave it.
-  float angle = 90.0f;
-  float spread = 40.0f;
-  float speed = 4.0f;
-  float speedVariance = 1.5f;
-  Vector2 gravity{0.0f, -9.0f};
-  // Per second; 0 keeps the speed.
-  float drag = 0.0f;
-  float lifetime = 1.0f;
-  float lifetimeVariance = 0.2f;
-  float fadeIn = 0.05f;
-  float fadeOut = 0.3f;
 };
 
 /**
@@ -189,9 +171,9 @@ class FloatingNumberSystemComponent : public Component
   isMonospaceDigits() const noexcept { return m_bMonospaceDigits; }
 
   void
-  setMotion(const FloatingNumberMotion& motion);
+  setMotion(const AgeMotion& motion);
 
-  NODISCARD FORCEINLINE const FloatingNumberMotion&
+  NODISCARD FORCEINLINE const AgeMotion&
   getMotion() const noexcept { return m_motion; }
 
   /**
@@ -214,16 +196,16 @@ class FloatingNumberSystemComponent : public Component
    * Seconds on the system's own clock, which only moves while it updates.
    */
   NODISCARD FORCEINLINE float
-  getTime() const noexcept { return m_time; }
+  getTime() const noexcept { return m_ring.getTime(); }
 
   /**
    * The runs as last written, for tests and tools.
    */
   NODISCARD FORCEINLINE Span<const GpuGlyphRun>
-  getRuns() const noexcept { return m_runs; }
+  getRuns() const noexcept { return m_ring.getEntries(); }
 
   NODISCARD FORCEINLINE uint32
-  getWriteCursor() const noexcept { return m_writeCursor; }
+  getWriteCursor() const noexcept { return m_ring.getWriteCursor(); }
 
   /**
    * The motion the GPU reads, as last built.
@@ -281,9 +263,6 @@ class FloatingNumberSystemComponent : public Component
   void
   rebuildGpuMotion();
 
-  void
-  uploadPending();
-
   /**
    * Writes the atlas and glyph table indices of the font again into every run, after its
    * atlas changed.
@@ -301,30 +280,20 @@ class FloatingNumberSystemComponent : public Component
   int16 m_order = 0;
   SpriteBlendMode m_blendMode = SpriteBlendMode::Alpha;
   bool m_bMonospaceDigits = false;
-  FloatingNumberMotion m_motion;
+  AgeMotion m_motion;
   Vector<FloatingNumberTier> m_tiers;
   NumberFormatDesc m_numberFormat{};
   uint32 m_capacity = DEFAULT_CAPACITY;
 
-  // The CPU copy of the ring, so the runs can be written again when the atlas changes.
-  Vector<GpuGlyphRun> m_runs;
-  // When each run stops living, to know where the live part of the ring starts.
-  Vector<float> m_deaths;
-  uint32 m_writeCursor = 0;
+  // Keeps a CPU copy of the runs, so they can be written again when the atlas changes.
+  GpuAgeRing<GpuGlyphRun> m_ring;
   // The most glyphs a run written since the ring was last empty has, which is how many
   // quads each run of the batch draws.
   uint32 m_maxGlyphs = 1;
-  uint32 m_liveStart = 0;
-  uint32 m_liveCount = 0;
-  // Runs written since the last upload, from m_pendingStart.
-  uint32 m_pendingStart = 0;
-  uint32 m_pendingCount = 0;
-  float m_time = 0.0f;
   Random m_random{0x5EED1234u};
 
   GpuFloatingNumberMotion m_gpuMotion{};
   bool m_bMotionDirty = true;
-  SPtr<IBuffer> m_runBuffer;
   SPtr<IBuffer> m_motionBuffer;
   const Font* m_writtenFont = nullptr;
   uint32 m_writtenRevision = 0;

@@ -11,6 +11,8 @@
 
 #include "chPrerequisitesCore.h"
 
+#include "chAgeMotion.h"
+
 namespace chEngineSDK {
 class SpriteShader;
 
@@ -44,26 +46,20 @@ static_assert(sizeof(GpuFloatingNumberTier) == 80,
               "GpuFloatingNumberTier must match floatingnumbers.hlsl");
 
 /**
- * Exists so the GPU moves the numbers: each run moves from where it was made along its
- * velocity under gravity, slowed by drag, and pops, shakes, flashes and fades by its age
- * with the look of its tier. A storage buffer; must match floatingnumbers.hlsl.
+ * Exists so the GPU moves the numbers: each run moves by its age as the shared AgeMotion
+ * says, and pops, shakes, flashes and fades with the look of its tier. A storage buffer;
+ * must match floatingnumbers.hlsl.
  */
 struct GpuFloatingNumberMotion
 {
   static constexpr uint32 MAX_TIERS = 8;
 
-  // World units per second squared, Y then Z.
-  float gravity[2];
-  // Per second; 0 keeps the velocity.
-  float drag;
-  // Seconds to fade in and out.
-  float fadeIn;
-  float fadeOut;
+  GpuAgeMotion motion;
   uint32 tierCount;
-  float padding[2];
+  uint32 padding[3];
   GpuFloatingNumberTier tiers[MAX_TIERS];
 };
-static_assert(sizeof(GpuFloatingNumberMotion) == 32 + 80 * GpuFloatingNumberMotion::MAX_TIERS,
+static_assert(sizeof(GpuFloatingNumberMotion) == 48 + 80 * GpuFloatingNumberMotion::MAX_TIERS,
               "GpuFloatingNumberMotion must match floatingnumbers.hlsl");
 
 /**

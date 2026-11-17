@@ -15,7 +15,6 @@
 #include "chAssetFile.h"
 #include "chAssetManager.h"
 #include "chFileStream.h"
-#include "chFloat16.h"
 #include "chFloatingNumberGpu.h"
 #include "chFont.h"
 #include "chFontAsset.h"
@@ -34,8 +33,6 @@ namespace chEngineSDK {
 CH_LOG_DECLARE_STATIC(FloatingNumbersLog, All);
 
 namespace {
-constexpr float kMinLifetime = 0.05f;
-
 struct SystemFileData
 {
   UUID font;
@@ -114,21 +111,6 @@ toColor(const float (&values)[4])
   return LinearColor(values[0], values[1], values[2], values[3]);
 }
 
-NODISCARD uint32
-packHalves(float low, float high)
-{
-  return static_cast<uint32>(Float16::fromFloat(low)) |
-         (static_cast<uint32>(Float16::fromFloat(high)) << 16);
-}
-
-/*
- * Between -1 and 1.
- */
-NODISCARD float
-signedRandom(const Random& random)
-{
-  return random.getRandom01() * 2.0f - 1.0f;
-}
 } // namespace
 
 /*
@@ -178,11 +160,7 @@ FloatingNumberSystemComponent::spawnText(StringView text,
 void
 FloatingNumberSystemComponent::clear()
 {
-  m_writeCursor = 0;
-  m_liveStart = 0;
-  m_liveCount = 0;
-  m_pendingStart = 0;
-  m_pendingCount = 0;
+  m_ring.clear();
   m_maxGlyphs = 1;
 }
 
@@ -205,7 +183,7 @@ FloatingNumberSystemComponent::findTier(double value) const noexcept
 uint32
 FloatingNumberSystemComponent::getLiveCount() const noexcept
 {
-  return m_liveCount;
+  return m_ring.getLiveCount();
 }
 
 /*
@@ -284,11 +262,9 @@ FloatingNumberSystemComponent::setMonospaceDigits(bool bMonospace)
 /*
  */
 void
-FloatingNumberSystemComponent::setMotion(const FloatingNumberMotion& motion)
+FloatingNumberSystemComponent::setMotion(const AgeMotion& motion)
 {
-  m_motion = motion;
-  m_motion.lifetime = Math::max(m_motion.lifetime, kMinLifetime);
-  m_motion.lifetimeVariance = Math::clamp(m_motion.lifetimeVariance, 0.0f, m_motion.lifetime);
+  m_motion = motion.getClamped();
   m_bMotionDirty = true;
 }
 
@@ -333,7 +309,8 @@ FloatingNumberSystemComponent::testSpawn()
   for (uint32 i = 0; i < TEST_SPAWN_COUNT; ++i) {
     const double fraction = static_cast<double>(i) / (TEST_SPAWN_COUNT - 1);
     const double value = low * Math::pow(static_cast<float>(high / low), static_cast<float>(fraction));
-    const Vector2 jitter(signedRandom(m_random) * 1.5f, signedRandom(m_random) * 0.5f);
+    const Vector2 jitter((m_random.getRandom01() * 2.0f - 1.0f) * 1.5f,
+                         (m_random.getRandom01() * 2.0f - 1.0f) * 0.5f);
     CH_PARAMETER_UNUSED(spawn(value, origin + jitter));
   }
 }
@@ -347,16 +324,8 @@ FloatingNumberSystemComponent::update(float deltaTime)
   if (!isRegistered()) {
     return;
   }
-  m_time += deltaTime;
-
-  // Runs die in about the order they were made; the first that still lives starts the part
-  // that is drawn.
-  while (m_liveCount > 0 && m_deaths[m_liveStart] <= m_time) {
-    m_liveStart = (m_liveStart + 1) % m_capacity;
-    --m_liveCount;
-  }
-  if (m_liveCount == 0) {
-    m_pendingCount = 0;
+  // Runs die in about the order they were made, so the live ones are one part of the ring.
+  if (m_ring.advance(deltaTime) == 0) {
     m_maxGlyphs = 1;
     return;
   }
@@ -368,14 +337,8 @@ FloatingNumberSystemComponent::update(float deltaTime)
   if (m_bMotionDirty) {
     rebuildGpuMotion();
   }
-  uploadPending();
-
-  const uint32 first = m_liveStart;
-  const uint32 untilEnd = Math::min(m_liveCount, m_capacity - first);
-  addBatch(first, untilEnd);
-  if (untilEnd < m_liveCount) {
-    addBatch(0, m_liveCount - untilEnd);
-  }
+  m_ring.upload();
+  m_ring.forEachLiveRange([this](uint32 first, uint32 count) { addBatch(first, count); });
 }
 
 /*
@@ -515,19 +478,14 @@ void
 FloatingNumberSystemComponent::onRegister()
 {
   // Every buffer is sized once, so spawning never allocates.
-  m_runs.assign(m_capacity, GpuGlyphRun{});
-  m_deaths.assign(m_capacity, 0.0f);
-  clear();
+  m_ring.create(m_capacity);
+  m_maxGlyphs = 1;
   m_bMotionDirty = true;
   if (IGraphicsAPI::isStarted()) {
-    IGraphicsAPI& graphicsAPI = IGraphicsAPI::instance();
-    m_runBuffer = graphicsAPI.createBuffer(
-        {.size = static_cast<uint32>(m_capacity * sizeof(GpuGlyphRun)),
+    m_motionBuffer = IGraphicsAPI::instance().createBuffer(
+        {.size = sizeof(GpuFloatingNumberMotion),
          .usage = BufferUsage::StorageBuffer,
          .memoryUsage = MemoryUsage::GpuOnly});
-    m_motionBuffer = graphicsAPI.createBuffer({.size = sizeof(GpuFloatingNumberMotion),
-                                               .usage = BufferUsage::StorageBuffer,
-                                               .memoryUsage = MemoryUsage::GpuOnly});
   }
 }
 
@@ -536,13 +494,9 @@ FloatingNumberSystemComponent::onRegister()
 void
 FloatingNumberSystemComponent::onUnregister()
 {
-  m_runBuffer.reset();
   m_motionBuffer.reset();
-  m_runs.clear();
-  m_runs.shrink_to_fit();
-  m_deaths.clear();
-  m_deaths.shrink_to_fit();
-  clear();
+  m_ring.release();
+  m_maxGlyphs = 1;
 }
 
 /*
@@ -584,22 +538,14 @@ FloatingNumberSystemComponent::spawnRuns(StringView text,
   }
   m_writtenRevision = font->getRevision();
 
-  const float angle = Radian(Degree(m_motion.angle + signedRandom(m_random) * m_motion.spread))
-                          .valueRadian();
-  const float speed = m_motion.speed + signedRandom(m_random) * m_motion.speedVariance;
-  float sine = 0.0f;
-  float cosine = 1.0f;
-  Math::sinCos(angle, sine, cosine);
-  const float lifetime = Math::max(
-      m_motion.lifetime + signedRandom(m_random) * m_motion.lifetimeVariance, kMinLifetime);
-  const uint32 seed = m_random.getPseudoRandom() >> 16;
+  const AgeBirth birth = m_motion.makeBirth(m_random);
 
   GpuGlyphRun& run = item.run;
-  run.userData[0] = std::bit_cast<uint32>(m_time);
-  run.userData[1] = packHalves(cosine * speed, sine * speed);
-  run.userData[2] = std::bit_cast<uint32>(lifetime);
+  run.userData[0] = std::bit_cast<uint32>(m_ring.getTime());
+  run.userData[1] = birth.getPackedVelocity();
+  run.userData[2] = std::bit_cast<uint32>(birth.lifetime);
   run.userData[3] = (tier & FloatingNumberGpu::TIER_MASK) |
-                    (seed << FloatingNumberGpu::SEED_SHIFT);
+                    (birth.seed << FloatingNumberGpu::SEED_SHIFT);
 
   // Written first, so the fill draws over it.
   const uint32 edge = SpriteDraw::makeOutlineEdge(*font, m_tiers[tier].outlineWidth);
@@ -609,9 +555,9 @@ FloatingNumberSystemComponent::spawnRuns(StringView text,
         (run.textureAndFlags & ~(GpuSpriteInstance::EDGE_MASK << GpuSpriteInstance::EDGE_SHIFT)) |
         (edge << GpuSpriteInstance::EDGE_SHIFT);
     outline.userData[3] |= FloatingNumberGpu::OUTLINE_BIT;
-    writeRun(outline, lifetime);
+    writeRun(outline, birth.lifetime);
   }
-  writeRun(run, lifetime);
+  writeRun(run, birth.lifetime);
   return true;
 }
 
@@ -620,23 +566,8 @@ FloatingNumberSystemComponent::spawnRuns(StringView text,
 void
 FloatingNumberSystemComponent::writeRun(const GpuGlyphRun& run, float lifetime)
 {
-  const uint32 slot = m_writeCursor;
-  m_runs[slot] = run;
+  m_ring.write(run, lifetime);
   m_maxGlyphs = Math::max(m_maxGlyphs, run.glyphCount);
-  m_deaths[slot] = m_time + lifetime;
-  m_writeCursor = (m_writeCursor + 1) % m_capacity;
-
-  // A full ring writes over the oldest run.
-  if (m_liveCount == m_capacity) {
-    m_liveStart = (m_liveStart + 1) % m_capacity;
-  }
-  else {
-    ++m_liveCount;
-  }
-  if (m_pendingCount == 0) {
-    m_pendingStart = slot;
-  }
-  m_pendingCount = Math::min(m_pendingCount + 1, m_capacity);
 }
 
 /*
@@ -647,11 +578,7 @@ FloatingNumberSystemComponent::rebuildGpuMotion()
   m_bMotionDirty = false;
   GpuFloatingNumberMotion& motion = m_gpuMotion;
   motion = {};
-  motion.gravity[0] = m_motion.gravity.x;
-  motion.gravity[1] = m_motion.gravity.y;
-  motion.drag = Math::max(m_motion.drag, 0.0f);
-  motion.fadeIn = Math::max(m_motion.fadeIn, 0.0f);
-  motion.fadeOut = Math::max(m_motion.fadeOut, 0.0f);
+  motion.motion = m_motion.toGpu();
   motion.tierCount = static_cast<uint32>(m_tiers.size());
   for (SIZE_T i = 0; i < m_tiers.size(); ++i) {
     const FloatingNumberTier& tier = m_tiers[i];
@@ -676,40 +603,19 @@ FloatingNumberSystemComponent::rebuildGpuMotion()
 /*
  */
 void
-FloatingNumberSystemComponent::uploadPending()
-{
-  if (m_pendingCount == 0) {
-    return;
-  }
-  if (m_runBuffer) {
-    const uint32 untilEnd = Math::min(m_pendingCount, m_capacity - m_pendingStart);
-    m_runBuffer->update(m_runs.data() + m_pendingStart,
-                        untilEnd * sizeof(GpuGlyphRun),
-                        static_cast<uint32>(m_pendingStart * sizeof(GpuGlyphRun)));
-    if (untilEnd < m_pendingCount) {
-      m_runBuffer->update(m_runs.data(), (m_pendingCount - untilEnd) * sizeof(GpuGlyphRun));
-    }
-  }
-  m_pendingCount = 0;
-}
-
-/*
- */
-void
 FloatingNumberSystemComponent::refreshFontIndices(Font& font)
 {
   const uint32 atlasIndex = font.prepareGpuAtlas();
   const uint32 tableIndex = font.prepareGpuGlyphTable();
   constexpr uint32 kIndexMask = GpuSpriteInstance::TEXTURE_INDEX_MASK;
-  for (uint32 i = 0; i < m_liveCount; ++i) {
-    GpuGlyphRun& run = m_runs[(m_liveStart + i) % m_capacity];
+  for (uint32 i = 0; i < m_ring.getLiveCount(); ++i) {
+    GpuGlyphRun& run = m_ring.getLiveEntry(i);
     run.textureAndFlags = (run.textureAndFlags & ~kIndexMask) | (atlasIndex & kIndexMask);
     run.glyphTableIndex = tableIndex;
   }
   m_writtenRevision = font.getRevision();
   // Every live run changed, so they all go up again.
-  m_pendingStart = m_liveStart;
-  m_pendingCount = m_liveCount;
+  m_ring.markLivePending();
 }
 
 /*
@@ -717,7 +623,8 @@ FloatingNumberSystemComponent::refreshFontIndices(Font& font)
 void
 FloatingNumberSystemComponent::addBatch(uint32 first, uint32 count)
 {
-  if (!m_runBuffer || !m_motionBuffer || count == 0) {
+  const IBuffer* runBuffer = m_ring.getBuffer();
+  if (!runBuffer || !m_motionBuffer || count == 0) {
     return;
   }
   const uint32 glyphs = Math::clamp(m_maxGlyphs, 1u, GpuGlyphRun::MAX_GLYPHS);
@@ -728,10 +635,10 @@ FloatingNumberSystemComponent::addBatch(uint32 first, uint32 count)
                           .order = m_order,
                           .blendMode = m_blendMode};
   batch.setParameters(FloatingNumberBatchParameters{
-      .runBufferIndex = m_runBuffer->getBindlessIndex(),
+      .runBufferIndex = runBuffer->getBindlessIndex(),
       .firstRun = first,
       .motionIndex = m_motionBuffer->getBindlessIndex(),
-      .time = m_time});
+      .time = m_ring.getTime()});
   getOwner()->getScene()->getSpriteDraw().customBatch(batch);
 }
 

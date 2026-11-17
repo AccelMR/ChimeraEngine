@@ -1,16 +1,16 @@
 /************************************************************************/
 /**
- * @file chFloatingNumbersPlugin.cpp
+ * @file chParticlesPlugin.cpp
  * @author AccelMR
  * @date 2026/11/13
  * @brief
- *  Entry point of the floating numbers plugin.
+ *  Entry point of the particles plugin: GPU particles and floating numbers.
  */
 /************************************************************************/
 #include "chComponentRegister.h"
 #include "chFloatingNumberBindings.h"
 #include "chFloatingNumberSystemComponent.h"
-#include "chFloatingNumbersEditor.h"
+#include "chParticlesEditor.h"
 #include "chScriptManager.h"
 
 using namespace chEngineSDK;
@@ -24,6 +24,6 @@ loadPlugin()
   ComponentRegister::registerType<FloatingNumberSystemComponent>();
   ScriptManager::addBindings(&FloatingNumberBindings::registerBindings);
 #if USING(CH_EDITOR)
-  FloatingNumbersEditor::registerDescriptions();
+  ParticlesEditor::registerDescriptions();
 #endif
 }

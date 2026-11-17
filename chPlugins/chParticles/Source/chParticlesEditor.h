@@ -1,10 +1,10 @@
 /************************************************************************/
 /**
- * @file chFloatingNumbersEditor.h
+ * @file chParticlesEditor.h
  * @author AccelMR
  * @date 2026/11/13
  * @brief
- *  What the Inspector shows of the floating numbers plugin's component.
+ *  What the Inspector shows of the particles plugin's components.
  */
 /************************************************************************/
 #pragma once
@@ -16,10 +16,10 @@
 namespace chEngineSDK {
 
 /**
- * Exists so the plugin's component gets an Inspector section from data, without the plugin
+ * Exists so the plugin's components get an Inspector section from data, without the plugin
  * knowing ImGui.
  */
-class FloatingNumbersEditor
+class ParticlesEditor
 {
  public:
   static void

@@ -1,10 +1,10 @@
 /************************************************************************/
 /**
- * @file chFloatingNumbersTestMain.cpp
+ * @file chParticlesTestMain.cpp
  * @author AccelMR
  * @date 2026/11/13
  * @brief
- *  Tests of the floating numbers plugin, built with its sources.
+ *  Tests of the particles plugin, built with its sources.
  */
 /************************************************************************/
 #define CATCH_CONFIG_MAIN
@@ -13,12 +13,14 @@
 #include <bit>
 #include <chrono>
 
+#include "chAgeMotion.h"
 #include "chFileStream.h"
 #include "chFileSystem.h"
 #include "chFloat16.h"
 #include "chFloatingNumberBindings.h"
 #include "chFloatingNumberSystemComponent.h"
 #include "chFont.h"
+#include "chGpuAgeRing.h"
 #include "chGameObject.h"
 #include "chLogger.h"
 #include "chMath.h"
@@ -78,6 +80,95 @@ struct TestSystem
       object->addComponent<FloatingNumberSystemComponent>();
 };
 } // namespace
+
+TEST_CASE("Particles - age ring")
+{
+  GpuAgeRing<uint32> ring;
+  ring.create(4);
+  REQUIRE(ring.getCapacity() == 4);
+  REQUIRE(ring.getBuffer() == nullptr);
+
+  auto collectRanges = [&ring]() {
+    Vector<uint32> ranges;
+    ring.forEachLiveRange([&ranges](uint32 first, uint32 count) {
+      ranges.push_back(first);
+      ranges.push_back(count);
+    });
+    return ranges;
+  };
+
+  SECTION("Entries die in order and the clock moves")
+  {
+    REQUIRE(ring.write(10, 1.0f) == 0);
+    REQUIRE(ring.write(11, 2.0f) == 1);
+    REQUIRE(ring.advance(0.5f) == 2);
+    REQUIRE(ring.getTime() == Approx(0.5f));
+    REQUIRE(ring.advance(0.5f) == 1);
+    REQUIRE(ring.getLiveEntry(0) == 11);
+    REQUIRE(collectRanges() == Vector<uint32>{1, 1});
+    REQUIRE(ring.advance(1.0f) == 0);
+    REQUIRE(collectRanges().empty());
+  }
+
+  SECTION("A full ring writes over the oldest and is drawn in two ranges")
+  {
+    for (uint32 i = 0; i < 6; ++i) {
+      ring.write(i, 10.0f);
+    }
+    REQUIRE(ring.getLiveCount() == 4);
+    REQUIRE(ring.getWriteCursor() == 2);
+    REQUIRE(ring.getLiveEntry(0) == 2);
+    REQUIRE(ring.getLiveEntry(3) == 5);
+    REQUIRE(collectRanges() == Vector<uint32>{2, 2, 0, 2});
+    ring.upload();
+  }
+
+  SECTION("Clear keeps the clock")
+  {
+    ring.write(1, 1.0f);
+    CH_PARAMETER_UNUSED(ring.advance(0.25f));
+    ring.clear();
+    REQUIRE(ring.getLiveCount() == 0);
+    REQUIRE(ring.getWriteCursor() == 0);
+    REQUIRE(ring.getTime() == Approx(0.25f));
+  }
+}
+
+TEST_CASE("Particles - age motion")
+{
+  const Random random(7);
+  const AgeMotion straight{.angle = 0.0f, .spread = 0.0f, .speed = 3.0f,
+                           .speedVariance = 0.0f, .lifetime = 2.0f, .lifetimeVariance = 0.0f};
+  const AgeBirth birth = straight.makeBirth(random);
+  // 0 degrees is +Y.
+  REQUIRE(birth.velocity.x == Approx(3.0f));
+  REQUIRE(birth.velocity.y == Approx(0.0f).margin(1e-4));
+  REQUIRE(birth.lifetime == Approx(2.0f));
+  REQUIRE(birth.seed <= 0xFFFFu);
+  REQUIRE(lowHalf(birth.getPackedVelocity()) == Approx(3.0f));
+  REQUIRE(highHalf(birth.getPackedVelocity()) == Approx(0.0f).margin(1e-3));
+
+  const AgeMotion wide{.angle = 90.0f, .spread = 30.0f, .speed = 5.0f, .speedVariance = 1.0f,
+                       .lifetime = 1.0f, .lifetimeVariance = 0.5f};
+  for (uint32 i = 0; i < 100; ++i) {
+    const AgeBirth spread = wide.makeBirth(random);
+    const float speed = spread.velocity.magnitude();
+    REQUIRE(speed >= 4.0f - 1e-3f);
+    REQUIRE(speed <= 6.0f + 1e-3f);
+    // Within 30 degrees of up.
+    REQUIRE(spread.velocity.y >= speed * 0.866f - 1e-3f);
+    REQUIRE(spread.lifetime >= 0.5f - 1e-5f);
+    REQUIRE(spread.lifetime <= 1.5f + 1e-5f);
+  }
+
+  const AgeMotion clamped = AgeMotion{.lifetime = 0.0f, .lifetimeVariance = 3.0f}.getClamped();
+  REQUIRE(clamped.lifetime == Approx(AgeMotion::MIN_LIFETIME));
+  REQUIRE(clamped.lifetimeVariance == Approx(AgeMotion::MIN_LIFETIME));
+
+  const GpuAgeMotion gpu = AgeMotion{.gravity = Vector2(1.0f, -2.0f), .drag = -1.0f}.toGpu();
+  REQUIRE(gpu.gravity[1] == Approx(-2.0f));
+  REQUIRE(gpu.drag == 0.0f);
+}
 
 TEST_CASE("Floating numbers - tiers")
 {

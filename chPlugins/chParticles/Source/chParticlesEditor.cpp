@@ -1,13 +1,13 @@
 /************************************************************************/
 /**
- * @file chFloatingNumbersEditor.cpp
+ * @file chParticlesEditor.cpp
  * @author AccelMR
  * @date 2026/11/13
  * @brief
- *  What the Inspector shows of the floating numbers plugin's component.
+ *  What the Inspector shows of the particles plugin's components.
  */
 /************************************************************************/
-#include "chFloatingNumbersEditor.h"
+#include "chParticlesEditor.h"
 
 #if USING(CH_EDITOR)
 
@@ -19,10 +19,10 @@ namespace chEngineSDK {
 /*
  */
 void
-FloatingNumbersEditor::registerDescriptions()
+ParticlesEditor::registerDescriptions()
 {
   using System = FloatingNumberSystemComponent;
-  using Motion = FloatingNumberMotion;
+  using Motion = AgeMotion;
   ComponentEditor<System>("Floating Numbers", "2D")
       .action<&System::testSpawn>(
           "Test Spawn", "Numbers around the object that reach every tier; tiers are set from "

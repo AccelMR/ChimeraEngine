@@ -19,7 +19,7 @@ namespace chEngineSDK {
 SpriteShader&
 FloatingNumberGpu::getShader()
 {
-  static SpriteShader shader(EnginePaths::getEnginePluginShaderDirectory("chFloatingNumbers"),
+  static SpriteShader shader(EnginePaths::getEnginePluginShaderDirectory("chParticles"),
                              "floatingnumbers");
   return shader;
 }

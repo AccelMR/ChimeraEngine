@@ -9,6 +9,7 @@
 /************************************************************************/
 #include "chFloatingNumberBindings.h"
 
+#include "chAgeMotionBindings.h"
 #include "chAssetManager.h"
 #include "chFloatingNumberSystemComponent.h"
 #include "chFontAsset.h"
@@ -165,7 +166,7 @@ configure(lua_State* state)
 {
   FloatingNumberSystemComponent& system = checkSystem(state, 1);
   luaL_checktype(state, 2, LUA_TTABLE);
-  FloatingNumberMotion motion = system.getMotion();
+  AgeMotion motion = system.getMotion();
   NumberFormatDesc format = system.getNumberFormat();
   uint32 capacity = 0;
   lua_pushnil(state);
@@ -201,36 +202,6 @@ configure(lua_State* state)
     else if (key == "monospaceDigits") {
       system.setMonospaceDigits(lua_toboolean(state, value) != 0);
     }
-    else if (key == "angle") {
-      motion.angle = checkFloat(state, value);
-    }
-    else if (key == "spread") {
-      motion.spread = checkFloat(state, value);
-    }
-    else if (key == "speed") {
-      motion.speed = checkFloat(state, value);
-    }
-    else if (key == "speedVariance") {
-      motion.speedVariance = checkFloat(state, value);
-    }
-    else if (key == "gravity") {
-      motion.gravity = ScriptTraits<Vector2>::check(state, value);
-    }
-    else if (key == "drag") {
-      motion.drag = checkFloat(state, value);
-    }
-    else if (key == "lifetime") {
-      motion.lifetime = checkFloat(state, value);
-    }
-    else if (key == "lifetimeVariance") {
-      motion.lifetimeVariance = checkFloat(state, value);
-    }
-    else if (key == "fadeIn") {
-      motion.fadeIn = checkFloat(state, value);
-    }
-    else if (key == "fadeOut") {
-      motion.fadeOut = checkFloat(state, value);
-    }
     else if (key == "notation") {
       format.notation = static_cast<NumberNotation>(checkName(state, value, "notation", kNotationNames));
     }
@@ -246,7 +217,7 @@ configure(lua_State* state)
     else if (key == "plainDecimals") {
       format.plainDecimals = checkDecimals(state, value);
     }
-    else {
+    else if (!AgeMotionBindings::readOption(state, key, value, motion)) {
       return luaL_error(state, "FloatingNumbers.configure: unknown option '%s'",
                         lua_tostring(state, -2));
     }
@@ -464,17 +435,13 @@ describeShapes(lua_State* state)
       description->addType("FloatingNumberOptions", ScriptApiTypeKind::Shape);
   options.description = "What FloatingNumbers:configure sets. Angles are degrees "
                         "counterclockwise from +Y (90 is up); world units and seconds.";
-  options.fields = {{"font?", "Font|string"},      {"size?", "number"},
-                    {"capacity?", "integer"},      {"layer?", "integer"},
-                    {"order?", "integer"},         {"blend?", "\"Alpha\"|\"Additive\""},
-                    {"monospaceDigits?", "boolean"}, {"angle?", "number"},
-                    {"spread?", "number"},         {"speed?", "number"},
-                    {"speedVariance?", "number"},  {"gravity?", "Vector2"},
-                    {"drag?", "number"},           {"lifetime?", "number"},
-                    {"lifetimeVariance?", "number"}, {"fadeIn?", "number"},
-                    {"fadeOut?", "number"},        {"notation?", "NumberNotation"},
-                    {"decimals?", "integer"},      {"trimZeros?", "boolean"},
-                    {"plainBelow?", "number"},     {"plainDecimals?", "integer"}};
+  options.fields = {{"font?", "Font|string"},        {"size?", "number"},
+                    {"capacity?", "integer"},        {"layer?", "integer"},
+                    {"order?", "integer"},           {"blend?", "\"Alpha\"|\"Additive\""},
+                    {"monospaceDigits?", "boolean"}, {"notation?", "NumberNotation"},
+                    {"decimals?", "integer"},        {"trimZeros?", "boolean"},
+                    {"plainBelow?", "number"},       {"plainDecimals?", "integer"}};
+  AgeMotionBindings::addApiFields(options.fields);
 
   ScriptApiType& tier = description->addType("FloatingNumberTier", ScriptApiTypeKind::Shape);
   tier.description = "How numbers from min up look: color, an outline, a size times the "
