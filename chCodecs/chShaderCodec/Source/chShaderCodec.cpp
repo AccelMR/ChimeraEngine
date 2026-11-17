@@ -175,7 +175,8 @@ class ShaderImportTask final : public IImportTask
                              .stage = info.stage,
                              .parameters = std::move(info.parameters),
                              .parameterBufferSize = info.bufferSize,
-                             .binaries = {}};
+                             .binaries = {},
+                             .interfaceVersion = ShaderAsset::INTERFACE_VERSION};
     for (const TargetFormat& target : kTargets) {
       progress.set("Compiling the shader", -1.0f);
       ShaderBinary binary{.format = String(target.format), .vertexCode = {}, .pixelCode = {}};

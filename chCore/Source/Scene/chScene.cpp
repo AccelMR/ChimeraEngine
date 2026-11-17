@@ -14,6 +14,7 @@
 #include "chFrustum.h"
 #include "chMath.h"
 #include "chMesh.h"
+#include "chPostProcessComponent.h"
 #include "chPlane.h"
 #include "chRay.h"
 #include "chRayCast.h"
@@ -768,6 +769,29 @@ void
 Scene::addCamera(CameraComponent& camera)
 {
   m_cameras.push_back(&camera);
+}
+
+/*
+ */
+void
+Scene::addPostProcess(PostProcessComponent& postProcess)
+{
+  Algorithm::removeFirst(m_postProcesses, &postProcess);
+  // After every one of equal priority, so the registration order breaks ties.
+  SIZE_T index = 0;
+  while (index < m_postProcesses.size() &&
+         m_postProcesses[index]->getPriority() <= postProcess.getPriority()) {
+    ++index;
+  }
+  m_postProcesses.insert(m_postProcesses.begin() + index, &postProcess);
+}
+
+/*
+ */
+void
+Scene::removePostProcess(PostProcessComponent& postProcess)
+{
+  Algorithm::removeFirst(m_postProcesses, &postProcess);
 }
 
 /*

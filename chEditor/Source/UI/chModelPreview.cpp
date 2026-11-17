@@ -303,7 +303,8 @@ ModelPreview::update(float deltaTime)
     m_renderer = chMakeUnique<SceneRenderer>(
         SceneRendererDesc{.bProfileGpu = false,
                           .viewMode = ViewMode::Lit,
-                          .renderPath = RenderPathType::Deferred});
+                          .renderPath = RenderPathType::Deferred,
+                          .bPostProcess = false});
     m_grid = chMakeUnique<ViewportGrid>();
   }
 

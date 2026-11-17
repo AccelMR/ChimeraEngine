@@ -140,6 +140,13 @@ ShaderAsset::createShaders()
 
   IGraphicsAPI& graphicsAPI = IGraphicsAPI::instance();
   const ShaderBinary* binary = findBinary(graphicsAPI.getShaderBinaryFormat().folder);
+  if (!isInterfaceCurrent()) {
+    CH_LOG_ERROR(AssetSystem,
+                 "Shader {0} was compiled for engine shader interface {1}, this build uses {2}; "
+                 "import it again.",
+                 getName(), m_data.interfaceVersion, INTERFACE_VERSION);
+    return;
+  }
   if (!binary || binary->pixelCode.empty()) {
     CH_LOG_ERROR(AssetSystem, "Shader {0} has no code for {1}; import it again.", getName(),
                  graphicsAPI.getAPIName());
@@ -244,7 +251,8 @@ ShaderAsset::serialize(SPtr<DataStream> stream)
       .stage = static_cast<uint32>(m_data.stage),
       .parameterCount = static_cast<uint32>(m_data.parameters.size()),
       .parameterBufferSize = m_data.parameterBufferSize,
-      .binaryCount = static_cast<uint32>(m_data.binaries.size())};
+      .binaryCount = static_cast<uint32>(m_data.binaries.size()),
+      .interfaceVersion = m_data.interfaceVersion};
   *stream << header;
 
   for (const ShaderParameter& parameter : m_data.parameters) {
@@ -305,7 +313,8 @@ ShaderAsset::deserialize(SPtr<DataStream> stream)
                        .stage = static_cast<PostProcessStage>(header.stage),
                        .parameters = {},
                        .parameterBufferSize = header.parameterBufferSize,
-                       .binaries = {}};
+                       .binaries = {},
+                       .interfaceVersion = header.interfaceVersion};
   data.parameters.resize(header.parameterCount);
   for (ShaderParameter& parameter : data.parameters) {
     ParameterFileData fileData;

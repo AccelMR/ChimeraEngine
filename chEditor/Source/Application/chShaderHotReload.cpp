@@ -83,6 +83,13 @@ checkShaders(HotReloadState& state)
     if (signature == 0) {
       continue;
     }
+    // Compiled against older engine headers: compiled again once, whatever the files say;
+    // after a failure it waits for a change like any other shader.
+    if (!shader->isInterfaceCurrent() && shader->getCompileError().empty()) {
+      state.signatures[shader->getUUID()] = signature;
+      static_cast<void>(ShaderHotReload::compileAgain(shader));
+      continue;
+    }
     const auto [it, bAdded] = state.signatures.try_emplace(shader->getUUID(), signature);
     if (!bAdded && it->second != signature) {
       it->second = signature;

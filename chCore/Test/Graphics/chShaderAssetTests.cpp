@@ -58,6 +58,7 @@ makeShaderData()
                              .offset = 0,
                              .tooltip = ""});
   data.parameterBufferSize = ShaderParameters::computeLayout(data.parameters);
+  data.interfaceVersion = ShaderAsset::INTERFACE_VERSION;
   data.binaries.push_back({.format = "SPIRV",
                            .vertexCode = {},
                            .pixelCode = Vector<uint8>(64, 3)});
@@ -242,6 +243,7 @@ TEST_CASE("chCore - Shader asset", "[Graphics]")
     REQUIRE(loaded.getKind() == ShaderAssetKind::PostProcess);
     REQUIRE(loaded.getStage() == PostProcessStage::BeforeTonemap);
     REQUIRE(loaded.getParameterBufferSize() == 32);
+    REQUIRE(loaded.isInterfaceCurrent());
     REQUIRE(loaded.getParameters().size() == 2);
     const ShaderParameter& intensity = loaded.getParameters()[0];
     REQUIRE(intensity.name == "intensity");
@@ -292,6 +294,20 @@ TEST_CASE("chCore - Shader asset", "[Graphics]")
     changed->seek(0);
     TestShaderAsset loaded(metadata);
     REQUIRE_FALSE(loaded.deserialize(changed));
+  }
+
+  SECTION("Code compiled against older engine headers is not current")
+  {
+    ShaderAssetData data = makeShaderData();
+    data.interfaceVersion = ShaderAsset::INTERFACE_VERSION - 1;
+    TestShaderAsset stale(metadata, std::move(data));
+    REQUIRE_FALSE(stale.isInterfaceCurrent());
+    const SPtr<MemoryDataStream> staleStream = chMakeShared<MemoryDataStream>();
+    REQUIRE(stale.serialize(staleStream));
+    staleStream->seek(0);
+    TestShaderAsset loaded(metadata);
+    REQUIRE(loaded.deserialize(staleStream));
+    REQUIRE_FALSE(loaded.isInterfaceCurrent());
   }
 
   SECTION("An asset without code is not saved")

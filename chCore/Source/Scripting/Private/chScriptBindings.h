@@ -67,6 +67,12 @@ class ScriptBindings
   registerAudio(lua_State* state);
 
   /**
+   * The PostProcess handle of a GameObject: passes, weights and shader values.
+   */
+  static void
+  registerPostProcess(lua_State* state);
+
+  /**
    * Pushes the handle of one part of gameObject (its transform, a component), kept in the
    * GameObject handle's user value userValue and made on first use, so the same part is
    * always the same Lua value and dies with the object.

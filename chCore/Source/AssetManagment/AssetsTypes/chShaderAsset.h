@@ -39,8 +39,10 @@ struct ShaderAssetHeader
   uint32 parameterCount = 0;
   uint32 parameterBufferSize = 0;
   uint32 binaryCount = 0;
+  // ShaderAsset::INTERFACE_VERSION of the engine headers the code was compiled against.
+  uint32 interfaceVersion = 0;
 };
-static_assert(sizeof(ShaderAssetHeader) == 24, "ShaderAssetHeader must have no padding");
+static_assert(sizeof(ShaderAssetHeader) == 28, "ShaderAssetHeader must have no padding");
 
 /**
  * The compiled code for one shader binary format (IGraphicsAPI::getShaderBinaryFormat's
@@ -61,6 +63,7 @@ struct ShaderAssetData
   Vector<ShaderParameter> parameters;
   uint32 parameterBufferSize = 0;
   Vector<ShaderBinary> binaries;
+  uint32 interfaceVersion = 0;
 };
 
 /**
@@ -148,6 +151,16 @@ class CH_CORE_EXPORT ShaderAsset : public IAsset
     return m_revision;
   }
 
+  /**
+   * False when the code was compiled against older engine headers: the engine no longer
+   * gives it what it reads, so it is never drawn (the editor compiles it again).
+   */
+  NODISCARD FORCEINLINE bool
+  isInterfaceCurrent() const noexcept
+  {
+    return m_data.interfaceVersion == INTERFACE_VERSION;
+  }
+
 #if USING(CH_EDITOR)
   /**
    * Replaces everything with a new compile of the source.
@@ -181,6 +194,9 @@ class CH_CORE_EXPORT ShaderAsset : public IAsset
   setCompileError(String error);
 #endif // USING(CH_EDITOR)
 
+  // Goes up whenever what chPostProcessCommon.hlsli and chPostProcess.hlsli read from the
+  // engine changes (push constants, how the parameters are found).
+  static constexpr uint32 INTERFACE_VERSION = 1;
   static constexpr uint32 NOT_FOUND = 0xFFFFFFFFu;
   static constexpr uint32 MAX_BINARIES = 8;
   static constexpr uint32 MAX_CODE_SIZE = 16 * 1024 * 1024;

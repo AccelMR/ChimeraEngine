@@ -333,7 +333,8 @@ prepareAsset(ThumbnailsState& state, const SPtr<IAsset>& asset)
     state.renderer = chMakeUnique<SceneRenderer>(
         SceneRendererDesc{.bProfileGpu = false,
                           .viewMode = ViewMode::Lit,
-                          .renderPath = RenderPathType::Deferred});
+                          .renderPath = RenderPathType::Deferred,
+                          .bPostProcess = false});
   }
 
   state.asset = asset;

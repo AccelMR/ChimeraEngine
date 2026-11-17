@@ -26,6 +26,7 @@ class ForwardRenderPath;
 class ImageBasedLighting;
 class ShadowRenderer;
 class SkinningPass;
+class PostProcessRenderer;
 class SkyPass;
 class SpritePass;
 class TonemapPass;
@@ -55,6 +56,8 @@ struct SceneRendererDesc
   Optional<ViewMode> viewMode;
   // Used instead of what Renderer.Path names, for views of 3D assets in a 2D project.
   Optional<RenderPathType> renderPath{};
+  // Off for asset thumbnails and previews, which show the asset, not the scene's look.
+  bool bPostProcess = true;
 };
 
 /**
@@ -140,6 +143,16 @@ class CH_CORE_EXPORT SceneRenderer
   }
 
   /**
+   * Off skips the scene's post-process passes, whatever Renderer.PostProcess says (the
+   * editor's toolbar button). On by default.
+   */
+  FORCEINLINE void
+  setPostProcessEnabled(bool bEnabled) noexcept
+  {
+    m_bPostProcessEnabled = bEnabled;
+  }
+
+  /**
    * Off skips the screen space ambient occlusion, whatever Renderer.SSAO says. On by
    * default.
    */
@@ -195,6 +208,12 @@ class CH_CORE_EXPORT SceneRenderer
   void
   filterLightTypes();
 
+  /**
+   * Tonemaps sceneColor into output with the frame's post-process passes around it.
+   */
+  void
+  addTonemapAndPostProcess(RGTextureHandle sceneColor, RGTextureHandle output, bool bEncodeOnly);
+
   void
   updateSettings();
 
@@ -218,9 +237,13 @@ class CH_CORE_EXPORT SceneRenderer
   UniquePtr<ImageBasedLighting> m_imageBasedLighting;
   UniquePtr<SkyPass> m_skyPass;
   UniquePtr<TonemapPass> m_tonemapPass;
+  UniquePtr<PostProcessRenderer> m_postProcessRenderer;
 
   ViewMode m_viewMode = ViewMode::Lit;
   bool m_bShadows = true;
+  bool m_bPostProcessEnabled = true;
+  // Decided once per frame in addScenePasses.
+  bool m_bRunPostProcess = false;
   bool m_bScreenSpaceAO = true;
   // The console variable texts the settings were parsed from, so they are parsed only on
   // change.

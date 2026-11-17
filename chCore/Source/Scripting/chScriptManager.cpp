@@ -824,6 +824,7 @@ ScriptManager::openLibraries()
   ScriptBindings::registerSprites(m_state);
   ScriptBindings::registerText(m_state);
   ScriptBindings::registerAudio(m_state);
+  ScriptBindings::registerPostProcess(m_state);
   for (const ScriptBindingsFunction function : getPluginBindings()) {
     function(m_state);
   }
