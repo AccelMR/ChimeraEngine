@@ -28,7 +28,7 @@ local DAMAGE_TIERS = {
     flashColor = Color(1, 1, 1, 1), flashRate = 14 },
 }
 
--- Particles of the stress test leave in rings of this many.
+-- Particles of the stress test leave from a point in bursts of this many.
 local STRESS_RING = 64
 
 GameManager.properties = {
@@ -69,13 +69,18 @@ function GameManager:onStart()
     end
   end)
 
-  -- Explosions are projectiles that hit nothing, fall a little and fade with their lifetime.
-  self.sparks = Scene.find("Sparks"):addProjectiles()
-  self.sparks:configure{ speed = 4, lifetime = 0.45, radius = 0, capacity = 2048,
-                         acceleration = Vector2(0, -6) }
+  -- Explosions are particles: each spark is written once and the GPU moves it, cools its
+  -- color from white to red and shrinks it as it ages.
+  self.sparks = Scene.find("Sparks"):addParticles()
+  self.sparks:configure{ capacity = 4096, rate = 0, playOnStart = false, spread = 180,
+                         speed = 4.5, speedVariance = 1.5, drag = 1.5,
+                         gravity = Vector2(0, -6), lifetime = 0.5, lifetimeVariance = 0.15,
+                         fadeIn = 0, fadeOut = 0.15, minScale = 0.7, maxScale = 1.3 }
   self.sparks:setLook(Sprites.makeStyle{ texture = "T_Spark", pixelsPerUnit = 32,
-                                         blend = "Additive", layer = 4 }, false)
-  self.sparks:setHitTeams({})
+                                         blend = "Additive", layer = 4 })
+  self.sparks:setColorGradient{ { 0, Color(1, 1, 0.85, 1) }, { 0.4, Color(1, 0.65, 0.2, 1) },
+                                { 1, Color(1, 0.2, 0.1, 1) } }
+  self.sparks:setSizeCurve{ { 0, 1.2 }, { 1, 0.3 } }
 
   -- Styles are made once; drawing one each frame is a single C call. The score is given as a
   -- number, so it is written in C without making a Lua string every frame.
@@ -126,18 +131,18 @@ function GameManager:applyStress()
   self.appliedStress = { numbers, particles, lifetime }
   if not self.stressNumberSystem then
     local host = Scene.find("Background")
-    self.stressParticleSystem = host:addProjectiles()
+    self.stressParticleSystem = host:addParticles()
     self.stressParticleSystem:setLook(Sprites.makeStyle{ texture = "T_Spark", pixelsPerUnit = 48,
-                                                          blend = "Additive", layer = 1 },
-                                      false)
-    self.stressParticleSystem:setHitTeams({})
+                                                          blend = "Additive", layer = 1 })
     self.stressNumberSystem = host:addFloatingNumbers()
     self.stressNumberSystem:setTiers(DAMAGE_TIERS)
   end
   local particleLifetime = lifetime * 1.2
-  self.stressParticleSystem:configure{ capacity = math.max(particles, 1), speed = 3,
-                                       lifetime = particleLifetime, radius = 0,
-                                       acceleration = Vector2(0, -1) }
+  self.stressParticleSystem:configure{ capacity = math.max(particles, 1), rate = 0,
+                                       playOnStart = false, spread = 180, speed = 3,
+                                       speedVariance = 2, gravity = Vector2(0, -1),
+                                       lifetime = particleLifetime, lifetimeVariance = 0,
+                                       fadeIn = 0, fadeOut = 0 }
   -- An outlined number takes two runs.
   self.stressNumberSystem:configure{ capacity = numbers * 2 + 4096, size = 0.25, angle = 90,
                                      spread = 60, speed = 3, speedVariance = 1.5,
@@ -216,8 +221,7 @@ function GameManager:updateStress(dt)
   self.stressParticleDebt = self.stressParticleDebt - rings * STRESS_RING
   local particles = self.stressParticleSystem
   for _ = 1, rings do
-    particles:fireRing((random() * 2 - 1) * w, (random() * 2 - 1) * h, STRESS_RING,
-                       random() * 360, 1 + random() * 4)
+    particles:emit(STRESS_RING, (random() * 2 - 1) * w, (random() * 2 - 1) * h)
   end
 
   Text.draw(self.stressStyle,
@@ -284,7 +288,7 @@ function GameManager:spawnEnemy()
 end
 
 function GameManager:explode(y, z, count)
-  self.sparks:fireRing(y, z, count, math.random() * 360)
+  self.sparks:emit(count, y, z)
 end
 
 function GameManager:enemyKilled(y, z, points)

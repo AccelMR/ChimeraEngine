@@ -16,6 +16,7 @@ play it with `chGame -project=Examples/Example2D`.
 | An orthographic camera looking along +X | `Camera` object in `Maps/Main` |
 | Sprite components and an animated atlas | `Player`, the `Enemy` prefab, `Sprites/SA_Enemy` (animation "Fly") |
 | Thousands of bullets without GameObjects | `GameManager.lua` and `PlayerShip.lua` (`addProjectiles`, `configure`, `fireRing`, `fireSpread`, homing with `spawn{turnRate}`) |
+| Explosions and the stress particles as GPU particles: written once, colored along a gradient and shrunk along a curve as they age | `explode` and `applyStress` in `GameManager.lua` (the chParticles plugin: `addParticles`, `configure`, `setLook`, `setColorGradient`, `setSizeCurve`, `emit`) |
 | Hits reported to scripts | `onHit` in `PlayerShip.lua` and `GameManager.lua`, targets added with `addProjectileTarget` |
 | Sprites drawn every frame without GameObjects | `Background.lua` (star field), the lives in `PlayerShip.lua` (`Sprites.draw`) |
 | Text and numbers drawn every frame | the score and the game over screen in `GameManager.lua` (`Text.makeStyle`, `Text.draw` with a number) |
