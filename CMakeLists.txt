@@ -103,11 +103,6 @@ else()
   target_compile_definitions(chLua PRIVATE LUA_USE_POSIX)
 endif()
 
-# Only the editor uses ImGui; it draws it with its own renderer on the graphics interfaces.
-if(CH_BUILD_EDITOR)
-  add_subdirectory(chImgui)
-endif()
-
 # ---------- Engine ----------
 add_subdirectory(chUtilities)
 add_subdirectory(chCore)
@@ -135,9 +130,4 @@ endif()
 
 if(CH_BUILD_GAME)
   add_subdirectory(chGame)
-endif()
-
-if(CH_BUILD_TESTS)
-  add_subdirectory(chUtilitiesTest)
-  add_subdirectory(chCoreTest)
 endif()

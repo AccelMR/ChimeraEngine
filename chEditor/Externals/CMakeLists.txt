@@ -1,6 +1,6 @@
 # Dear ImGui and the backends we use, as static libraries. They are third-party code, so they
 # get none of our warning settings, and SYSTEM keeps their headers out of our warnings.
-set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Externals/imgui)
+set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
 
 file(GLOB IMGUI_SOURCES ${IMGUI_DIR}/*.cpp ${IMGUI_DIR}/*.h)
 add_library(chImgui STATIC ${IMGUI_SOURCES})
@@ -14,13 +14,13 @@ add_library(chImguiSDL3 STATIC ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp)
 target_link_libraries(chImguiSDL3 PUBLIC chImgui SDL3::SDL3)
 
 # Move, rotate and scale gizmos and the view cube of the editor viewport.
-set(IMGUIZMO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Externals/ImGuizmo/src)
+set(IMGUIZMO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/ImGuizmo/src)
 add_library(chImGuizmo STATIC ${IMGUIZMO_DIR}/ImGuizmo.cpp ${IMGUIZMO_DIR}/ImGuizmo.h)
 target_include_directories(chImGuizmo PUBLIC ${IMGUIZMO_DIR})
 target_link_libraries(chImGuizmo PUBLIC chImgui)
 
 # Node graphs: the animation graph editor, later visual scripts.
-set(NODE_EDITOR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Externals/imgui-node-editor)
+set(NODE_EDITOR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/imgui-node-editor)
 add_library(chImguiNodeEditor STATIC
   ${NODE_EDITOR_DIR}/imgui_node_editor.cpp
   ${NODE_EDITOR_DIR}/imgui_node_editor_api.cpp

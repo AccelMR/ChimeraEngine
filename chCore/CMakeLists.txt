@@ -18,3 +18,7 @@ add_dependencies(chCore chCoreShaders)
 
 # stb_truetype is header-only; SYSTEM keeps our warning level out of its code.
 target_include_directories(chCore SYSTEM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Externals/stb)
+
+if(CH_BUILD_TESTS)
+  add_subdirectory(Test)
+endif()

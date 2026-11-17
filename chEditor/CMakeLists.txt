@@ -1,4 +1,7 @@
 # ---------- Editor ----------
+# Only the editor uses ImGui; it draws it with its own renderer on the graphics interfaces.
+add_subdirectory(Externals)
+
 ch_collect_sources(EDITOR_SOURCES)
 ch_add_executable(chEditor WINDOWED FOLDER Editor SOURCES chEditorMain.cpp ${EDITOR_SOURCES})
 ch_include_subfolders(chEditor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)

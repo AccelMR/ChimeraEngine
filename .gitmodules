@@ -1,5 +1,5 @@
 [submodule "chImgui/Externals/imgui"]
-	path = chImgui/Externals/imgui
+	path = chEditor/Externals/imgui
 	url = https://github.com/ocornut/imgui.git
   branch = docking
 [submodule "Externals/SDL3"]
@@ -15,11 +15,11 @@
 	path = chGraphicsAPIs/chDX12/Externals/D3D12MemoryAllocator
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator.git
 [submodule "chImgui/Externals/ImGuizmo"]
-	path = chImgui/Externals/ImGuizmo
+	path = chEditor/Externals/ImGuizmo
 	url = https://github.com/CedricGuillemet/ImGuizmo.git
 [submodule "Externals/lua"]
 	path = Externals/lua
 	url = https://github.com/lua/lua.git
 [submodule "chImgui/Externals/imgui-node-editor"]
-	path = chImgui/Externals/imgui-node-editor
+	path = chEditor/Externals/imgui-node-editor
 	url = https://github.com/thedmd/imgui-node-editor.git

@@ -9,3 +9,8 @@ if(WIN32)
   # numeric_limits<T>::max(). PUBLIC, so it covers every module and include order.
   target_compile_definitions(chUtilities PUBLIC NOMINMAX)
 endif()
+
+# Each module keeps its tests in its Test folder.
+if(CH_BUILD_TESTS)
+  add_subdirectory(Test)
+endif()
