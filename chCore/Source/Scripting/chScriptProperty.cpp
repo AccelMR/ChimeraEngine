@@ -18,7 +18,8 @@ namespace {
 constexpr const ANSICHAR* kTypeNames[] = {"number",  "integer", "boolean",
                                           "string",  "Vector2", "Vector3",
                                           "Vector4", "Color",   "GameObject",
-                                          "Prefab",  "Scene",   "Texture", "Font"};
+                                          "Prefab",  "Scene",   "Texture", "Font",
+                                          "Atlas"};
 static_assert(sizeof(kTypeNames) / sizeof(kTypeNames[0]) ==
               static_cast<SIZE_T>(ScriptPropertyType::COUNT));
 
@@ -79,6 +80,7 @@ ScriptPropertyValue::operator==(const ScriptPropertyValue& other) const
     case ScriptPropertyType::Scene:
     case ScriptPropertyType::Texture:
     case ScriptPropertyType::Font:
+    case ScriptPropertyType::SpriteAtlas:
       return object == other.object;
     default:
       for (uint32 i = 0; i < getComponentCount(type); ++i) {
@@ -142,6 +144,7 @@ ScriptPropertyUtils::writeValue(DataStream& stream, const ScriptPropertyValue& v
     case ScriptPropertyType::Scene:
     case ScriptPropertyType::Texture:
     case ScriptPropertyType::Font:
+    case ScriptPropertyType::SpriteAtlas:
       stream.write(&value.object, sizeof(value.object));
       break;
     default:
@@ -181,6 +184,7 @@ ScriptPropertyUtils::readValue(DataStream& stream, ScriptPropertyValue& outValue
     case ScriptPropertyType::Scene:
     case ScriptPropertyType::Texture:
     case ScriptPropertyType::Font:
+    case ScriptPropertyType::SpriteAtlas:
       return AssetFile::readValue(stream, outValue.object);
     default:
       return AssetFile::readBytes(stream, outValue.components,

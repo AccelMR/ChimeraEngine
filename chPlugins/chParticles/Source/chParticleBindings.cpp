@@ -362,13 +362,13 @@ setColorGradient(lua_State* state)
 {
   ParticleSystemComponent& system = checkSystem(state, 1);
   const lua_Integer count = checkKeyCount(state, "setColorGradient");
-  ParticleColorKey keys[kMaxKeys];
+  GradientKey keys[kMaxKeys];
   for (lua_Integer i = 1; i <= count; ++i) {
     keys[i - 1].time = readKeyTime(state, 2, i, "setColorGradient");
     keys[i - 1].color = ScriptTraits<LinearColor>::check(state, -1);
     lua_pop(state, 2);
   }
-  system.setColorGradient(Span<const ParticleColorKey>(keys, static_cast<SIZE_T>(count)));
+  system.setColorGradient(Span<const GradientKey>(keys, static_cast<SIZE_T>(count)));
   return 0;
 }
 
@@ -380,13 +380,13 @@ setSizeCurve(lua_State* state)
 {
   ParticleSystemComponent& system = checkSystem(state, 1);
   const lua_Integer count = checkKeyCount(state, "setSizeCurve");
-  ParticleSizeKey keys[kMaxKeys];
+  CurveKey keys[kMaxKeys];
   for (lua_Integer i = 1; i <= count; ++i) {
     keys[i - 1].time = readKeyTime(state, 2, i, "setSizeCurve");
-    keys[i - 1].size = checkFloat(state, -1);
+    keys[i - 1].value = checkFloat(state, -1);
     lua_pop(state, 2);
   }
-  system.setSizeCurve(Span<const ParticleSizeKey>(keys, static_cast<SIZE_T>(count)));
+  system.setSizeCurve(Span<const CurveKey>(keys, static_cast<SIZE_T>(count)));
   return 0;
 }
 

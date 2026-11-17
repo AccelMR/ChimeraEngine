@@ -10,3 +10,9 @@ target_include_directories(chCoreTest SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/Externa
 # The font tests read the engine's default font straight from the source tree.
 target_compile_definitions(chCoreTest PRIVATE
   CH_TEST_FONT_FILE="${CMAKE_SOURCE_DIR}/chCore/Content/Fonts/Inter-Regular.ttf")
+
+# Every test is in one file (until they are split by topic), which has more sections than an
+# MSVC object file holds by default.
+if(MSVC)
+  target_compile_options(chCoreTest PRIVATE /bigobj)
+endif()

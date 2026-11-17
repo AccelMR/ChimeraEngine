@@ -24,10 +24,10 @@ ParticlesEditor::registerDescriptions()
 {
   using System = FloatingNumberSystemComponent;
   using Motion = AgeMotion;
+  using Tier = FloatingNumberTier;
   ComponentEditor<System>("Floating Numbers", "2D")
-      .action<&System::testSpawn>(
-          "Test Spawn", "Numbers around the object that reach every tier; tiers are set from "
-                        "scripts with setTiers")
+      .action<&System::testSpawn>("Test Spawn",
+                                  "Numbers around the object that reach every tier")
       .property<&System::getFontId, &System::setFontId>(
           "Font", {.tooltip = "Without one the engine's font is used",
                    .objectType = ScriptPropertyType::Font})
@@ -66,11 +66,37 @@ ParticlesEditor::registerDescriptions()
       .memberProperty<&System::getNumberFormat, &System::setNumberFormat,
                       &NumberFormatDesc::decimals>("Decimals", {.minimum = 0.0, .maximum = 9.0})
       .memberProperty<&System::getNumberFormat, &System::setNumberFormat,
-                      &NumberFormatDesc::plainBelow>("Plain Below");
+                      &NumberFormatDesc::plainBelow>("Plain Below")
+      .list<&System::getTiers, &System::setTiers>(
+          "Tiers", {.tooltip = "A number takes the highest tier whose Min Value it reaches",
+                    .itemName = "Tier",
+                    .maxCount = GpuFloatingNumberMotion::MAX_TIERS})
+      .listField<&System::getTiers, &System::setTiers, &Tier::minValue>("Min Value")
+      .listField<&System::getTiers, &System::setTiers, &Tier::color>("Color")
+      .listField<&System::getTiers, &System::setTiers, &Tier::outlineColor>("Outline Color")
+      .listField<&System::getTiers, &System::setTiers, &Tier::outlineWidth>(
+          "Outline", {.tooltip = "SDF fonts only: pixels of the font's raster size; 0 draws "
+                                 "no outline"})
+      .listField<&System::getTiers, &System::setTiers, &Tier::scale>("Scale")
+      .listField<&System::getTiers, &System::setTiers, &Tier::popScale>(
+          "Pop", {.tooltip = "Born this many times bigger, settling over Pop Duration"})
+      .listField<&System::getTiers, &System::setTiers, &Tier::popDuration>("Pop Duration")
+      .listField<&System::getTiers, &System::setTiers, &Tier::shakeAmplitude>(
+          "Shake", {.tooltip = "World units, fading to none over Shake Duration"})
+      .listField<&System::getTiers, &System::setTiers, &Tier::shakeFrequency>(
+          "Shake Frequency")
+      .listField<&System::getTiers, &System::setTiers, &Tier::shakeDuration>("Shake Duration")
+      .listField<&System::getTiers, &System::setTiers, &Tier::flashColor>("Flash Color")
+      .listField<&System::getTiers, &System::setTiers, &Tier::flashDuration>(
+          "Flash", {.tooltip = "Seconds of blinking to Flash Color"})
+      .listField<&System::getTiers, &System::setTiers, &Tier::flashRate>(
+          "Flash Rate", {.tooltip = "Blinks per second"});
 
   using Particles = ParticleSystemComponent;
   using Emission = ParticleEmission;
   using Look = ParticleLook;
+  using Flipbook = ParticleFlipbook;
+  using Burst = ParticleBurst;
   ComponentEditor<Particles>("Particle System", "2D")
       .action<&Particles::testEmit>("Test Emit", "A handful of particles on the shape")
       .action<&Particles::play>("Play", "Starts the emission while editing")
@@ -96,17 +122,37 @@ ParticlesEditor::registerDescriptions()
       .memberProperty<&Particles::getEmission, &Particles::setEmission, &Emission::shapeSize>(
           "Shape Size", {.tooltip = "Circle radius and line half length in X, rectangle half "
                                     "size"})
+      .list<&Particles::getBursts, &Particles::setBursts>(
+          "Bursts", {.tooltip = "Particles made at once, at a time of each cycle",
+                     .itemName = "Burst",
+                     .maxCount = Particles::MAX_BURSTS})
+      .listField<&Particles::getBursts, &Particles::setBursts, &Burst::time>(
+          "Time", {.tooltip = "Seconds into the cycle"})
+      .listField<&Particles::getBursts, &Particles::setBursts, &Burst::count>("Count")
+      .listField<&Particles::getBursts, &Particles::setBursts, &Burst::cycles>(
+          "Cycles", {.tooltip = "How many times it fires in each cycle"})
+      .listField<&Particles::getBursts, &Particles::setBursts, &Burst::interval>(
+          "Interval", {.tooltip = "Seconds between its cycles"})
       .header("Look")
       .property<&Particles::getTextureId, &Particles::setTextureId>(
           "Texture", {.tooltip = "Without one each particle is a square of its color",
                       .objectType = ScriptPropertyType::Texture})
       .memberProperty<&Particles::getLook, &Particles::setLook, &Look::size>("Size")
+      .curve<&Particles::getSizeCurve, &Particles::setSizeCurve>(
+          "Size Over Life", {.minimum = 0.0,
+                             .maximum = 1.0,
+                             .emptyValue = 1.0,
+                             .tooltip = "Times the size, from birth (left) to death (right)",
+                             .maxKeys = GpuParticleLook::MAX_KEYS})
       .memberProperty<&Particles::getLook, &Particles::setLook, &Look::minScale>(
           "Min Scale", {.tooltip = "Each particle picks a scale between Min and Max"})
       .memberProperty<&Particles::getLook, &Particles::setLook, &Look::maxScale>("Max Scale")
       .memberProperty<&Particles::getLook, &Particles::setLook, &Look::color>(
           "Color", {.tooltip = "Each particle picks a color between Color and Color 2"})
       .memberProperty<&Particles::getLook, &Particles::setLook, &Look::color2>("Color 2")
+      .gradient<&Particles::getColorGradient, &Particles::setColorGradient>(
+          "Color Over Life", {.tooltip = "Times the color, from birth (left) to death (right)",
+                              .maxKeys = GpuParticleLook::MAX_KEYS})
       .memberProperty<&Particles::getLook, &Particles::setLook, &Look::rotationMode>(
           "Rotation", {.widget = ComponentPropertyWidget::Enum,
                        .names = {"Random", "Face Velocity"}})
@@ -126,6 +172,18 @@ ParticlesEditor::registerDescriptions()
           "Blend", {.widget = ComponentPropertyWidget::Enum, .names = {"Alpha", "Additive"}})
       .memberProperty<&Particles::getLook, &Particles::setLook, &Look::filter>(
           "Filter", {.widget = ComponentPropertyWidget::Enum, .names = {"Point", "Linear"}})
+      .header("Flipbook")
+      .memberProperty<&Particles::getFlipbook, &Particles::setFlipbook, &Flipbook::atlas>(
+          "Atlas", {.tooltip = "Frames of the atlas played over each particle's life; its "
+                               "texture replaces the look's",
+                    .objectType = ScriptPropertyType::SpriteAtlas})
+      .memberProperty<&Particles::getFlipbook, &Particles::setFlipbook, &Flipbook::firstFrame>(
+          "First Frame", {.tooltip = "From 0"})
+      .memberProperty<&Particles::getFlipbook, &Particles::setFlipbook, &Flipbook::frameCount>(
+          "Frame Count", {.tooltip = "0 takes every frame from the first"})
+      .memberProperty<&Particles::getFlipbook, &Particles::setFlipbook,
+                      &Flipbook::framesPerSecond>(
+          "Frames Per Second", {.tooltip = "0 spreads the frames over the lifetime"})
       .header("Motion")
       .memberProperty<&Particles::getMotion, &Particles::setMotion, &Motion::angle>(
           "Angle", {.tooltip = "Degrees counterclockwise from +Y: 90 flies up"})

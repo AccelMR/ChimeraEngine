@@ -310,11 +310,11 @@ ParticleSystemComponent::setFlipbook(const ParticleFlipbook& flipbook)
 /*
  */
 void
-ParticleSystemComponent::setColorGradient(Span<const ParticleColorKey> keys)
+ParticleSystemComponent::setColorGradient(Span<const GradientKey> keys)
 {
   m_colorKeys.assign(keys.begin(),
                      keys.begin() + Math::min(keys.size(), static_cast<SIZE_T>(kMaxKeys)));
-  Algorithm::sort(m_colorKeys, [](const ParticleColorKey& a, const ParticleColorKey& b) {
+  Algorithm::sort(m_colorKeys, [](const GradientKey& a, const GradientKey& b) {
     return a.time < b.time;
   });
   m_bLookDirty = true;
@@ -323,11 +323,11 @@ ParticleSystemComponent::setColorGradient(Span<const ParticleColorKey> keys)
 /*
  */
 void
-ParticleSystemComponent::setSizeCurve(Span<const ParticleSizeKey> keys)
+ParticleSystemComponent::setSizeCurve(Span<const CurveKey> keys)
 {
   m_sizeKeys.assign(keys.begin(),
                     keys.begin() + Math::min(keys.size(), static_cast<SIZE_T>(kMaxKeys)));
-  Algorithm::sort(m_sizeKeys, [](const ParticleSizeKey& a, const ParticleSizeKey& b) {
+  Algorithm::sort(m_sizeKeys, [](const CurveKey& a, const CurveKey& b) {
     return a.time < b.time;
   });
   m_bLookDirty = true;
@@ -454,14 +454,14 @@ ParticleSystemComponent::serialize(DataStream& stream) const
                                   .interval = burst.interval};
     stream.write(&burstData, sizeof(burstData));
   }
-  for (const ParticleColorKey& key : m_colorKeys) {
+  for (const GradientKey& key : m_colorKeys) {
     ColorKeyFileData keyData{};
     keyData.time = key.time;
     copyColor(key.color, keyData.color);
     stream.write(&keyData, sizeof(keyData));
   }
-  for (const ParticleSizeKey& key : m_sizeKeys) {
-    const SizeKeyFileData keyData{.time = key.time, .size = key.size};
+  for (const CurveKey& key : m_sizeKeys) {
+    const SizeKeyFileData keyData{.time = key.time, .size = key.value};
     stream.write(&keyData, sizeof(keyData));
   }
 }
@@ -493,21 +493,21 @@ ParticleSystemComponent::deserialize(DataStream& stream)
              .cycles = burstData.cycles,
              .interval = burstData.interval};
   }
-  Vector<ParticleColorKey> colorKeys(data.colorKeyCount);
-  for (ParticleColorKey& key : colorKeys) {
+  Vector<GradientKey> colorKeys(data.colorKeyCount);
+  for (GradientKey& key : colorKeys) {
     ColorKeyFileData keyData;
     if (!AssetFile::readValue(stream, keyData)) {
       return false;
     }
     key = {.time = keyData.time, .color = toColor(keyData.color)};
   }
-  Vector<ParticleSizeKey> sizeKeys(data.sizeKeyCount);
-  for (ParticleSizeKey& key : sizeKeys) {
+  Vector<CurveKey> sizeKeys(data.sizeKeyCount);
+  for (CurveKey& key : sizeKeys) {
     SizeKeyFileData keyData;
     if (!AssetFile::readValue(stream, keyData)) {
       return false;
     }
-    key = {.time = keyData.time, .size = keyData.size};
+    key = {.time = keyData.time, .value = keyData.size};
   }
 
   m_capacity = Math::clamp(data.capacity, 1u, MAX_CAPACITY);
@@ -774,7 +774,7 @@ ParticleSystemComponent::rebuildGpuLook()
   look.sizeKeyCount = static_cast<uint32>(m_sizeKeys.size());
   for (uint32 i = 0; i < look.sizeKeyCount; ++i) {
     look.sizeTimes[i] = m_sizeKeys[i].time;
-    look.sizeKeys[i] = m_sizeKeys[i].size;
+    look.sizeKeys[i] = m_sizeKeys[i].value;
   }
 
   look.frameCount = 0;

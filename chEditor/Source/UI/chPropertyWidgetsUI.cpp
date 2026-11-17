@@ -19,6 +19,7 @@
 #include "chScene.h"
 #include "chSceneAsset.h"
 #include "chStringUtils.h"
+#include "chSpriteAtlasAsset.h"
 #include "chTextureAsset.h"
 
 #include "imgui.h"
@@ -194,6 +195,9 @@ acceptAssetOfType(const UUID& typeId)
   }
   if (typeId == AssetTypeTraits<TextureAsset>::getTypeId()) {
     return AssetDragDrop::acceptTexture();
+  }
+  if (typeId == AssetTypeTraits<SpriteAtlasAsset>::getTypeId()) {
+    return AssetDragDrop::acceptSpriteAtlas();
   }
   // Scenes are dragged as any asset.
   const SPtr<IAsset> dropped = AssetDragDrop::acceptAnyAsset();
@@ -416,6 +420,15 @@ renderValue(const PropertyWidgetDesc& desc, ScriptPropertyValue& value,
                            .tooltip = "Click to pick a font, or drop one from the Content "
                                       "Browser. Without one the engine's font is used.",
                            .emptyListText = "The project has no fonts"});
+  case ScriptPropertyType::SpriteAtlas:
+    return renderAssetRow(desc, value,
+                          {.typeId = AssetTypeTraits<SpriteAtlasAsset>::getTypeId(),
+                           .noneText = "None (drop a sprite atlas)",
+                           .missingText = "Missing sprite atlas",
+                           .tooltip = "Click to pick a sprite atlas, or drop one from the "
+                                      "Content Browser. Atlases picked here go into "
+                                      "packages.",
+                           .emptyListText = "The project has no sprite atlases"});
   default:
     return renderVectorRow(desc, value);
   }

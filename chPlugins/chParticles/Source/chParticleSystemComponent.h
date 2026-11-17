@@ -14,6 +14,7 @@
 #include "chAgeMotion.h"
 #include "chComponent.h"
 #include "chGpuAgeRing.h"
+#include "chKeyCurve.h"
 #include "chLinearColor.h"
 #include "chParticleGpu.h"
 #include "chRandom.h"
@@ -119,19 +120,6 @@ struct ParticleFlipbook
   uint32 frameCount = 0;
   // 0 spreads the frames over the lifetime.
   float framesPerSecond = 0.0f;
-};
-
-struct ParticleColorKey
-{
-  // 0 is birth, 1 death.
-  float time = 0.0f;
-  LinearColor color = LinearColor::WHITE;
-};
-
-struct ParticleSizeKey
-{
-  float time = 0.0f;
-  float size = 1.0f;
 };
 
 /**
@@ -244,18 +232,18 @@ class ParticleSystemComponent : public Component
    * Up to GpuParticleLook::MAX_KEYS, kept sorted by time; none is white all its life.
    */
   void
-  setColorGradient(Span<const ParticleColorKey> keys);
+  setColorGradient(Span<const GradientKey> keys);
 
-  NODISCARD FORCEINLINE Span<const ParticleColorKey>
+  NODISCARD FORCEINLINE Span<const GradientKey>
   getColorGradient() const noexcept { return m_colorKeys; }
 
   /**
    * Up to GpuParticleLook::MAX_KEYS, kept sorted by time; none is 1 all its life.
    */
   void
-  setSizeCurve(Span<const ParticleSizeKey> keys);
+  setSizeCurve(Span<const CurveKey> keys);
 
-  NODISCARD FORCEINLINE Span<const ParticleSizeKey>
+  NODISCARD FORCEINLINE Span<const CurveKey>
   getSizeCurve() const noexcept { return m_sizeKeys; }
 
   /**
@@ -361,8 +349,8 @@ class ParticleSystemComponent : public Component
   AgeMotion m_motion;
   ParticleLook m_look;
   ParticleFlipbook m_flipbook;
-  Vector<ParticleColorKey> m_colorKeys;
-  Vector<ParticleSizeKey> m_sizeKeys;
+  Vector<GradientKey> m_colorKeys;
+  Vector<CurveKey> m_sizeKeys;
   uint32 m_capacity = DEFAULT_CAPACITY;
 
   GpuAgeRing<GpuParticle> m_ring;

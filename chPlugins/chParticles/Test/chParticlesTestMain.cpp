@@ -526,11 +526,11 @@ TEST_CASE("Particles - look")
 {
   TestParticles test;
   ParticleSystemComponent& system = test.system;
-  const ParticleColorKey colors[] = {{.time = 1.0f, .color = LinearColor::TRANSPARENT_BLACK},
+  const GradientKey colors[] = {{.time = 1.0f, .color = LinearColor::TRANSPARENT_BLACK},
                                      {.time = 0.0f, .color = LinearColor::WHITE}};
   system.setColorGradient(colors);
   REQUIRE(system.getColorGradient()[0].time == 0.0f);
-  const ParticleSizeKey sizes[] = {{.time = 0.0f, .size = 0.5f}, {.time = 1.0f, .size = 2.0f}};
+  const CurveKey sizes[] = {{.time = 0.0f, .value = 0.5f}, {.time = 1.0f, .value = 2.0f}};
   system.setSizeCurve(sizes);
   ParticleLook look;
   look.size = Vector2(0.3f, 0.6f);
@@ -582,10 +582,10 @@ TEST_CASE("Particles - saving")
   system.setLook(look);
   system.setFlipbook({.atlas = chEngineSDK::UUID::createRandom(), .firstFrame = 2,
                       .frameCount = 4, .framesPerSecond = 12.0f});
-  const ParticleColorKey colors[] = {{.time = 0.0f},
+  const GradientKey colors[] = {{.time = 0.0f},
                                      {.time = 0.7f, .color = LinearColor::BLACK}};
   system.setColorGradient(colors);
-  const ParticleSizeKey sizes[] = {{.time = 0.3f, .size = 3.0f}};
+  const CurveKey sizes[] = {{.time = 0.3f, .value = 3.0f}};
   system.setSizeCurve(sizes);
 
   MemoryDataStream stream;
@@ -613,7 +613,7 @@ TEST_CASE("Particles - saving")
   REQUIRE(loaded.getFlipbook().framesPerSecond == Approx(12.0f));
   REQUIRE(loaded.getColorGradient().size() == 2);
   REQUIRE(loaded.getColorGradient()[1].time == Approx(0.7f));
-  REQUIRE(loaded.getSizeCurve()[0].size == Approx(3.0f));
+  REQUIRE(loaded.getSizeCurve()[0].value == Approx(3.0f));
   Vector<chEngineSDK::UUID> references;
   loaded.collectReferences(references);
   REQUIRE(references.size() == 2);
@@ -673,7 +673,7 @@ TEST_CASE("Particles - scripts")
   REQUIRE(system->getEmission().shape == ParticleShape::Circle);
   REQUIRE(system->getEmission().shapeSize.y == Approx(0.5f));
   REQUIRE(system->getColorGradient().size() == 2);
-  REQUIRE(system->getSizeCurve()[1].size == Approx(0.2f));
+  REQUIRE(system->getSizeCurve()[1].value == Approx(0.2f));
   REQUIRE(system->getBursts().size() == 2);
   REQUIRE(system->getParticles()[12].position[0] == Approx(1.0f));
 

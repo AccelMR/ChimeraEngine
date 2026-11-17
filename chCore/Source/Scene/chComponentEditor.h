@@ -14,6 +14,7 @@
 #if USING(CH_EDITOR)
 
 #include "chComponent.h"
+#include "chKeyCurve.h"
 #include "chLinearColor.h"
 #include "chScriptProperty.h"
 #include "chTypeTraits.h"
@@ -43,7 +44,13 @@ enum class ComponentEditorEntryKind : uint8 {
   // A button that calls a function of the component.
   Action = 1,
   // A line of text that starts a group of entries.
-  Header = 2
+  Header = 2,
+  // Colors over time: a bar with keys.
+  Gradient = 3,
+  // A value over time: a small graph with keys.
+  Curve = 4,
+  // A list of structs, each member a row.
+  List = 5
 };
 
 using ComponentPropertyGetter = void (*)(const Component& component,
@@ -51,6 +58,17 @@ using ComponentPropertyGetter = void (*)(const Component& component,
 using ComponentPropertySetter = void (*)(Component& component,
                                          const ScriptPropertyValue& value);
 using ComponentActionFunction = void (*)(Component& component);
+using ComponentGradientGetter = Span<const GradientKey> (*)(const Component& component);
+using ComponentGradientSetter = void (*)(Component& component, Span<const GradientKey> keys);
+using ComponentCurveGetter = Span<const CurveKey> (*)(const Component& component);
+using ComponentCurveSetter = void (*)(Component& component, Span<const CurveKey> keys);
+using ComponentListCount = SIZE_T (*)(const Component& component);
+using ComponentListAdd = void (*)(Component& component);
+using ComponentListRemove = void (*)(Component& component, SIZE_T index);
+using ComponentListFieldGetter = void (*)(const Component& component, SIZE_T index,
+                                          ScriptPropertyValue& outValue);
+using ComponentListFieldSetter = void (*)(Component& component, SIZE_T index,
+                                          const ScriptPropertyValue& value);
 
 /**
  * What ComponentEditor::property takes besides the getter and setter.
@@ -67,6 +85,45 @@ struct ComponentPropertyOptions {
   std::initializer_list<const ANSICHAR*> names = std::initializer_list<const ANSICHAR*>();
 };
 
+/**
+ * What ComponentEditor::gradient and curve take besides the getter and setter. Times go
+ * from 0 to 1.
+ */
+struct ComponentKeysOptions {
+  // The values a curve's graph shows at first; it grows to fit the keys.
+  double minimum = 0.0;
+  double maximum = 1.0;
+  // A curve's value without keys.
+  double emptyValue = 0.0;
+  const ANSICHAR* tooltip = "";
+  uint32 maxKeys = 8;
+};
+
+/**
+ * What ComponentEditor::list takes besides the getter and setter.
+ */
+struct ComponentListOptions {
+  const ANSICHAR* tooltip = "";
+  // Each element is shown as this name and its place from 1.
+  const ANSICHAR* itemName = "Item";
+  uint32 maxCount = 8;
+};
+
+/**
+ * One member of the elements of a List entry.
+ */
+struct ComponentListField {
+  String label{};
+  String tooltip{};
+  ScriptPropertyType type = ScriptPropertyType::Number;
+  ComponentPropertyWidget widget = ComponentPropertyWidget::Value;
+  double minimum = 0.0;
+  double maximum = 0.0;
+  Vector<String> names{};
+  ComponentListFieldGetter getter = nullptr;
+  ComponentListFieldSetter setter = nullptr;
+};
+
 struct ComponentEditorEntry {
   ComponentEditorEntryKind kind = ComponentEditorEntryKind::Property;
   String label{};
@@ -79,6 +136,18 @@ struct ComponentEditorEntry {
   ComponentPropertyGetter getter = nullptr;
   ComponentPropertySetter setter = nullptr;
   ComponentActionFunction action = nullptr;
+  // The most keys of a Gradient or Curve, or elements of a List.
+  uint32 maxCount = 0;
+  double emptyValue = 0.0;
+  String itemName{};
+  ComponentGradientGetter gradientGetter = nullptr;
+  ComponentGradientSetter gradientSetter = nullptr;
+  ComponentCurveGetter curveGetter = nullptr;
+  ComponentCurveSetter curveSetter = nullptr;
+  ComponentListCount listCount = nullptr;
+  ComponentListAdd listAdd = nullptr;
+  ComponentListRemove listRemove = nullptr;
+  Vector<ComponentListField> fields{};
 };
 
 struct ComponentEditorDesc {
@@ -379,6 +448,90 @@ runAction(Component& component)
 {
   std::invoke(Function, static_cast<T&>(component));
 }
+
+template <typename T, auto Getter, typename Key>
+Span<const Key>
+getKeys(const Component& component)
+{
+  return std::invoke(Getter, static_cast<const T&>(component));
+}
+
+template <typename T, auto Setter, typename Key>
+void
+setKeys(Component& component, Span<const Key> keys)
+{
+  std::invoke(Setter, static_cast<T&>(component), keys);
+}
+
+/*
+ * The element type of the Span<const Element> a list getter gives.
+ */
+template <typename T, auto Getter>
+using ListElement = std::remove_const_t<typename GetterValue<T, Getter>::element_type>;
+
+template <typename T, auto Getter>
+SIZE_T
+countList(const Component& component)
+{
+  return std::invoke(Getter, static_cast<const T&>(component)).size();
+}
+
+/*
+ * The list is copied, changed and given back whole, the way the setter takes it.
+ */
+template <typename T, auto Getter>
+Vector<ListElement<T, Getter>>
+copyList(const T& component)
+{
+  const auto items = std::invoke(Getter, component);
+  return Vector<ListElement<T, Getter>>(items.begin(), items.end());
+}
+
+template <typename T, auto Getter, auto Setter>
+void
+addToList(Component& component)
+{
+  T& typed = static_cast<T&>(component);
+  Vector<ListElement<T, Getter>> items = copyList<T, Getter>(typed);
+  items.emplace_back();
+  std::invoke(Setter, typed, Span<const ListElement<T, Getter>>(items));
+}
+
+template <typename T, auto Getter, auto Setter>
+void
+removeFromList(Component& component, const SIZE_T index)
+{
+  T& typed = static_cast<T&>(component);
+  Vector<ListElement<T, Getter>> items = copyList<T, Getter>(typed);
+  if (index < items.size()) {
+    items.erase(items.begin() + static_cast<std::ptrdiff_t>(index));
+    std::invoke(Setter, typed, Span<const ListElement<T, Getter>>(items));
+  }
+}
+
+template <typename T, auto Getter, auto Member>
+void
+getListField(const Component& component, const SIZE_T index, ScriptPropertyValue& outValue)
+{
+  using Value = MemberValue<ListElement<T, Getter>, Member>;
+  const auto items = std::invoke(Getter, static_cast<const T&>(component));
+  if (index < items.size()) {
+    ValueTraits<Value>::write(items[index].*Member, outValue);
+  }
+}
+
+template <typename T, auto Getter, auto Setter, auto Member>
+void
+setListField(Component& component, const SIZE_T index, const ScriptPropertyValue& value)
+{
+  using Value = MemberValue<ListElement<T, Getter>, Member>;
+  T& typed = static_cast<T&>(component);
+  Vector<ListElement<T, Getter>> items = copyList<T, Getter>(typed);
+  if (index < items.size()) {
+    items[index].*Member = ValueTraits<Value>::read(value);
+    std::invoke(Setter, typed, Span<const ListElement<T, Getter>>(items));
+  }
+}
 } // namespace ComponentEditorDetail
 
 /**
@@ -450,6 +603,80 @@ template <typename T> class ComponentEditor
     return *this;
   }
 
+  /**
+   * Colors over time; the getter gives the keys sorted by time, the setter takes them.
+   */
+  template <auto Getter, auto Setter>
+  ComponentEditor&
+  gradient(const ANSICHAR* label, const ComponentKeysOptions& options = {})
+  {
+    ComponentEditorEntry& entry = addKeys(ComponentEditorEntryKind::Gradient, label, options);
+    entry.gradientGetter = &ComponentEditorDetail::getKeys<T, Getter, GradientKey>;
+    entry.gradientSetter = &ComponentEditorDetail::setKeys<T, Setter, GradientKey>;
+    return *this;
+  }
+
+  /**
+   * A value over time; the getter gives the keys sorted by time, the setter takes them.
+   */
+  template <auto Getter, auto Setter>
+  ComponentEditor&
+  curve(const ANSICHAR* label, const ComponentKeysOptions& options = {})
+  {
+    ComponentEditorEntry& entry = addKeys(ComponentEditorEntryKind::Curve, label, options);
+    entry.curveGetter = &ComponentEditorDetail::getKeys<T, Getter, CurveKey>;
+    entry.curveSetter = &ComponentEditorDetail::setKeys<T, Setter, CurveKey>;
+    return *this;
+  }
+
+  /**
+   * A list of structs: the getter gives a Span<const Element>, the setter takes one. Name
+   * the members shown with listField right after it.
+   */
+  template <auto Getter, auto Setter>
+  ComponentEditor&
+  list(const ANSICHAR* label, const ComponentListOptions& options = {})
+  {
+    ComponentEditorEntry& entry = m_desc.entries.emplace_back();
+    entry.kind = ComponentEditorEntryKind::List;
+    entry.label = label;
+    entry.tooltip = options.tooltip;
+    entry.itemName = options.itemName;
+    entry.maxCount = options.maxCount;
+    entry.listCount = &ComponentEditorDetail::countList<T, Getter>;
+    entry.listAdd = &ComponentEditorDetail::addToList<T, Getter, Setter>;
+    entry.listRemove = &ComponentEditorDetail::removeFromList<T, Getter, Setter>;
+    return *this;
+  }
+
+  /**
+   * A member of the elements of the list added last, with the same getter and setter.
+   */
+  template <auto Getter, auto Setter, auto Member>
+  ComponentEditor&
+  listField(const ANSICHAR* label, const ComponentPropertyOptions& options = {})
+  {
+    using Element = ComponentEditorDetail::ListElement<T, Getter>;
+    using Value = ComponentEditorDetail::MemberValue<Element, Member>;
+    using Traits = ComponentEditorDetail::ValueTraits<Value>;
+    CH_ASSERT(!m_desc.entries.empty()
+              && m_desc.entries.back().kind == ComponentEditorEntryKind::List
+              && "listField goes right after list.");
+    ComponentListField& field = m_desc.entries.back().fields.emplace_back();
+    field.label = label;
+    field.tooltip = options.tooltip;
+    field.type = std::is_same_v<Value, UUID> ? options.objectType : Traits::TYPE;
+    field.widget = options.widget;
+    field.minimum = options.minimum;
+    field.maximum = options.maximum;
+    for (const ANSICHAR* name : options.names) {
+      field.names.emplace_back(name);
+    }
+    field.getter = &ComponentEditorDetail::getListField<T, Getter, Member>;
+    field.setter = &ComponentEditorDetail::setListField<T, Getter, Setter, Member>;
+    return *this;
+  }
+
   ComponentEditor&
   header(const ANSICHAR* label)
   {
@@ -470,6 +697,21 @@ template <typename T> class ComponentEditor
   }
 
  private:
+  ComponentEditorEntry&
+  addKeys(const ComponentEditorEntryKind kind, const ANSICHAR* label,
+          const ComponentKeysOptions& options)
+  {
+    ComponentEditorEntry& entry = m_desc.entries.emplace_back();
+    entry.kind = kind;
+    entry.label = label;
+    entry.tooltip = options.tooltip;
+    entry.minimum = options.minimum;
+    entry.maximum = options.maximum;
+    entry.maxCount = options.maxKeys;
+    entry.emptyValue = options.emptyValue;
+    return entry;
+  }
+
   template <typename Value>
   void
   addProperty(const ANSICHAR* label, const ComponentPropertyOptions& options,

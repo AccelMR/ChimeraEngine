@@ -35,6 +35,7 @@
 #include "chConfigFile.h"
 #include "chGraphicsTypes.h"
 #include "chInputManager.h"
+#include "chKeyCurve.h"
 #include "chIShader.h"
 #include "chITexture.h"
 #include "chICommandList.h"
@@ -7580,6 +7581,121 @@ TEST_CASE("chCore - Component editor descriptions")
     REQUIRE_FALSE(object.addComponentByType(chEngineSDK::UUID::createRandom()));
   }
 }
+
+namespace {
+/*
+ * A component with a gradient, a curve and a list, as the particles have.
+ */
+class TestKeyedComponent : public Component
+{
+ public:
+  NODISCARD Span<const GradientKey>
+  getGradient() const
+  {
+    return m_gradient;
+  }
+
+  void
+  setGradient(Span<const GradientKey> keys)
+  {
+    m_gradient.assign(keys.begin(), keys.end());
+  }
+
+  NODISCARD Span<const CurveKey>
+  getCurve() const
+  {
+    return m_curve;
+  }
+
+  void
+  setCurve(Span<const CurveKey> keys)
+  {
+    m_curve.assign(keys.begin(), keys.end());
+  }
+
+  NODISCARD Span<const TestEditSettings>
+  getItems() const
+  {
+    return m_items;
+  }
+
+  void
+  setItems(Span<const TestEditSettings> items)
+  {
+    m_items.assign(items.begin(), items.end());
+  }
+
+  Vector<GradientKey> m_gradient;
+  Vector<CurveKey> m_curve;
+  Vector<TestEditSettings> m_items;
+};
+} // namespace
+
+DECLARE_TYPE_TRAITS(TestKeyedComponent)
+
+TEST_CASE("chCore - Component editor keys and lists")
+{
+  using T = TestKeyedComponent;
+  ComponentEditor<T>("Test Keyed", "Tests")
+      .gradient<&T::getGradient, &T::setGradient>("Color", {.maxKeys = 4})
+      .curve<&T::getCurve, &T::setCurve>("Size", {.minimum = -1.0,
+                                                  .maximum = 2.0,
+                                                  .emptyValue = 1.0})
+      .list<&T::getItems, &T::setItems>("Items", {.itemName = "Item", .maxCount = 3})
+      .listField<&T::getItems, &T::setItems, &TestEditSettings::offset>("Offset")
+      .listField<&T::getItems, &T::setItems, &TestEditSettings::color>("Color");
+
+  const ComponentEditorDesc* desc = ComponentEditorRegister::find(TypeTraits<T>::getTypeId());
+  REQUIRE(desc);
+  REQUIRE(desc->entries.size() == 3);
+  const ComponentEditorEntry& gradient = desc->entries[0];
+  const ComponentEditorEntry& curve = desc->entries[1];
+  const ComponentEditorEntry& list = desc->entries[2];
+  REQUIRE(gradient.kind == ComponentEditorEntryKind::Gradient);
+  REQUIRE(gradient.maxCount == 4);
+  REQUIRE(curve.kind == ComponentEditorEntryKind::Curve);
+  REQUIRE(curve.minimum == -1.0);
+  REQUIRE(curve.emptyValue == 1.0);
+  REQUIRE(list.kind == ComponentEditorEntryKind::List);
+  REQUIRE(list.itemName == "Item");
+  REQUIRE(list.fields.size() == 2);
+  REQUIRE(list.fields[0].type == ScriptPropertyType::Vector2);
+  REQUIRE(list.fields[1].type == ScriptPropertyType::Color);
+
+  T component;
+  const GradientKey colors[] = {{.time = 0.0f, .color = LinearColor::BLACK},
+                                {.time = 1.0f, .color = LinearColor::WHITE}};
+  gradient.gradientSetter(component, colors);
+  REQUIRE(gradient.gradientGetter(component).size() == 2);
+  REQUIRE(KeyCurve::evaluate(gradient.gradientGetter(component), 0.5f).r == Approx(0.5f));
+
+  const CurveKey sizes[] = {{.time = 0.25f, .value = 2.0f}, {.time = 0.75f, .value = 0.0f}};
+  curve.curveSetter(component, sizes);
+  const Span<const CurveKey> read = curve.curveGetter(component);
+  REQUIRE(KeyCurve::evaluate(read, 0.0f, 1.0f) == 2.0f);
+  REQUIRE(KeyCurve::evaluate(read, 0.5f, 1.0f) == Approx(1.0f));
+  REQUIRE(KeyCurve::evaluate(read, 1.0f, 1.0f) == 0.0f);
+  REQUIRE(KeyCurve::evaluate(Span<const CurveKey>(), 0.5f, 1.0f) == 1.0f);
+
+  REQUIRE(list.listCount(component) == 0);
+  list.listAdd(component);
+  list.listAdd(component);
+  REQUIRE(list.listCount(component) == 2);
+  ScriptPropertyValue value;
+  value.type = ScriptPropertyType::Vector2;
+  list.fields[0].getter(component, 1, value);
+  value.components[0] = 4.0f;
+  list.fields[0].setter(component, 1, value);
+  REQUIRE(component.m_items[1].offset == Vector2(4.0f, 0.0f));
+  REQUIRE(component.m_items[0].offset == Vector2::ZERO);
+  list.listRemove(component, 0);
+  REQUIRE(list.listCount(component) == 1);
+  REQUIRE(component.m_items[0].offset == Vector2(4.0f, 0.0f));
+  // A field or removal past the end changes nothing.
+  list.fields[0].setter(component, 5, value);
+  list.listRemove(component, 5);
+  REQUIRE(list.listCount(component) == 1);
+}
 #endif // USING(CH_EDITOR)
 
 namespace {
@@ -9011,6 +9127,43 @@ TEST_CASE("chCore - Script sprites")
 
     ScriptComponent component(painter);
     component.setOverride("image", value);
+    Vector<chEngineSDK::UUID> references;
+    component.collectReferences(references);
+    REQUIRE(Algorithm::contains(references, value.object));
+  }
+
+  SECTION("Atlas properties are picked in the editor and go into packages")
+  {
+    ScriptPropertyType type = ScriptPropertyType::Number;
+    REQUIRE(ScriptPropertyUtils::fromTypeName("Atlas", type));
+    REQUIRE(type == ScriptPropertyType::SpriteAtlas);
+
+    ScriptPropertyValue value =
+        ScriptPropertyValue::makeDefault(ScriptPropertyType::SpriteAtlas);
+    value.object = chEngineSDK::UUID::createRandom();
+    MemoryDataStream stream;
+    ScriptPropertyUtils::writeValue(stream, value);
+    stream.seek(0);
+    ScriptPropertyValue loaded;
+    REQUIRE(ScriptPropertyUtils::readValue(stream, loaded));
+    REQUIRE(loaded.type == ScriptPropertyType::SpriteAtlas);
+    REQUIRE(loaded.object == value.object);
+
+    const SPtr<ScriptAsset> animated = createTestScriptAsset("AtlasUser", R"lua(
+      local AtlasUser = {}
+      AtlasUser.properties = { { "frames", type = "Atlas" } }
+      function AtlasUser:onStart()
+        assert(self.frames == nil or getmetatable(self.frames) == "Atlas")
+      end
+      return AtlasUser
+    )lua");
+    const ScriptClassInfo* atlasClass = scripts.getClass(*animated);
+    REQUIRE(atlasClass);
+    REQUIRE(atlasClass->bValid);
+    REQUIRE(atlasClass->properties[0].defaultValue.type == ScriptPropertyType::SpriteAtlas);
+
+    ScriptComponent component(animated);
+    component.setOverride("frames", value);
     Vector<chEngineSDK::UUID> references;
     component.collectReferences(references);
     REQUIRE(Algorithm::contains(references, value.object));
