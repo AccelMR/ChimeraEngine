@@ -399,6 +399,7 @@ EditorApplication::onRender(ICommandList& commandList, const ISwapChain& swapCha
   AnimationGraphEditorUI::recordFrame(commandList);
   CameraPreviewUI::recordFrame(commandList);
   AssetThumbnails::recordFrame(commandList);
+  m_sceneRenderer->setPostProcessEnabled(ViewportTools::isPostProcessVisible());
   RenderGraph& graph = m_sceneRenderer->beginFrame();
   const RGTextureHandle backBuffer =
       graph.importTexture("BackBuffer", swapChain.getCurrentTexture(),

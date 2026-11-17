@@ -11,6 +11,9 @@
 
 #include "chAudioSourceComponent.h"
 #include "chComponentEditor.h"
+#include "chComponentEditorUI.h"
+#include "chPostProcessComponent.h"
+#include "chPostProcessEditorUI.h"
 #include "chTextComponent.h"
 
 namespace chEngineSDK {
@@ -91,6 +94,14 @@ void
 CoreComponentEditors::registerDescriptions()
 {
   registerAudioSource();
+
+  using PostProcess = PostProcessComponent;
+  ComponentEditor<PostProcess>("Post Process", "Rendering")
+      .property<&PostProcess::getPriority, &PostProcess::setPriority>(
+          "Priority", {.tooltip = "Components of a scene run lower priority first; their "
+                                  "passes in the order of their lists"});
+  ComponentEditorUI::setCustomSection(TypeTraits<PostProcess>::getTypeId(),
+                                      &PostProcessEditorUI::render);
 
   using Text = TextComponent;
   ComponentEditor<Text>("Text", "2D")

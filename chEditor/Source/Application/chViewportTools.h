@@ -93,6 +93,18 @@ class ViewportTools
   setBoundsVisible(bool bVisible);
 
   /**
+   * Whether the viewport shows the scene's post-process passes (the toolbar's Post button).
+   */
+  NODISCARD static bool
+  isPostProcessVisible();
+
+  /**
+   * Also saves the choice in /Saved/Config/Editor.ini.
+   */
+  static void
+  setPostProcessVisible(bool bVisible);
+
+  /**
    * With Editor.ShowSkeleton on, adds the bones of the models with a skeleton among the
    * selected objects and their children: a line from each bone to its parent and the axes
    * of each joint. Walks the selected subtrees, so it costs nothing while the setting is off.

@@ -28,6 +28,13 @@ ANSICHAR g_search[64] = "";
 Vector<GradientKey> g_gradientKeys;
 Vector<CurveKey> g_curveKeys;
 
+UnorderedMap<UUID, ComponentSectionFunction>&
+getCustomSections()
+{
+  static UnorderedMap<UUID, ComponentSectionFunction> sections;
+  return sections;
+}
+
 /*
  * The header of each type, made once so drawing it does not build a string every frame.
  */
@@ -191,6 +198,10 @@ renderSection(Component& component, const ComponentEditorDesc& desc)
     }
     ImGui::PopID();
   }
+  const UnorderedMap<UUID, ComponentSectionFunction>& sections = getCustomSections();
+  if (const auto it = sections.find(desc.typeId); it != sections.end()) {
+    it->second(component);
+  }
   return bRemove;
 }
 } // namespace
@@ -218,6 +229,14 @@ ComponentEditorUI::renderComponents(GameObject& gameObject)
     EditorScene::recordChange(gameObject, "Remove " + desc->displayName);
     gameObject.removeComponent(*toRemove);
   }
+}
+
+/*
+ */
+void
+ComponentEditorUI::setCustomSection(const UUID& typeId, ComponentSectionFunction function)
+{
+  getCustomSections()[typeId] = function;
 }
 
 /*
