@@ -19,6 +19,7 @@
 #include "chVector2.h"
 
 namespace chEngineSDK {
+class SpriteMaterialAsset;
 class TextureAsset;
 
 /**
@@ -41,6 +42,8 @@ struct ProjectileLook {
   SpriteFilter filter = SpriteFilter::Point;
   // The image's right side points along the velocity; otherwise it never turns.
   bool bFaceVelocity = true;
+  // A SpriteMaterialAsset that shades every projectile; null for the engine's shader.
+  UUID material = UUID::null();
 };
 
 /**
@@ -322,6 +325,7 @@ class ProjectileSystemComponent : public Component
   ProjectileLook m_look;
   ProjectileDefaults m_defaults;
   SPtr<TextureAsset> m_texture;
+  SPtr<SpriteMaterialAsset> m_material;
   WeakPtr<GameObject> m_homingTarget;
   SpatialHash2D m_hash;
   // Filled by queries, kept to reuse its memory.

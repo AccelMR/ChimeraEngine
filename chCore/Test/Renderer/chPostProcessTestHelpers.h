@@ -15,12 +15,13 @@
 namespace chEngineSDK {
 
 /**
- * A post-process shader with a float "intensity" (default 1, 0 to 2), a color "tint"
- * (white), an int "steps" (3) and a bool "flip" (off), and code nobody runs.
+ * A post-process shader (or another kind) with a float "intensity" (default 1, 0 to 2), a
+ * color "tint" (white), an int "steps" (3) and a bool "flip" (off), and code nobody runs.
  */
 inline SPtr<ShaderAsset>
 makeTestPostProcessShader(const ANSICHAR* name,
-                          PostProcessStage stage = PostProcessStage::AfterTonemap)
+                          PostProcessStage stage = PostProcessStage::AfterTonemap,
+                          ShaderAssetKind kind = ShaderAssetKind::PostProcess)
 {
   AssetMetadata metadata;
   metadata.uuid = chEngineSDK::UUID::createRandom();
@@ -28,6 +29,7 @@ makeTestPostProcessShader(const ANSICHAR* name,
   StringUtils::copyToBuffer(metadata.name, name);
 
   ShaderAssetData data;
+  data.kind = kind;
   data.stage = stage;
   data.parameters.push_back({.name = "intensity",
                              .type = ShaderParameterType::Float,

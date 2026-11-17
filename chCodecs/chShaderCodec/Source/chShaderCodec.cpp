@@ -171,7 +171,12 @@ class ShaderImportTask final : public IImportTask
         {String(kParamsFileName), ShaderParameters::makeHlslStruct(info.parameters)}};
     const Path includeDirectories[] = {m_engineShaderDirectory};
 
-    m_data = ShaderAssetData{.kind = ShaderAssetKind::PostProcess,
+    if (info.kind == ShaderAssetKind::Sprite && bHasVertex) {
+      m_error = "A sprite shader is drawn with the engine's vertex shader; remove VSMain.";
+      return;
+    }
+
+    m_data = ShaderAssetData{.kind = info.kind,
                              .stage = info.stage,
                              .parameters = std::move(info.parameters),
                              .parameterBufferSize = info.bufferSize,

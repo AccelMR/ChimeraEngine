@@ -254,10 +254,10 @@ TEST_CASE("chCore - Sprite component", "[Sprites]")
       SpriteComponent fromCut;
       REQUIRE_FALSE(fromCut.deserialize(cut));
 
-      // The blend mode follows the version, the texture and atlas ids, the frame, 11 floats
-      // and two int16.
+      // The blend mode follows the version, the texture, atlas and material ids, the frame,
+      // 11 floats and two int16.
       Vector<uint8> badBlend = bytes;
-      badBlend[sizeof(uint32) + 32 + sizeof(uint32) + 11 * sizeof(float) +
+      badBlend[sizeof(uint32) + 48 + sizeof(uint32) + 11 * sizeof(float) +
                2 * sizeof(int16)] = 9;
       MemoryDataStream badBlendStream;
       badBlendStream.write(badBlend.data(), badBlend.size());

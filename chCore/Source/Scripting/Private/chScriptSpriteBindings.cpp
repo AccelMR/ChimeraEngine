@@ -9,6 +9,8 @@
 /************************************************************************/
 #include "chScriptBindings.h"
 
+
+
 #include "chAssetManager.h"
 #include "chGameObject.h"
 #include "chLinearColor.h"
@@ -17,10 +19,12 @@
 #include "chScriptManager.h"
 #include "chScriptMathTypes.h"
 #include "chScriptObjectTypes.h"
+#include "chShaderAsset.h"
 #include "chSpriteAnimatorComponent.h"
 #include "chSpriteAtlasAsset.h"
 #include "chSpriteComponent.h"
 #include "chSpriteDraw.h"
+#include "chSpriteMaterialAsset.h"
 #include "chStringUtils.h"
 #include "chTextureAsset.h"
 
@@ -123,6 +127,65 @@ checkTexture(lua_State* state, const int32 index, const ANSICHAR* function)
 /*
  * The atlas asset of an Atlas value, or null when it no longer exists.
  */
+/*
+ * The material asset of a UUID, loaded, or null when there is none.
+ */
+SPtr<SpriteMaterialAsset>
+findMaterialAsset(const UUID& id)
+{
+  if (id.isNull() || !AssetManager::isStarted()) {
+    return nullptr;
+  }
+  const SPtr<IAsset> asset = AssetManager::instance().getAsset(id);
+  SPtr<SpriteMaterialAsset> material = asset ? asset->as<SpriteMaterialAsset>() : nullptr;
+  if (material && !material->isLoaded() &&
+      !AssetManager::instance().syncLoadAsset(material)) {
+    return nullptr;
+  }
+  return material;
+}
+
+/*
+ * The material at index, loaded: a SpriteMaterial value or a path or name. Raises when
+ * there is none.
+ */
+SPtr<SpriteMaterialAsset>
+checkMaterial(lua_State* state, const int32 index, const ANSICHAR* function)
+{
+  SPtr<SpriteMaterialAsset> material;
+  if (const auto* value = static_cast<const ScriptSpriteMaterial*>(
+          luaL_testudata(state, index, ScriptValueType<ScriptSpriteMaterial>::NAME))) {
+    material = findMaterialAsset(value->material);
+  }
+  else {
+    const ANSICHAR* name = luaL_checkstring(state, index);
+    if (AssetManager::isStarted()) {
+      const SPtr<IAsset> asset = AssetManager::instance().findAsset(
+          AssetTypeTraits<SpriteMaterialAsset>::getTypeId(), name);
+      material = asset ? findMaterialAsset(asset->getUUID()) : nullptr;
+    }
+  }
+  if (!material) {
+    luaL_error(state, "%s: there is no such sprite material", function);
+  }
+  return material;
+}
+
+/*
+ * The parameter of the material's shader named at index, raising when there is none.
+ */
+const ShaderParameter&
+checkMaterialParameter(lua_State* state, const SpriteMaterialAsset& material, int32 index)
+{
+  const ANSICHAR* name = luaL_checkstring(state, index);
+  const SPtr<ShaderAsset>& shader = material.getShader();
+  const uint32 parameter = shader ? shader->findParameter(name) : ShaderAsset::NOT_FOUND;
+  if (parameter == ShaderAsset::NOT_FOUND) {
+    luaL_error(state, "The material's shader has no parameter '%s'", name);
+  }
+  return shader->getParameters()[parameter];
+}
+
 SPtr<SpriteAtlasAsset>
 findAtlasAsset(const ScriptSpriteAtlas& atlas)
 {
@@ -369,6 +432,9 @@ makeStyle(lua_State* state)
     else if (key == "depth") {
       style.depth = static_cast<float>(luaL_checknumber(state, value));
     }
+    else if (key == "material") {
+      style.material = checkMaterial(state, value, kFunction)->getUUID();
+    }
     else {
       return luaL_error(state, "%s: unknown option '%s'", kFunction, lua_tostring(state, -2));
     }
@@ -452,7 +518,12 @@ drawSprite(lua_State* state)
                              style.uvRect[3]},
                   .sortingLayer = style.sortingLayer,
                   .order = style.order,
-                  .blendMode = static_cast<SpriteBlendMode>(style.blendMode)};
+                  .blendMode = static_cast<SpriteBlendMode>(style.blendMode),
+                  .material = nullptr};
+  // One hash lookup; the manager keeps the material alive until the frame is drawn.
+  if (!style.material.isNull()) {
+    quad.material = findMaterialAsset(style.material).get();
+  }
   if (!lua_isnoneornil(state, 6)) {
     quad.color = ScriptTraits<LinearColor>::check(state, 6);
   }
@@ -585,6 +656,125 @@ textureToString(lua_State* state)
   const auto& texture = ScriptTraits<ScriptTexture>::check(state, 1);
   const SPtr<TextureAsset> asset = findTextureAsset(texture);
   lua_pushfstring(state, "Texture(%s)", asset ? asset->getName() : "missing");
+  return 1;
+}
+
+/*
+ * SpriteMaterial.find(pathOrName): a SpriteMaterial value, nil when there is none. Walks
+ * every asset, so call it once (in onStart).
+ */
+int32
+findMaterial(lua_State* state)
+{
+  const StringView text = ScriptTraits<StringView>::check(state, 1);
+  if (!AssetManager::isStarted()) {
+    return luaL_error(state, "SpriteMaterial.find: there are no assets to search");
+  }
+  const SPtr<IAsset> asset = AssetManager::instance().findAsset(
+      AssetTypeTraits<SpriteMaterialAsset>::getTypeId(), text);
+  if (!asset) {
+    lua_pushnil(state);
+    return 1;
+  }
+  ScriptTraits<ScriptSpriteMaterial>::push(state, ScriptSpriteMaterial{asset->getUUID()});
+  return 1;
+}
+
+int32
+isMaterialValid(lua_State* state)
+{
+  const auto& material = ScriptTraits<ScriptSpriteMaterial>::check(state, 1);
+  lua_pushboolean(state, findMaterialAsset(material.material) ? 1 : 0);
+  return 1;
+}
+
+int32
+getMaterialName(lua_State* state)
+{
+  const auto& material = ScriptTraits<ScriptSpriteMaterial>::check(state, 1);
+  const SPtr<SpriteMaterialAsset> asset = findMaterialAsset(material.material);
+  if (asset) {
+    lua_pushstring(state, asset->getName());
+  }
+  else {
+    lua_pushnil(state);
+  }
+  return 1;
+}
+
+int32
+setMaterialValue(lua_State* state)
+{
+  const SPtr<SpriteMaterialAsset> material = checkMaterial(state, 1, "SpriteMaterial.setValue");
+  const ShaderParameter& parameter = checkMaterialParameter(state, *material, 2);
+  static_cast<void>(
+      material->setValue(parameter.name, ScriptBindings::checkShaderValue(state, parameter, 3)));
+  return 0;
+}
+
+int32
+getMaterialValue(lua_State* state)
+{
+  const SPtr<SpriteMaterialAsset> material = checkMaterial(state, 1, "SpriteMaterial.getValue");
+  const ShaderParameter& parameter = checkMaterialParameter(state, *material, 2);
+  Vector4 value = parameter.defaultValue;
+  static_cast<void>(material->getValue(parameter.name, value));
+  ScriptBindings::pushShaderValue(state, parameter, value);
+  return 1;
+}
+
+int32
+resetMaterialValue(lua_State* state)
+{
+  const SPtr<SpriteMaterialAsset> material =
+      checkMaterial(state, 1, "SpriteMaterial.resetValue");
+  material->resetValue(checkMaterialParameter(state, *material, 2).name);
+  return 0;
+}
+
+int32
+materialToString(lua_State* state)
+{
+  const auto& material = ScriptTraits<ScriptSpriteMaterial>::check(state, 1);
+  const SPtr<SpriteMaterialAsset> asset = findMaterialAsset(material.material);
+  lua_pushfstring(state, "SpriteMaterial(%s)", asset ? asset->getName() : "missing");
+  return 1;
+}
+
+/*
+ * style:setMaterial(material?): nil goes back to the engine's shader.
+ */
+int32
+setStyleMaterial(lua_State* state)
+{
+  ScriptSpriteStyle& style = ScriptTraits<ScriptSpriteStyle>::check(state, 1);
+  style.material = lua_isnoneornil(state, 2)
+                       ? UUID::null()
+                       : checkMaterial(state, 2, "SpriteStyle.setMaterial")->getUUID();
+  lua_settop(state, 1);
+  return 1;
+}
+
+int32
+setSpriteMaterial(lua_State* state)
+{
+  SpriteComponent& sprite = ScriptTraits<SpriteComponent>::check(state, 1);
+  sprite.setMaterial(lua_isnoneornil(state, 2)
+                         ? nullptr
+                         : checkMaterial(state, 2, "Sprite.setMaterial"));
+  return 0;
+}
+
+int32
+getSpriteMaterial(lua_State* state)
+{
+  const SpriteComponent& sprite = ScriptTraits<SpriteComponent>::check(state, 1);
+  if (sprite.getMaterialId().isNull()) {
+    lua_pushnil(state);
+  }
+  else {
+    ScriptTraits<ScriptSpriteMaterial>::push(state, ScriptSpriteMaterial{sprite.getMaterialId()});
+  }
   return 1;
 }
 
@@ -1036,7 +1226,24 @@ ScriptBindings::registerSprites(lua_State* state)
       .operators<ScriptOperator::Equal>();
   setToString(state, ScriptValueType<ScriptSpriteAtlas>::NAME, &atlasToString);
 
+  ScriptClass<ScriptSpriteMaterial>(state)
+      .rawStaticFunction("find", &findMaterial, "fun(pathOrName: string): SpriteMaterial?")
+      .rawMethod("isValid", &isMaterialValid, "fun(): boolean")
+      .rawMethod("getName", &getMaterialName, "fun(): string?")
+      .rawMethod("setValue", &setMaterialValue,
+                 "fun(name: string, value: number|boolean|Vector2|Vector3|Vector4|Color)")
+      .rawMethod("getValue", &getMaterialValue,
+                 "fun(name: string): number|boolean|Vector2|Vector3|Vector4|Color")
+      .rawMethod("resetValue", &resetMaterialValue, "fun(name: string)")
+      .operators<ScriptOperator::Equal>();
+  luaL_getmetatable(state, ScriptValueType<ScriptSpriteMaterial>::NAME);
+  lua_pushcfunction(state, &materialToString);
+  lua_setfield(state, -2, "__tostring");
+  lua_pop(state, 1);
+
   ScriptClass<SpriteComponent>(state)
+      .rawMethod("setMaterial", &setSpriteMaterial, "fun(material?: SpriteMaterial|string)")
+      .rawMethod("getMaterial", &getSpriteMaterial, "fun(): SpriteMaterial?")
       .rawMethod("getGameObject", &getSpriteGameObject, "fun(): GameObject")
       .rawMethod("setTexture", &setSpriteTexture, "fun(texture?: Texture|string)")
       .rawMethod("setAtlas", &setSpriteAtlas,
@@ -1073,6 +1280,8 @@ ScriptBindings::registerSprites(lua_State* state)
       .rawMethod("setSize", &setStyleSize, "fun(size: Vector2)")
       .rawMethod("getSize", &getStyleSize, "fun(): Vector2")
       .rawMethod("setSorting", &setStyleSorting, "fun(layer: integer, order?: integer)")
+      .rawMethod("setMaterial", &setStyleMaterial,
+                 "fun(material?: SpriteMaterial|string): SpriteStyle")
       .rawMethod("copy", &copyStyle, "fun(): SpriteStyle");
 
   ScriptTable(state, "Sprites",
@@ -1084,7 +1293,8 @@ ScriptBindings::registerSprites(lua_State* state)
                    "integer|string, sourceRect?: Vector4, size?: "
                    "Vector2, pixelsPerUnit?: number, pivot?: Vector2, color?: Color, layer?: "
                    "integer, order?: integer, blend?: \"Alpha\"|\"Additive\", filter?: "
-                   "\"Point\"|\"Linear\", flipX?: boolean, flipY?: boolean, depth?: number}): "
+                   "\"Point\"|\"Linear\", flipX?: boolean, flipY?: boolean, depth?: number, "
+                   "material?: SpriteMaterial|string}): "
                    "SpriteStyle")
       .rawFunction("draw", &drawSprite,
                    "fun(look: SpriteStyle|Texture, x: number, y: number, rotation?: number, "

@@ -75,6 +75,7 @@ SpriteDraw::quad(const SpriteQuad& quad)
   sprite.sortingLayer = quad.sortingLayer;
   sprite.order = quad.order;
   sprite.blendMode = quad.blendMode;
+  sprite.material = quad.material;
   sprite.bInUse = true;
 }
 
@@ -85,7 +86,8 @@ SpriteDraw::instance(const GpuSpriteInstance& instance,
                      float radius,
                      int16 sortingLayer,
                      int16 order,
-                     SpriteBlendMode blendMode)
+                     SpriteBlendMode blendMode,
+                     const SpriteMaterialAsset* material)
 {
   if (!hasRoom(m_sprites.size(), 1)) {
     return;
@@ -95,6 +97,7 @@ SpriteDraw::instance(const GpuSpriteInstance& instance,
                        .sortingLayer = sortingLayer,
                        .order = order,
                        .blendMode = blendMode,
+                       .material = material,
                        .bInUse = true});
 }
 

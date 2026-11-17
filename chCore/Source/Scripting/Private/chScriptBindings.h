@@ -15,6 +15,8 @@ struct lua_State;
 
 namespace chEngineSDK {
 class GameObject;
+struct ShaderParameter;
+class Vector4;
 
 /**
  * Exists so each area of the engine registers its script API in its own file, and the script
@@ -89,6 +91,16 @@ class ScriptBindings
    */
   NODISCARD static GameObject&
   checkPartOwner(lua_State* state, int32 index, const ANSICHAR* typeName);
+
+  /**
+   * The value at index for a shader parameter of that type (number, integer, boolean,
+   * Vector2, Vector3, Vector4 or Color), as shader values are kept. Raises on another type.
+   */
+  NODISCARD static Vector4
+  checkShaderValue(lua_State* state, const ShaderParameter& parameter, int32 index);
+
+  static void
+  pushShaderValue(lua_State* state, const ShaderParameter& parameter, const Vector4& value);
 
   /**
    * gameObject:getSprite() and gameObject:getSpriteAnimator(), registered with the

@@ -32,6 +32,11 @@ constexpr TypeEntry kTypes[] = {
 static_assert(sizeof(kTypes) / sizeof(kTypes[0]) ==
               static_cast<SIZE_T>(ShaderParameterType::COUNT));
 
+// In the order of ShaderAssetKind.
+constexpr StringView kKindNames[] = {"PostProcess", "Sprite"};
+static_assert(sizeof(kKindNames) / sizeof(kKindNames[0]) ==
+              static_cast<SIZE_T>(ShaderAssetKind::COUNT));
+
 // In the order of PostProcessStage.
 constexpr StringView kStageNames[] = {"AfterTonemap", "BeforeTonemap"};
 static_assert(sizeof(kStageNames) / sizeof(kStageNames[0]) ==
@@ -40,6 +45,7 @@ static_assert(sizeof(kStageNames) / sizeof(kStageNames[0]) ==
 #if USING(CH_EDITOR)
 constexpr StringView kParamKeyword = "CH_PARAM";
 constexpr StringView kStageKeyword = "CH_STAGE";
+constexpr StringView kKindKeyword = "CH_SHADER";
 
 /**
  * Splits a declaration into words; a word in double quotes keeps its spaces.
@@ -276,6 +282,30 @@ ShaderParameters::parseStageName(const StringView name, PostProcessStage& outSta
 
 /*
  */
+StringView
+ShaderParameters::getKindName(const ShaderAssetKind kind) noexcept
+{
+  const SIZE_T index = static_cast<SIZE_T>(kind);
+  return index < static_cast<SIZE_T>(ShaderAssetKind::COUNT) ? kKindNames[index]
+                                                               : StringView();
+}
+
+/*
+ */
+bool
+ShaderParameters::parseKindName(const StringView name, ShaderAssetKind& outKind) noexcept
+{
+  for (SIZE_T i = 0; i < static_cast<SIZE_T>(ShaderAssetKind::COUNT); ++i) {
+    if (StringUtils::equalsIgnoreCase(kKindNames[i], name)) {
+      outKind = static_cast<ShaderAssetKind>(i);
+      return true;
+    }
+  }
+  return false;
+}
+
+/*
+ */
 uint32
 ShaderParameters::computeLayout(Vector<ShaderParameter>& parameters) noexcept
 {
@@ -319,6 +349,26 @@ ShaderParameters::writeDefaults(Span<const ShaderParameter> parameters,
   }
 }
 
+/*
+ */
+void
+ShaderParameters::buildBuffer(Span<const ShaderParameter> parameters,
+                              const uint32 bufferSize,
+                              Span<const ShaderValueOverride> overrides,
+                              Vector<uint8>& outBuffer)
+{
+  outBuffer.assign(Math::max(bufferSize, SLOT_SIZE), 0);
+  writeDefaults(parameters, outBuffer);
+  for (const ShaderValueOverride& entry : overrides) {
+    for (const ShaderParameter& parameter : parameters) {
+      if (parameter.name == entry.name) {
+        writeValue(parameter, entry.value, outBuffer);
+        break;
+      }
+    }
+  }
+}
+
 #if USING(CH_EDITOR)
 /*
  */
@@ -328,6 +378,7 @@ ShaderParameters::parseSource(const StringView text, SourceInfo& outInfo, String
   outInfo = SourceInfo();
   Vector<StringView> words;
   bool bStageSet = false;
+  bool bKindSet = false;
   uint32 lineNumber = 0;
   SIZE_T lineStart = 0;
   while (lineStart <= text.size()) {
@@ -341,12 +392,23 @@ ShaderParameters::parseSource(const StringView text, SourceInfo& outInfo, String
 
     const StringView parameterText = getDeclaration(line, kParamKeyword);
     const StringView stageText = getDeclaration(line, kStageKeyword);
-    if (parameterText.empty() && stageText.empty()) {
+    const StringView kindText = getDeclaration(line, kKindKeyword);
+    if (parameterText.empty() && stageText.empty() && kindText.empty()) {
       continue;
     }
 
     String lineError;
-    if (!parameterText.empty()) {
+    if (!kindText.empty()) {
+      if (bKindSet) {
+        lineError = "CH_SHADER is given twice.";
+      }
+      else if (!parseKindName(kindText, outInfo.kind)) {
+        lineError = StringUtils::format("'{0}' is not a shader kind (PostProcess, Sprite).",
+                                        kindText);
+      }
+      bKindSet = true;
+    }
+    else if (!parameterText.empty()) {
       ShaderParameter parameter;
       if (!splitWords(parameterText, words)) {
         lineError = "A quote is not closed.";
@@ -381,6 +443,10 @@ ShaderParameters::parseSource(const StringView text, SourceInfo& outInfo, String
       outError = StringUtils::format("Line {0}: {1}", lineNumber, lineError);
       return false;
     }
+  }
+  if (bStageSet && outInfo.kind != ShaderAssetKind::PostProcess) {
+    outError = "CH_STAGE is only for post-process shaders.";
+    return false;
   }
   outInfo.bufferSize = computeLayout(outInfo.parameters);
   return true;

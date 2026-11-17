@@ -9,6 +9,8 @@
 
 #include "chSpritePass.h"
 
+#include <chrono>
+
 #include "chCamera.h"
 #include "chIBuffer.h"
 #include "chICommandList.h"
@@ -18,21 +20,34 @@
 #include "chIShader.h"
 #include "chMath.h"
 #include "chMatrix4.h"
+#include "chShaderAsset.h"
+#include "chSpriteMaterialAsset.h"
 #include "chRenderSettings.h"
 #include "chSpriteShader.h"
 
 namespace chEngineSDK {
 
 namespace {
+// Must match CH_SPRITE_BATCH_HEADER in chSpriteBatch.hlsli.
+struct SpriteBatchHeader
+{
+  Matrix4 viewProjection;
+  uint32 pointSamplerIndex;
+  uint32 linearSamplerIndex;
+  uint32 materialParametersIndex;
+  uint32 materialParametersOffset;
+  float spriteTime;
+  uint32 padding[3];
+};
+static_assert(sizeof(SpriteBatchHeader) == 96, "The sprite batch header must be 96 bytes");
+
 // Must match PushConstants in sprite.hlsl.
 struct SpritePushConstants
 {
-  Matrix4 viewProjection;
+  SpriteBatchHeader header;
   uint32 instanceBufferIndex;
   // Every draw starts at instance 0, so where its run starts in the buffer comes here.
   uint32 firstInstance;
-  uint32 pointSamplerIndex;
-  uint32 linearSamplerIndex;
 };
 
 // Must match PushConstants in glyphrun.hlsl.
@@ -47,15 +62,24 @@ struct GlyphRunPushConstants
   uint32 bWritableBuffer;
 };
 
-// Must match CH_SPRITE_BATCH_HEADER in chSpriteBatch.hlsli.
+// The header of chSpriteBatch.hlsli, then the batch's own bytes.
 struct CustomPushConstants
 {
-  Matrix4 viewProjection;
-  uint32 pointSamplerIndex;
-  uint32 linearSamplerIndex;
+  SpriteBatchHeader header;
   Array<uint8, CustomSpriteBatch::MAX_PARAMETER_BYTES> parameters;
 };
 static_assert(sizeof(CustomPushConstants) == 128, "Custom push constants must fill 128 bytes");
+
+// A few materials of the biggest parameter blocks.
+constexpr uint32 kInitialMaterialCapacity = 4 * ShaderParameters::MAX_BUFFER_SIZE;
+
+NODISCARD int64
+getTicks() noexcept
+{
+  return std::chrono::duration_cast<std::chrono::microseconds>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
 
 // A few thousand sprites, so small scenes never make the buffer again.
 constexpr uint32 kInitialInstanceCapacity = 4096;
@@ -121,6 +145,7 @@ SpritePass::SpritePass()
   m_glyphFragmentShader = graphicsAPI.loadShader(ShaderStage::Fragment, "glyphrun");
   m_pointSampler = createSampler(SamplerFilter::Nearest, SamplerMipmapMode::Nearest);
   m_linearSampler = createSampler(SamplerFilter::Linear, SamplerMipmapMode::Linear);
+  m_startTicks = getTicks();
 }
 
 /*
@@ -164,12 +189,19 @@ SpritePass::addPass(RenderGraph& graph,
     pipelines[mode + kBlendModes] =
         &getPipeline(static_cast<SpriteBlendMode>(mode), true, colorFormat);
   }
-  const SpritePushConstants spriteConstants{
+  prepareMaterials(colorFormat);
+  const SpriteBatchHeader header{
       .viewProjection = camera.getViewProjectionMatrix(),
-      .instanceBufferIndex = instanceBuffer ? instanceBuffer->getBindlessIndex() : 0,
-      .firstInstance = 0,
       .pointSamplerIndex = m_pointSampler->getBindlessIndex(),
-      .linearSamplerIndex = m_linearSampler->getBindlessIndex()};
+      .linearSamplerIndex = m_linearSampler->getBindlessIndex(),
+      .materialParametersIndex = m_materialBufferIndex,
+      .materialParametersOffset = 0,
+      .spriteTime = static_cast<float>(getTicks() - m_startTicks) * 0.000001f,
+      .padding = {0, 0, 0}};
+  const SpritePushConstants spriteConstants{
+      .header = header,
+      .instanceBufferIndex = instanceBuffer ? instanceBuffer->getBindlessIndex() : 0,
+      .firstInstance = 0};
   const uint32 glyphRunBufferIndex = glyphRunBuffer ? glyphRunBuffer->getBindlessIndex() : 0;
 
   m_customDraws.clear();
@@ -192,17 +224,16 @@ SpritePass::addPass(RenderGraph& graph,
                       RenderPassContext& context) {
         ICommandList& commandList = context.getCommandList();
         SpritePushConstants sprite = spriteConstants;
-        GlyphRunPushConstants glyph{.viewProjection = spriteConstants.viewProjection,
+        const SpriteBatchHeader& header = spriteConstants.header;
+        GlyphRunPushConstants glyph{.viewProjection = header.viewProjection,
                                     .runBufferIndex = glyphRunBufferIndex,
                                     .firstRun = 0,
-                                    .pointSamplerIndex = spriteConstants.pointSamplerIndex,
-                                    .linearSamplerIndex = spriteConstants.linearSamplerIndex,
+                                    .pointSamplerIndex = header.pointSamplerIndex,
+                                    .linearSamplerIndex = header.linearSamplerIndex,
                                     .bWritableBuffer = 0};
-        CustomPushConstants custom{.viewProjection = spriteConstants.viewProjection,
-                                   .pointSamplerIndex = spriteConstants.pointSamplerIndex,
-                                   .linearSamplerIndex = spriteConstants.linearSamplerIndex,
-                                   .parameters = {}};
+        CustomPushConstants custom{.header = header, .parameters = {}};
         SIZE_T customIndex = 0;
+        SIZE_T materialIndex = 0;
         for (const SpriteRun& run : m_batcher.getRuns()) {
           const uint32 blend = static_cast<uint32>(run.blendMode);
           if (run.kind == SpriteRunKind::Custom) {
@@ -218,7 +249,15 @@ SpritePass::addPass(RenderGraph& graph,
           }
           if (run.kind == SpriteRunKind::Sprites) {
             sprite.firstInstance = run.firstInstance;
-            commandList.bindPipeline(*pipelines[blend]);
+            const IPipeline* pipeline = pipelines[blend];
+            if (run.material) {
+              const MaterialDraw& draw = m_materialDraws[materialIndex++];
+              if (draw.pipeline) {
+                pipeline = draw.pipeline;
+                sprite.header.materialParametersOffset = draw.parametersOffset;
+              }
+            }
+            commandList.bindPipeline(*pipeline);
             commandList.pushConstants(&sprite, sizeof(sprite));
             commandList.draw(kVerticesPerSprite, run.instanceCount);
             continue;
@@ -234,6 +273,89 @@ SpritePass::addPass(RenderGraph& graph,
           commandList.draw(kVerticesPerSprite * glyphs, run.instanceCount);
         }
       });
+}
+
+/*
+ */
+void
+SpritePass::prepareMaterials(const Format colorFormat)
+{
+  m_materialDraws.clear();
+  m_frameMaterials.clear();
+  m_frameMaterialOffsets.clear();
+  m_materialBytes.clear();
+  m_materialBufferIndex = 0;
+  for (const SpriteRun& run : m_batcher.getRuns()) {
+    if (run.kind != SpriteRunKind::Sprites || !run.material) {
+      continue;
+    }
+    const SpriteMaterialAsset& material = *run.material;
+    MaterialDraw& draw = m_materialDraws.emplace_back();
+    draw.pipeline = getMaterialPipeline(material, run.blendMode, colorFormat);
+    if (!draw.pipeline) {
+      continue;
+    }
+    // A frame holds a few materials, so a search is cheaper than a map.
+    SIZE_T slot = 0;
+    while (slot < m_frameMaterials.size() && m_frameMaterials[slot] != &material) {
+      ++slot;
+    }
+    if (slot == m_frameMaterials.size()) {
+      const Span<const uint8> bytes = material.getParameterData();
+      m_frameMaterials.push_back(&material);
+      m_frameMaterialOffsets.push_back(static_cast<uint32>(m_materialBytes.size()));
+      m_materialBytes.insert(m_materialBytes.end(), bytes.begin(), bytes.end());
+    }
+    draw.parametersOffset = m_frameMaterialOffsets[slot];
+  }
+  if (m_materialBytes.empty()) {
+    return;
+  }
+  const uint32 frameIndex = IGraphicsAPI::instance().getFrameIndex();
+  const IBuffer* buffer = uploadToFrameBuffer(Span<const uint8>(m_materialBytes),
+                                              kInitialMaterialCapacity,
+                                              m_materialBuffers[frameIndex],
+                                              m_materialCapacities[frameIndex]);
+  m_materialBufferIndex = buffer ? buffer->getBindlessIndex() : 0;
+}
+
+/*
+ */
+const IPipeline*
+SpritePass::getMaterialPipeline(const SpriteMaterialAsset& material,
+                                const SpriteBlendMode blendMode,
+                                const Format colorFormat)
+{
+  if (!material.canDraw()) {
+    return nullptr;
+  }
+  ShaderAsset& shader = *material.getShader();
+  const uint32 revision = shader.getRevision();
+  MaterialPipeline* reusable = nullptr;
+  for (MaterialPipeline& entry : m_materialPipelines) {
+    if (entry.shader == &shader && entry.blendMode == blendMode && entry.format == colorFormat) {
+      if (entry.revision == revision) {
+        return entry.pipeline;
+      }
+      reusable = &entry;
+    }
+  }
+  const SPtr<IShader>& pixelShader = shader.getPixelShader();
+  const IPipeline* pipeline =
+      pixelShader ? m_pipelineCache
+                        .getOrCreate(SpriteShader::makePipelineDesc(m_vertexShader, pixelShader,
+                                                                    blendMode, colorFormat))
+                        .get()
+                  : nullptr;
+  if (!reusable) {
+    reusable = &m_materialPipelines.emplace_back();
+  }
+  *reusable = {.shader = &shader,
+               .revision = revision,
+               .blendMode = blendMode,
+               .format = colorFormat,
+               .pipeline = pipeline};
+  return pipeline;
 }
 
 /*

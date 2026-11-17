@@ -165,9 +165,11 @@ SpriteBatcher::build(Span<const SpriteItem> sprites,
     SpriteBlendMode blendMode;
     SpriteRunKind runKind;
     uint32 instance;
+    const SpriteMaterialAsset* material = nullptr;
     if (kind == kSpriteKind) {
       const SpriteItem& sprite = sprites[index];
       blendMode = sprite.blendMode;
+      material = sprite.material;
       runKind = SpriteRunKind::Sprites;
       instance = static_cast<uint32>(m_instances.size());
       m_instances.push_back(sprite.instance);
@@ -179,11 +181,13 @@ SpriteBatcher::build(Span<const SpriteItem> sprites,
       instance = static_cast<uint32>(m_glyphRuns.size());
       m_glyphRuns.push_back(item.run);
     }
-    if (m_runs.empty() || m_runs.back().blendMode != blendMode || m_runs.back().kind != runKind) {
+    if (m_runs.empty() || m_runs.back().blendMode != blendMode ||
+        m_runs.back().kind != runKind || m_runs.back().material != material) {
       m_runs.push_back({.blendMode = blendMode,
                         .firstInstance = instance,
                         .instanceCount = 0,
-                        .kind = runKind});
+                        .kind = runKind,
+                        .material = material});
     }
     ++m_runs.back().instanceCount;
   }

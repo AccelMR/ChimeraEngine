@@ -19,13 +19,6 @@ namespace chEngineSDK {
 
 class IShader;
 
-// Stored in shader assets, so the values are fixed.
-enum class ShaderAssetKind : uint32
-{
-  PostProcess = 0,
-  COUNT
-};
-
 // Written after the common asset start.
 struct ShaderAssetHeader
 {

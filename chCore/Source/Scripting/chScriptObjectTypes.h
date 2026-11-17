@@ -50,6 +50,21 @@ CH_SCRIPT_VALUE_TYPE(ScriptPrefab, "Prefab");
 CH_SCRIPT_VALUE_TYPE(ScriptTexture, "Texture");
 
 /**
+ * Exists so scripts hold a sprite material as a plain value (SpriteMaterial.find gives one;
+ * Sprites.makeStyle and Sprite:setMaterial take it). Only the asset's UUID is kept; the values
+ * it sets belong to the shared asset, so every sprite using it changes.
+ */
+struct ScriptSpriteMaterial
+{
+  NODISCARD bool
+  operator==(const ScriptSpriteMaterial& other) const { return material == other.material; }
+
+  UUID material;
+};
+
+CH_SCRIPT_VALUE_TYPE(ScriptSpriteMaterial, "SpriteMaterial");
+
+/**
  * Exists so scripts hold a sprite atlas as a plain value (Atlas.find gives one;
  * Sprites.makeStyle, Sprite:setAtlas and SpriteAnimator:setAtlas take it). Only the asset's
  * UUID is kept.
@@ -88,6 +103,8 @@ struct ScriptSpriteStyle
   uint8 blendMode;
   uint8 filter;
   uint8 padding[2];
+  // A SpriteMaterialAsset, null for the engine's shader.
+  UUID material;
 };
 
 CH_SCRIPT_VALUE_TYPE(ScriptSpriteStyle, "SpriteStyle");

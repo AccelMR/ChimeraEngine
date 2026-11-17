@@ -21,15 +21,7 @@ namespace chEngineSDK {
 
 class ShaderAsset;
 
-/**
- * A value set on a pass in place of its shader's default; numbers, vectors and colors use
- * as many components as the parameter has, ints and bools x.
- */
-struct PostProcessOverride
-{
-  String name;
-  Vector4 value = Vector4::ZERO;
-};
+using PostProcessOverride = ShaderValueOverride;
 
 struct PostProcessPass
 {

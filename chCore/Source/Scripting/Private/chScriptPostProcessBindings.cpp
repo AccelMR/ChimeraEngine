@@ -102,11 +102,14 @@ checkParameter(lua_State* state,
   return shader->getParameters()[parameter];
 }
 
+} // namespace
+
 /*
- * The value at index for a parameter of that type, as the component keeps it.
  */
-NODISCARD Vector4
-checkValue(lua_State* state, const ShaderParameter& parameter, const int32 index)
+Vector4
+ScriptBindings::checkShaderValue(lua_State* state,
+                                 const ShaderParameter& parameter,
+                                 const int32 index)
 {
   switch (parameter.type) {
     case ShaderParameterType::Float:
@@ -135,8 +138,12 @@ checkValue(lua_State* state, const ShaderParameter& parameter, const int32 index
   return Vector4::ZERO;
 }
 
+/*
+ */
 void
-pushValue(lua_State* state, const ShaderParameter& parameter, const Vector4& value)
+ScriptBindings::pushShaderValue(lua_State* state,
+                                const ShaderParameter& parameter,
+                                const Vector4& value)
 {
   switch (parameter.type) {
     case ShaderParameterType::Float:
@@ -166,6 +173,7 @@ pushValue(lua_State* state, const ShaderParameter& parameter, const Vector4& val
   lua_pushnil(state);
 }
 
+namespace {
 int32
 getPostProcessGameObject(lua_State* state)
 {
@@ -256,7 +264,7 @@ setPassValue(lua_State* state)
   PostProcessComponent& postProcess = ScriptTraits<PostProcessComponent>::check(state, 1);
   const uint32 pass = checkPass(state, postProcess, 2);
   const ShaderParameter& parameter = checkParameter(state, postProcess, pass, 3);
-  const Vector4 value = checkValue(state, parameter, 4);
+  const Vector4 value = ScriptBindings::checkShaderValue(state, parameter, 4);
   static_cast<void>(postProcess.setValue(pass, parameter.name, value));
   return 0;
 }
@@ -269,7 +277,7 @@ getPassValue(lua_State* state)
   const ShaderParameter& parameter = checkParameter(state, postProcess, pass, 3);
   Vector4 value = parameter.defaultValue;
   static_cast<void>(postProcess.getValue(pass, parameter.name, value));
-  pushValue(state, parameter, value);
+  ScriptBindings::pushShaderValue(state, parameter, value);
   return 1;
 }
 

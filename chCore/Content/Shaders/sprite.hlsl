@@ -1,7 +1,7 @@
 // Sprites as instanced quads. There is no vertex buffer: each vertex reads its sprite from a
 // storage buffer by the instance index and makes its corner from the vertex index.
 
-#include "chSpriteShading.hlsli"
+#include "chSpriteBatch.hlsli"
 
 // Must match GpuSpriteInstance in chSpriteItem.h.
 static const uint kInstanceStride = 64;
@@ -9,25 +9,15 @@ static const uint kInstanceStride = 64;
 // Must match SpritePushConstants in chSpritePass.cpp.
 struct PushConstants
 {
-  row_major float4x4 viewProjection;
+  CH_SPRITE_BATCH_HEADER
   uint instanceBufferIndex;
   // The draw always starts at instance 0, so where its run starts in the buffer comes here.
   uint firstInstance;
-  uint pointSamplerIndex;
-  uint linearSamplerIndex;
 };
 
 [[vk::push_constant]] ConstantBuffer<PushConstants> g_push : register(b0);
 
-struct VSOutput
-{
-  float4 position : SV_Position;
-  float4 color : COLOR0;
-  float2 texCoord : TEXCOORD0;
-  nointerpolation uint textureAndFlags : TEXCOORD1;
-};
-
-VSOutput
+SpriteVertexOutput
 VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 {
   ByteAddressBuffer instances = ResourceDescriptorHeap[g_push.instanceBufferIndex];
@@ -45,7 +35,7 @@ VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
   const float3 position =
       center + halfAxisU * (corner.x * 2.0f - 1.0f) + halfAxisV * (1.0f - corner.y * 2.0f);
 
-  VSOutput output;
+  SpriteVertexOutput output;
   output.position = mul(float4(position, 1.0f), g_push.viewProjection);
   output.color = float4(unpackHalves(colorRG), unpackHalves(colorBA));
   output.texCoord = uvRect.xy + corner * uvRect.zw;
@@ -54,7 +44,7 @@ VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 }
 
 float4
-PSMain(VSOutput input) : SV_Target0
+PSMain(SpriteVertexOutput input) : SV_Target0
 {
   return shadeSprite(input.color,
                      input.texCoord,

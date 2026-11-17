@@ -250,17 +250,8 @@ void
 PostProcessComponent::buildParameters(const PassState& state) const
 {
   const ShaderAsset& shader = *state.pass.shader;
-  // A shader without parameters still reads one slot (its struct is never empty).
-  const uint32 size = Math::max(shader.getParameterBufferSize(), ShaderParameters::SLOT_SIZE);
-  state.parameterData.assign(size, 0);
-  const Span<const ShaderParameter> parameters = shader.getParameters();
-  ShaderParameters::writeDefaults(parameters, state.parameterData);
-  for (const PostProcessOverride& entry : state.pass.overrides) {
-    const uint32 parameter = shader.findParameter(entry.name);
-    if (parameter != ShaderAsset::NOT_FOUND) {
-      ShaderParameters::writeValue(parameters[parameter], entry.value, state.parameterData);
-    }
-  }
+  ShaderParameters::buildBuffer(shader.getParameters(), shader.getParameterBufferSize(),
+                                state.pass.overrides, state.parameterData);
   state.builtRevision = shader.getRevision();
   state.bDirty = false;
 }

@@ -18,6 +18,8 @@
 namespace chEngineSDK {
 class Camera;
 class IBuffer;
+class ShaderAsset;
+class SpriteMaterialAsset;
 class ISampler;
 class IShader;
 
@@ -74,6 +76,22 @@ class CH_CORE_EXPORT SpritePass
   NODISCARD const IPipeline&
   getPipeline(SpriteBlendMode blendMode, bool bGlyphRuns, Format colorFormat);
 
+  /**
+   * The pipeline of a material's shader with the sprite vertex shader; null when it cannot
+   * draw, so its sprites draw with the engine's shader.
+   */
+  NODISCARD const IPipeline*
+  getMaterialPipeline(const SpriteMaterialAsset& material,
+                      SpriteBlendMode blendMode,
+                      Format colorFormat);
+
+  /**
+   * Gives every material the runs use a place in the frame's parameter bytes and fills
+   * m_materialDraws, in the order of the runs with a material.
+   */
+  void
+  prepareMaterials(Format colorFormat);
+
   SPtr<IShader> m_vertexShader;
   SPtr<IShader> m_fragmentShader;
   SPtr<IShader> m_glyphVertexShader;
@@ -93,9 +111,36 @@ class CH_CORE_EXPORT SpritePass
     Array<uint8, CustomSpriteBatch::MAX_PARAMETER_BYTES> parameters;
   };
 
+  struct MaterialPipeline
+  {
+    const ShaderAsset* shader = nullptr;
+    uint32 revision = 0;
+    SpriteBlendMode blendMode = SpriteBlendMode::Alpha;
+    Format format = Format::Unknown;
+    const IPipeline* pipeline = nullptr;
+  };
+
+  struct MaterialDraw
+  {
+    // Null draws the run with the engine's shader.
+    const IPipeline* pipeline = nullptr;
+    uint32 parametersOffset = 0;
+  };
+
   SpriteBatcher m_batcher;
   // The custom runs of the last addPass, in the order of the batcher's runs.
   Vector<CustomDraw> m_customDraws;
+  Vector<MaterialPipeline> m_materialPipelines;
+  // The material runs of the last addPass, in the order of the batcher's runs.
+  Vector<MaterialDraw> m_materialDraws;
+  // Every material of the frame and where its bytes start, reused each frame.
+  Vector<const SpriteMaterialAsset*> m_frameMaterials;
+  Vector<uint32> m_frameMaterialOffsets;
+  Vector<uint8> m_materialBytes;
+  Array<SPtr<IBuffer>, GraphicsLimits::MAX_FRAMES_IN_FLIGHT> m_materialBuffers;
+  Array<uint32, GraphicsLimits::MAX_FRAMES_IN_FLIGHT> m_materialCapacities{};
+  uint32 m_materialBufferIndex = 0;
+  int64 m_startTicks = 0;
   Array<SPtr<IBuffer>, GraphicsLimits::MAX_FRAMES_IN_FLIGHT> m_instanceBuffers;
   // In instances.
   Array<uint32, GraphicsLimits::MAX_FRAMES_IN_FLIGHT> m_capacities{};

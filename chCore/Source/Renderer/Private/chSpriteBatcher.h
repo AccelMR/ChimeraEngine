@@ -44,6 +44,8 @@ struct SpriteRun
   uint32 bufferIndex = 0;
   // The most glyphs a run of the draw has.
   uint32 maxGlyphs = GpuGlyphRun::MAX_GLYPHS;
+  // Sprites: the material that shades them, null for the engine's shader.
+  const SpriteMaterialAsset* material = nullptr;
 };
 
 /**

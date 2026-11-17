@@ -18,6 +18,7 @@
 
 namespace chEngineSDK {
 class Font;
+class SpriteMaterialAsset;
 class TextLayout;
 class TextureAsset;
 
@@ -44,6 +45,8 @@ struct SpriteQuad
   int16 sortingLayer = 0;
   int16 order = 0;
   SpriteBlendMode blendMode = SpriteBlendMode::Alpha;
+  // Kept alive by the caller until the frame is drawn; null for the engine's shader.
+  const SpriteMaterialAsset* material = nullptr;
 };
 
 /**
@@ -135,7 +138,8 @@ class CH_CORE_EXPORT SpriteDraw
            float radius,
            int16 sortingLayer = 0,
            int16 order = 0,
-           SpriteBlendMode blendMode = SpriteBlendMode::Alpha);
+           SpriteBlendMode blendMode = SpriteBlendMode::Alpha,
+           const SpriteMaterialAsset* material = nullptr);
 
   /**
    * One sprite per glyph, plus one per glyph for the shadow and for the outline when desc

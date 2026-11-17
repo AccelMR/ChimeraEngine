@@ -38,6 +38,26 @@ enum class PostProcessStage : uint32
   COUNT
 };
 
+// Stored in shader assets, so the values are fixed.
+enum class ShaderAssetKind : uint32
+{
+  // Runs over the whole image (PostProcessComponent).
+  PostProcess = 0,
+  // Shades sprites; the engine gives the vertex shader (SpriteMaterialAsset).
+  Sprite = 1,
+  COUNT
+};
+
+/**
+ * A value set in place of a shader parameter's default, by its name; numbers, vectors and
+ * colors use as many components as the parameter has, ints and bools x.
+ */
+struct ShaderValueOverride
+{
+  String name;
+  Vector4 value = Vector4::ZERO;
+};
+
 struct ShaderParameter
 {
   String name;
@@ -61,6 +81,8 @@ struct ShaderParameter
  *   // CH_PARAM float intensity 1.0 0 2 "How strong the effect is"
  *   // CH_PARAM color tint 1 1 1 1
  *   // CH_STAGE BeforeTonemap
+ * and what the shader is for (PostProcess when there is no such line):
+ *   // CH_SHADER Sprite
  */
 class CH_CORE_EXPORT ShaderParameters
 {
@@ -83,6 +105,12 @@ class CH_CORE_EXPORT ShaderParameters
   NODISCARD static bool
   parseStageName(StringView name, PostProcessStage& outStage) noexcept;
 
+  NODISCARD static StringView
+  getKindName(ShaderAssetKind kind) noexcept;
+
+  NODISCARD static bool
+  parseKindName(StringView name, ShaderAssetKind& outKind) noexcept;
+
   /**
    * Gives every parameter its offset; returns the size of the buffer that holds them.
    */
@@ -102,17 +130,28 @@ class CH_CORE_EXPORT ShaderParameters
   static void
   writeDefaults(Span<const ShaderParameter> parameters, Span<uint8> buffer) noexcept;
 
+  /**
+   * The bytes a shader reads for its parameters: defaults, then each override whose name
+   * the shader has. At least one slot, since the struct the shader declares is never empty.
+   */
+  static void
+  buildBuffer(Span<const ShaderParameter> parameters,
+              uint32 bufferSize,
+              Span<const ShaderValueOverride> overrides,
+              Vector<uint8>& outBuffer);
+
 #if USING(CH_EDITOR)
   struct SourceInfo
   {
+    ShaderAssetKind kind = ShaderAssetKind::PostProcess;
     Vector<ShaderParameter> parameters;
     PostProcessStage stage = PostProcessStage::AfterTonemap;
     uint32 bufferSize = 0;
   };
 
   /**
-   * Reads the CH_PARAM and CH_STAGE comment lines of a shader source. outError names the
-   * line of the first mistake.
+   * Reads the CH_SHADER, CH_PARAM and CH_STAGE comment lines of a shader source. outError
+   * names the line of the first mistake.
    */
   NODISCARD static bool
   parseSource(StringView text, SourceInfo& outInfo, String& outError);
