@@ -118,7 +118,7 @@ class IncludeHandler final : public IDxcIncludeHandler
       m_files(outFiles)
   {}
 
-  virtual ~IncludeHandler() = default;
+  ~IncludeHandler() = default;
 
   HRESULT STDMETHODCALLTYPE
   LoadSource(LPCWSTR fileName, IDxcBlob** outSource) override
