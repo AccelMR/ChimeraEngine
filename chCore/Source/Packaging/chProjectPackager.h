@@ -94,6 +94,18 @@ class CH_CORE_EXPORT ProjectPackager
   isDebugBuild(const Path& directory);
 
   /**
+   * The engine library of a build folder, with the debug postfix when the build has it.
+   */
+  NODISCARD static Path
+  getEngineLibraryPath(const Path& directory);
+
+  /**
+   * Where a build folder keeps an engine plugin, with the build's debug postfix.
+   */
+  NODISCARD static Path
+  getPluginPath(const Path& directory, const String& plugin);
+
+  /**
    * True for a name the package can give its executable and project file: not empty, no
    * path separators and none of the characters Windows forbids in file names.
    */
