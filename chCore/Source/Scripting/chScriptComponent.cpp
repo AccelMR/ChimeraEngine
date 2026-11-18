@@ -360,7 +360,8 @@ ScriptComponent::collectReferences(Vector<UUID>& outReferences) const
     const ScriptPropertyType type = entry.value.type;
     if ((type == ScriptPropertyType::Prefab || type == ScriptPropertyType::Scene ||
          type == ScriptPropertyType::Texture || type == ScriptPropertyType::Font ||
-         type == ScriptPropertyType::SpriteAtlas || type == ScriptPropertyType::AudioClip) &&
+         type == ScriptPropertyType::SpriteAtlas || type == ScriptPropertyType::AudioClip ||
+         type == ScriptPropertyType::SpriteMaterial) &&
         !entry.value.object.isNull()) {
       outReferences.push_back(entry.value.object);
     }

@@ -312,6 +312,17 @@ toPropertyValue(lua_State* state,
       }
       return clip != nullptr;
     }
+    case ScriptPropertyType::SpriteMaterial: {
+      if (lua_isnil(state, index)) {
+        return true;
+      }
+      const auto* material = static_cast<const ScriptSpriteMaterial*>(
+          luaL_testudata(state, index, ScriptValueType<ScriptSpriteMaterial>::NAME));
+      if (material) {
+        outValue.object = material->material;
+      }
+      return material != nullptr;
+    }
     case ScriptPropertyType::Scene: {
       if (lua_isnil(state, index)) {
         return true;
@@ -448,6 +459,14 @@ pushPropertyValue(lua_State* state, const ScriptPropertyValue& value, const Scen
         ScriptTraits<ScriptAudioClip>::push(state, ScriptAudioClip{value.object});
       }
       break;
+    case ScriptPropertyType::SpriteMaterial:
+      if (value.object.isNull()) {
+        lua_pushnil(state);
+      }
+      else {
+        ScriptTraits<ScriptSpriteMaterial>::push(state, ScriptSpriteMaterial{value.object});
+      }
+      break;
     case ScriptPropertyType::Scene: {
       // Its path, which the Scene functions take; nil once the scene was deleted.
       const SPtr<IAsset> sceneAsset = value.object.isNull() || !AssetManager::isStarted()
@@ -552,7 +571,7 @@ readProperty(lua_State* state, const lua_Integer position, ScriptClassInfo& info
       luaL_error(state,
                  "property '%s' has an unknown type '%s' (number, integer, boolean, string, "
                  "Vector2, Vector3, Vector4, Color, GameObject, Prefab, Scene, Texture, Font, "
-                 "Atlas, AudioClip)",
+                 "Atlas, AudioClip, SpriteMaterial)",
                  name, luaL_tolstring(state, -1, nullptr));
     }
   }
@@ -568,7 +587,7 @@ readProperty(lua_State* state, const lua_Integer position, ScriptClassInfo& info
   if ((type == ScriptPropertyType::GameObject || type == ScriptPropertyType::Prefab ||
        type == ScriptPropertyType::Scene || type == ScriptPropertyType::Texture ||
        type == ScriptPropertyType::Font || type == ScriptPropertyType::SpriteAtlas ||
-       type == ScriptPropertyType::AudioClip) &&
+       type == ScriptPropertyType::AudioClip || type == ScriptPropertyType::SpriteMaterial) &&
       !lua_isnil(state, defaultIndex)) {
     luaL_error(state, "property '%s' is a %s: it is picked in the editor and has no default",
                name, ScriptPropertyUtils::getTypeName(type));
@@ -803,7 +822,8 @@ ScriptManager::openLibraries()
     m_apiDescription->addAlias("ScriptPropertyType",
                                "\"number\"|\"integer\"|\"boolean\"|\"string\"|\"Vector2\"|"
                                "\"Vector3\"|\"Vector4\"|\"Color\"|\"GameObject\"|\"Prefab\"|"
-                               "\"Scene\"|\"Texture\"|\"Font\"|\"Atlas\"|\"AudioClip\"");
+                               "\"Scene\"|\"Texture\"|\"Font\"|\"Atlas\"|\"AudioClip\"|"
+                               "\"SpriteMaterial\"");
     ScriptApiType& entry =
         m_apiDescription->addType("ScriptPropertyEntry", ScriptApiTypeKind::Shape);
     entry.description = "One value the editor shows for each object using the script: "

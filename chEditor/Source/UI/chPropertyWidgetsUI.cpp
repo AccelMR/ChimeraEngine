@@ -21,6 +21,7 @@
 #include "chSceneAsset.h"
 #include "chStringUtils.h"
 #include "chSpriteAtlasAsset.h"
+#include "chSpriteMaterialAsset.h"
 #include "chTextureAsset.h"
 
 #include "imgui.h"
@@ -439,6 +440,15 @@ renderValue(const PropertyWidgetDesc& desc, ScriptPropertyValue& value,
                                       "Content Browser. Clips picked here load with the "
                                       "scene and go into packages.",
                            .emptyListText = "The project has no audio clips"});
+  case ScriptPropertyType::SpriteMaterial:
+    return renderAssetRow(desc, value,
+                          {.typeId = AssetTypeTraits<SpriteMaterialAsset>::getTypeId(),
+                           .noneText = "None (drop a sprite material)",
+                           .missingText = "Missing sprite material",
+                           .tooltip = "Click to pick a sprite material, or drop one from "
+                                      "the Content Browser. Materials picked here load with "
+                                      "the scene and go into packages.",
+                           .emptyListText = "The project has no sprite materials"});
   default:
     return renderVectorRow(desc, value);
   }

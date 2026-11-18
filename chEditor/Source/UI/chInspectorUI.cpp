@@ -33,6 +33,7 @@
 #include "chModel.h"
 #include "chModelComponent.h"
 #include "chPrefabAsset.h"
+#include "chPropertyWidgetsUI.h"
 #include "chQuaternion.h"
 #include "chRotator.h"
 #include "chScene.h"
@@ -42,6 +43,7 @@
 #include "chSpriteAtlasAsset.h"
 #include "chSpriteAtlasEditorUI.h"
 #include "chSpriteComponent.h"
+#include "chSpriteMaterialAsset.h"
 #include "chSkeleton.h"
 #include "chSkeletonAsset.h"
 #include "chScriptAsset.h"
@@ -737,6 +739,21 @@ InspectorUI::renderSpriteComponent(SpriteComponent& spriteComponent)
     spriteComponent.setFilter(static_cast<SpriteFilter>(filter));
   }
   ImGui::SetItemTooltip("Point keeps pixel art sharp; Linear smooths scaled images");
+
+  ScriptPropertyValue material;
+  material.type = ScriptPropertyType::SpriteMaterial;
+  material.object = spriteComponent.getMaterialId();
+  if (PropertyWidgetsUI::render({.label = "Material"}, material, gameObject)) {
+    EditorScene::recordChange(gameObject, "Set Sprite Material");
+    spriteComponent.setMaterialId(material.object);
+  }
+  if (const SPtr<SpriteMaterialAsset>& asset = spriteComponent.getMaterial()) {
+    if (ImGui::SmallButton(ICON_FA_EDIT "  Edit Material")) {
+      AssetInspectorUI::open(asset);
+    }
+    ImGui::SetItemTooltip("Opens the material in the Asset Inspector; it is shared, so every "
+                          "sprite using it changes");
+  }
 }
 
 /*

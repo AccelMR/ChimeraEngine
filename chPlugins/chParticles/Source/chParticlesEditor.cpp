@@ -137,6 +137,9 @@ ParticlesEditor::registerDescriptions()
       .property<&Particles::getTextureId, &Particles::setTextureId>(
           "Texture", {.tooltip = "Without one each particle is a square of its color",
                       .objectType = ScriptPropertyType::Texture})
+      .memberProperty<&Particles::getLook, &Particles::setLook, &ParticleLook::material>(
+          "Material", {.tooltip = "A sprite material whose pixel shader shades the particles",
+                       .objectType = ScriptPropertyType::SpriteMaterial})
       .memberProperty<&Particles::getLook, &Particles::setLook, &Look::size>("Size")
       .curve<&Particles::getSizeCurve, &Particles::setSizeCurve>(
           "Size Over Life", {.minimum = 0.0,

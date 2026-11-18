@@ -2,7 +2,8 @@
 
 A small 2D shooter made with Chimera's 2D tools. Move with WASD, the arrows or the left
 stick; fire with Space, the left mouse button or the South button; after a game over, R or
-Start plays again; P (or Back) turns a stress test of numbers and particles on and off.
+Start plays again; P (or Back) turns a stress test of numbers and particles on and off; C
+(or North) turns the CRT look on and off.
 
 Open it with `chEditor -project=Examples/Example2D` (the editor starts in its 2D view) or
 play it with `chGame -project=Examples/Example2D`.
@@ -24,7 +25,9 @@ play it with `chGame -project=Examples/Example2D`.
 | Damage numbers that fly, pop, shake and flash on the GPU | `showDamage` in `GameManager.lua`, called by the bullets' `onHit` in `PlayerShip.lua` (the chParticles plugin: `addFloatingNumbers`, `configure`, `setTiers`, `spawn`) |
 | Spawning from a prefab property | `GameManager.lua` (`Scene.instantiate`, the `enemy` property) |
 | Opening a map again | `GameManager.lua` (`Scene.openMap("Main")`) |
-| Input actions | `Config/Input.ini` (Move, Fire, Restart) |
+| Input actions | `Config/Input.ini` (Move, Fire, Restart, Stress, ToggleCRT) |
+| A post-process pass on the whole image | the `Camera` object's Post Process (the engine's CRT effect, imported into `EngineEffects/PP_CRT`, two values changed); `GameManager.lua` turns it on and off (`getPostProcess`, `setEnabled`) |
+| Sprite materials: shaders of the project that shade sprites | `SourceAssets/Shaders/HitFlash.hlsl` and `Dissolve.hlsl` (`// CH_SHADER Sprite`), imported into `Shaders/SH_*`, used by `Materials/SM_HitFlash` and `SM_Dissolve`; `Enemy.lua` swaps the flash in while hit and dissolves the saucer when it dies, lowering the alpha of its sprite's color, which the dissolve reads as how much is left |
 | Sounds and music | `GameManager.lua` (`AudioClip.find`, `Audio.play` with plain numbers, the looping streamed music kept in the global `MusicVoice` across map reloads), called from `PlayerShip.lua` and `Enemy.lua`; each clip's voice limit is set in the Asset Inspector |
 
 The world is the YZ plane: Y is right and Z is up, and in scripts the x and y of 2D

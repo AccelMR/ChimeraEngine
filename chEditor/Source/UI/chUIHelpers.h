@@ -30,6 +30,7 @@ enum class AssetType
   SpriteAtlas,
   Font,
   Audio,
+  SpriteMaterial,
   Unknown
 };
 

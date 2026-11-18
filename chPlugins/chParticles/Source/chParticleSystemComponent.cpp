@@ -277,12 +277,12 @@ ParticleSystemComponent::setMotion(const AgeMotion& motion)
 void
 ParticleSystemComponent::setLook(const ParticleLook& look)
 {
-  const bool bTextureChanged = look.texture != m_look.texture;
+  const bool bAssetsChanged = look.texture != m_look.texture || look.material != m_look.material;
   m_look = look;
   m_look.size = Vector2(Math::max(look.size.x, 0.0f), Math::max(look.size.y, 0.0f));
   m_look.minScale = Math::max(look.minScale, 0.0f);
   m_look.maxScale = Math::max(look.maxScale, 0.0f);
-  if (bTextureChanged) {
+  if (bAssetsChanged) {
     resolveAssets();
   }
   m_bLookDirty = true;

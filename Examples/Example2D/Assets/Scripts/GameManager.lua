@@ -58,6 +58,12 @@ function GameManager:onStart()
   -- from taking every voice.
   self.sounds = { shot = AudioClip.find("S_ShotPlayer"), enemyShot = AudioClip.find("S_ShotEnemy"),
                   explosion = AudioClip.find("S_Explosion"), hurt = AudioClip.find("S_Hurt") }
+  -- Sprite materials the enemies swap to: a white flash when hit, a dissolve when they die.
+  -- Each is one shared asset; what differs per enemy rides in its sprite's color.
+  self.materials = { hitFlash = SpriteMaterial.find("SM_HitFlash"),
+                     dissolve = SpriteMaterial.find("SM_Dissolve") }
+  -- The camera's Post Process holds the engine's CRT effect; C turns it on and off.
+  self.postProcess = Scene.find("Camera"):getPostProcess()
   -- The music is a global voice: opening the map again after a game over runs onStart again,
   -- and the music keeps playing through it instead of starting a second time.
   if not (MusicVoice and MusicVoice:isPlaying()) then
@@ -205,7 +211,7 @@ function GameManager:updateStress(dt)
                                 or "before the stress test"))
   end
   if not self.stressOn then
-    Text.draw(self.stressHintStyle, "P: stress test", -self.halfWidth + 0.3,
+    Text.draw(self.stressHintStyle, "P: stress test    C: CRT", -self.halfWidth + 0.3,
               -self.halfHeight + 0.2)
     return
   end
@@ -273,6 +279,10 @@ end
 function GameManager:update(dt)
   self:drawHud()
   self:updateStress(dt)
+  if Input.wasActionPressed("ToggleCRT") and self.postProcess
+     and self.postProcess:getPassCount() > 0 then
+    self.postProcess:setEnabled(1, not self.postProcess:isEnabled(1))
+  end
   if self.over then
     if Input.wasActionPressed("Restart") then
       Scene.openMap("Main")

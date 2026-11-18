@@ -36,6 +36,7 @@
 #include "chSkeletonAsset.h"
 #include "chSpriteAtlasAsset.h"
 #include "chSpriteAtlasEditorUI.h"
+#include "chSpriteMaterialAsset.h"
 #include "chStringUtils.h"
 #include "chTextureAsset.h"
 #include "chUIHelpers.h"
@@ -410,6 +411,157 @@ renderFont(const SPtr<FontAsset>& asset)
 }
 
 /*
+ * One widget for a shader parameter's value; true when it changed. bSave is set when the
+ * edit is finished (a drag released, a box ticked), the moment to write the asset.
+ */
+bool
+renderShaderValue(const ShaderParameter& parameter, Vector4& value, bool& bSave)
+{
+  const bool bRange = parameter.minimum < parameter.maximum;
+  bool bChanged = false;
+  switch (parameter.type) {
+    case ShaderParameterType::Float:
+      bChanged = bRange ? ImGui::SliderFloat(parameter.name.c_str(), &value.x, parameter.minimum,
+                                             parameter.maximum)
+                        : ImGui::DragFloat(parameter.name.c_str(), &value.x, 0.01f);
+      break;
+    case ShaderParameterType::Int: {
+      int32 number = static_cast<int32>(value.x);
+      bChanged = bRange ? ImGui::SliderInt(parameter.name.c_str(), &number,
+                                           static_cast<int32>(parameter.minimum),
+                                           static_cast<int32>(parameter.maximum))
+                        : ImGui::DragInt(parameter.name.c_str(), &number);
+      value.x = static_cast<float>(number);
+      break;
+    }
+    case ShaderParameterType::Bool: {
+      bool bValue = value.x != 0.0f;
+      if (ImGui::Checkbox(parameter.name.c_str(), &bValue)) {
+        value.x = bValue ? 1.0f : 0.0f;
+        bSave = true;
+        return true;
+      }
+      return false;
+    }
+    case ShaderParameterType::Float2:
+      bChanged = ImGui::DragFloat2(parameter.name.c_str(), &value.x, 0.01f);
+      break;
+    case ShaderParameterType::Float3:
+      bChanged = ImGui::DragFloat3(parameter.name.c_str(), &value.x, 0.01f);
+      break;
+    case ShaderParameterType::Float4:
+      bChanged = ImGui::DragFloat4(parameter.name.c_str(), &value.x, 0.01f);
+      break;
+    case ShaderParameterType::Color:
+    case ShaderParameterType::COUNT:
+      bChanged = ImGui::ColorEdit4(parameter.name.c_str(), &value.x, ImGuiColorEditFlags_Float);
+      break;
+  }
+  bSave |= ImGui::IsItemDeactivatedAfterEdit();
+  return bChanged;
+}
+
+/*
+ * The shader and its values, written to the asset when an edit ends. Every sprite using
+ * the material shows the change at once.
+ */
+void
+renderSpriteMaterial(const SPtr<SpriteMaterialAsset>& material)
+{
+  bool bSave = false;
+  const SPtr<ShaderAsset>& shader = material->getShader();
+  ImGui::TextUnformatted("Shader");
+  ImGui::SameLine();
+  const ANSICHAR* shaderName =
+      shader ? shader->getName()
+             : (material->getShaderId().isNull() ? "None (drop a sprite shader)"
+                                                 : "Missing shader");
+  if (ImGui::Button(shaderName, ImVec2(-FLT_MIN, 0.0f))) {
+    ImGui::OpenPopup("PickSpriteShader");
+  }
+  ImGui::SetItemTooltip("A .hlsl with // CH_SHADER Sprite, imported into the project");
+  SPtr<ShaderAsset> picked;
+  if (ImGui::BeginDragDropTarget()) {
+    const SPtr<IAsset> dragged = AssetDragDrop::peekAnyAsset();
+    if (dragged && dragged->isTypeOf<ShaderAsset>()) {
+      if (const SPtr<IAsset> dropped = AssetDragDrop::acceptAnyAsset()) {
+        picked = dropped->as<ShaderAsset>();
+      }
+    }
+    ImGui::EndDragDropTarget();
+  }
+  if (ImGui::BeginPopup("PickSpriteShader")) {
+    static Vector<SPtr<IAsset>> s_shaders;
+    if (ImGui::IsWindowAppearing()) {
+      s_shaders.clear();
+      AssetManager::instance().getAssetsOfType(AssetTypeTraits<ShaderAsset>::getTypeId(),
+                                               s_shaders);
+    }
+    if (s_shaders.empty()) {
+      ImGui::TextDisabled("The project has no shaders; import a .hlsl file");
+    }
+    for (const SPtr<IAsset>& asset : s_shaders) {
+      if (ImGui::Selectable(asset->getName())) {
+        picked = asset->as<ShaderAsset>();
+      }
+      ImGui::SetItemTooltip("%s", asset->getAssetPath());
+    }
+    ImGui::EndPopup();
+  }
+  if (picked) {
+    if (!picked->isLoaded()) {
+      static_cast<void>(AssetManager::instance().syncLoadAsset(picked));
+    }
+    bSave |= material->setShader(picked);
+  }
+
+  if (!shader) {
+    ImGui::TextDisabled("Sprites using it draw as the engine draws them until it has a "
+                        "shader.");
+  }
+  else {
+    if (shader->getKind() != ShaderAssetKind::Sprite) {
+      ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                         "Not a sprite shader; add // CH_SHADER Sprite to it.");
+    }
+    if (!shader->getCompileError().empty()) {
+      ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                         "The shader's last compile failed; see its Asset Inspector.");
+    }
+    ImGui::SeparatorText("Values");
+    if (shader->getParameters().empty()) {
+      ImGui::TextDisabled("The shader declares no CH_PARAM values.");
+    }
+    for (const ShaderParameter& parameter : shader->getParameters()) {
+      ImGui::PushID(parameter.name.c_str());
+      const ShaderValueOverride* entry = material->findOverride(parameter.name);
+      Vector4 value = entry ? entry->value : parameter.defaultValue;
+      ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - ImGui::GetFrameHeight() -
+                              ImGui::GetStyle().ItemSpacing.x);
+      if (renderShaderValue(parameter, value, bSave)) {
+        static_cast<void>(material->setValue(parameter.name, value));
+      }
+      if (!parameter.tooltip.empty()) {
+        ImGui::SetItemTooltip("%s", parameter.tooltip.c_str());
+      }
+      if (entry) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton(ICON_FA_UNDO)) {
+          material->resetValue(parameter.name);
+          bSave = true;
+        }
+        ImGui::SetItemTooltip("Back to the shader's default");
+      }
+      ImGui::PopID();
+    }
+  }
+
+  if (bSave && !AssetManager::instance().saveAsset(material)) {
+    CH_LOG_ERROR(AssetInspectorLog, "Failed to save sprite material {0}", material->getName());
+  }
+}
+
+/*
  */
 void
 renderShader(const SPtr<ShaderAsset>& asset)
@@ -659,6 +811,9 @@ renderAsset(const SPtr<IAsset>& asset)
   }
   else if (const SPtr<ShaderAsset> shader = asset->as<ShaderAsset>()) {
     renderShader(shader);
+  }
+  else if (const SPtr<SpriteMaterialAsset> spriteMaterial = asset->as<SpriteMaterialAsset>()) {
+    renderSpriteMaterial(spriteMaterial);
   }
   else {
     ImGui::TextDisabled("Nothing to show for this type.");

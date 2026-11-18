@@ -1,6 +1,8 @@
 -- chimera-uuid: 4e9d5300-2351-4a05-bc32-b31c6d6e8a97
 -- An enemy saucer: weaves down the screen, fires its pattern through the game's enemy
--- bullets, flashes when hit and explodes when its health runs out.
+-- bullets, flashes when hit and explodes and dissolves when its health runs out. The flash
+-- and the dissolve are sprite materials (Game.materials); the dissolve reads how much is
+-- left from the alpha of the sprite's color, so each enemy dissolves at its own pace.
 ---@class Enemy : Script
 ---@field health integer
 ---@field speed number
@@ -21,13 +23,17 @@ Enemy.properties = {
   { "bottom", -9.5, tooltip = "Below this height it leaves" },
 }
 
+-- Seconds the dissolve takes after the enemy dies.
+local DISSOLVE_TIME = 0.4
+
 function Enemy:onStart()
-  self.gameObject:addProjectileTarget(0.5, 2)
+  self.hitTarget = self.gameObject:addProjectileTarget(0.5, 2)
   self.sprite = self.gameObject:getSprite()
   self.position = Vector3()
   self.target = Vector3()
   self.age = 0
   self.flash = 0
+  self.dying = -1
   self.cooldown = 0.6 + math.random() * self.fireInterval
   self.startY = self.transform:getWorldPosition(self.position).y
   self.phase = math.random() * 6.28
@@ -43,10 +49,21 @@ function Enemy:update(dt)
     return
   end
 
+  if self.dying >= 0 then
+    self.dying = self.dying + dt
+    local left = 1 - self.dying / DISSOLVE_TIME
+    if left <= 0 then
+      self.gameObject:destroy()
+    else
+      self.sprite:setColor(Color(1, 1, 1, left))
+    end
+    return
+  end
+
   if self.flash > 0 then
     self.flash = self.flash - dt
     if self.flash <= 0 then
-      self.sprite:setColor(Color(1, 1, 1, 1))
+      self:setFlash(false)
     end
   end
 
@@ -83,13 +100,26 @@ function Enemy:damage(amount)
     return
   end
   self.health = self.health - amount
-  -- Colors above one brighten the sprite.
   self.flash = 0.08
-  self.sprite:setColor(Color(3, 3, 3, 1))
+  self:setFlash(true)
   if self.health <= 0 then
     local position = self.transform:getWorldPosition(self.position)
     Game:enemyKilled(position.y, position.z, self.points)
-    self.gameObject:destroy()
+    -- On a team no bullet hits, so the dissolving saucer is no longer a target.
+    self.hitTarget:setTeam(32)
+    self.dying = 0
+    self.sprite:setMaterial(Game.materials.dissolve)
+  end
+end
+
+-- The flash material swapped in and out; without one (an old project) the color brightens.
+function Enemy:setFlash(on)
+  local material = Game and Game.materials.hitFlash
+  if material then
+    self.sprite:setMaterial(on and material or nil)
+  else
+    -- Colors above one brighten the sprite.
+    self.sprite:setColor(on and Color(3, 3, 3, 1) or Color(1, 1, 1, 1))
   end
 end
 

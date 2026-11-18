@@ -29,6 +29,7 @@
 #include "chAnimationGraphAsset.h"
 #include "chAudioClipAsset.h"
 #include "chShaderAsset.h"
+#include "chSpriteMaterialAsset.h"
 #include "chScriptAsset.h"
 #include "chSpriteAtlasAsset.h"
 #include "chFontAsset.h"
@@ -220,6 +221,9 @@ UIHelpers::getIconFromAssetType(const SPtr<IAsset>& asset)
   }
   if (asset->isTypeOf<ShaderAsset>()) {
     return {AssetType::Shader, ICON_FA_MAGIC};
+  }
+  if (asset->isTypeOf<SpriteMaterialAsset>()) {
+    return {AssetType::SpriteMaterial, ICON_FA_PAINT_BRUSH};
   }
   return {AssetType::Unknown, ICON_FA_FILE};
 }

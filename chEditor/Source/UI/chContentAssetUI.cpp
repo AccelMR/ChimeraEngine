@@ -25,6 +25,7 @@
 #include "chAnimationGraphAsset.h"
 #include "chAnimationGraphEditorUI.h"
 #include "chSpriteAtlasAsset.h"
+#include "chSpriteMaterialAsset.h"
 #include "chSpriteAtlasEditorUI.h"
 #include "chTextureAsset.h"
 #include "chAssetManager.h"
@@ -2015,6 +2016,23 @@ ContentAssetUI::renderEmptyAreaContextMenu()
       onAssetCreated(atlas);
       if (atlas) {
         AssetInspectorUI::open(atlas);
+      }
+    }
+    if (ImGui::MenuItem(ICON_FA_PAINT_BRUSH "  Sprite Material")) {
+      // Saved at once, so a sprite can take it before anything is edited; the shader is
+      // picked in the Asset Inspector.
+      AssetManager& assetManager = AssetManager::instance();
+      const Path& folder = getCurrentFolderPath();
+      const SPtr<SpriteMaterialAsset> material =
+          assetManager.createAsset<SpriteMaterialAsset>(
+              assetManager.makeUniqueAssetName(folder, "SM_New"), folder).lock();
+      if (material && assetManager.saveAsset(material)) {
+        onAssetCreated(material);
+        AssetInspectorUI::open(material);
+      }
+      else {
+        CH_LOG_ERROR(ContentAssetUILog, "Failed to create a sprite material.");
+        refreshAssets();
       }
     }
     ImGui::EndMenu();
