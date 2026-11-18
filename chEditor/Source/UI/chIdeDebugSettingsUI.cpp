@@ -64,9 +64,6 @@ getState()
 }
 
 /*
- * What every generated entry needs to know about the project and the build that runs now.
- */
-/*
  * One build configuration (Debug or Release) the entries can start and rebuild.
  */
 struct BuildVariant
@@ -80,6 +77,9 @@ struct BuildVariant
   String configurePreset;
 };
 
+/*
+ * What every generated entry needs to know about the project and the build that runs now.
+ */
 struct LaunchTarget
 {
   String projectName;
@@ -327,10 +327,10 @@ makeVSCodeEntry(const LaunchTarget& target, const BuildVariant* variant, StringV
       escapeJson((executableDirectory / (String(program) + kExecutableExtension)).toString());
 #if USING(CH_PLATFORM_WIN32)
   constexpr const ANSICHAR* kDebugger = "      \"type\": \"cppvsdbg\",\n";
-  const String kConsole = "      \"console\": \"internalConsole\"\n";
+  const String lastLine = "      \"console\": \"internalConsole\"\n";
 #else
   constexpr const ANSICHAR* kDebugger = "      \"type\": \"cppdbg\",\n";
-  const String kConsole = "      \"MIMode\": \"" + target.miMode + "\"\n";
+  const String lastLine = "      \"MIMode\": \"" + target.miMode + "\"\n";
 #endif // USING(CH_PLATFORM_WIN32)
   String entry = "    {\n";
   const String name = variant ? String(label) + " (" + variant->name + ")" : String(label);
@@ -344,7 +344,7 @@ makeVSCodeEntry(const LaunchTarget& target, const BuildVariant* variant, StringV
     entry += "      \"preLaunchTask\": \"" +
              escapeJson(makeBuildTaskLabel(target, *variant, label)) + "\",\n";
   }
-  entry += kConsole;
+  entry += lastLine;
   entry += "    }";
   return entry;
 }
