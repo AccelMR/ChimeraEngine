@@ -63,8 +63,9 @@ class ImageCodec : public IAssetCodec {
                              const ImportSettings& settings) override;
 
  private:
-  // The formats stb_image reads. It has no EXR support.
-  const Vector<String> m_extensions = {"png", "jpg", "jpeg", "bmp", "tga", "hdr"};
+  // The formats stb_image reads (it has no EXR support), plus still WebP images read by
+  // libwebp.
+  const Vector<String> m_extensions = {"png", "jpg", "jpeg", "bmp", "tga", "hdr", "webp"};
 };
 DECLARE_ASSET_TYPE(ImageCodec);
 

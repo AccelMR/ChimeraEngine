@@ -15,12 +15,15 @@
 #include "chFileSystem.h"
 #include "chIGraphicsAPI.h"
 #include "chLogger.h"
+#include "chStringUtils.h"
 #include "chTextureMips.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 // stb reads file names in the system code page on Windows unless told they are UTF-8.
 #define STBI_WINDOWS_UTF8
 #include "stb_image.h"
+
+#include "webp/decode.h"
 
 namespace chEngineSDK{
 
@@ -55,6 +58,16 @@ takeHdrImage(float* data, int32 width, int32 height) {
   return imageData;
 }
 
+/*
+ * WebP files start with "RIFF", the chunk size, then "WEBP".
+ */
+bool
+isWebP(Span<const uint8> data)
+{
+  return data.size() >= 12 && memcmp(data.data(), "RIFF", 4) == 0 &&
+         memcmp(data.data() + 8, "WEBP", 4) == 0;
+}
+
 /**
  * Exists so the image is decoded and its mips built on the import's worker thread, and only
  * the texture asset is made on the main thread.
@@ -86,6 +99,9 @@ class ImageImportTask final : public IImportTask
   NODISCARD bool
   decode(Vector<float>& outHdrPixels);
 
+  NODISCARD bool
+  decodeWebP(Span<const uint8> data);
+
   // Empty when the image is read from m_data.
   Path m_filePath;
   Span<const uint8> m_data;
@@ -107,6 +123,18 @@ class ImageImportTask final : public IImportTask
 bool
 ImageImportTask::decode(Vector<float>& outHdrPixels)
 {
+  // stb_image does not read WebP. A file is only read into memory for it when its name says
+  // WebP, so other images are still streamed by stb.
+  if (m_filePath.empty()) {
+    if (isWebP(m_data)) {
+      return decodeWebP(m_data);
+    }
+  }
+  else if (StringUtils::equalsIgnoreCase(m_filePath.getExtension(), ".webp")) {
+    const Vector<uint8> fileData = FileSystem::fastRead(m_filePath);
+    return decodeWebP(fileData);
+  }
+
   int32 width = 0;
   int32 height = 0;
   int32 channels = 0;
@@ -144,6 +172,38 @@ ImageImportTask::decode(Vector<float>& outHdrPixels)
   }
   m_width = static_cast<uint32>(width);
   m_height = static_cast<uint32>(height);
+  return true;
+}
+
+/*
+ * Decodes straight into m_pixels (RGBA, alpha not premultiplied, like stb gives).
+ */
+bool
+ImageImportTask::decodeWebP(Span<const uint8> data)
+{
+  WebPBitstreamFeatures features;
+  if (!isWebP(data) || WebPGetFeatures(data.data(), data.size(), &features) != VP8_STATUS_OK) {
+    CH_LOG_ERROR(ImageCodecLog, "Failed to read WebP image {0} {1}: not a valid WebP file",
+                 m_sourceFile, m_sourcePart);
+    return false;
+  }
+  if (features.has_animation) {
+    CH_LOG_ERROR(ImageCodecLog, "Failed to read WebP image {0} {1}: animated WebP is not "
+                 "supported", m_sourceFile, m_sourcePart);
+    return false;
+  }
+
+  const SIZE_T stride = static_cast<SIZE_T>(features.width) * 4;
+  m_pixels.resize(stride * static_cast<SIZE_T>(features.height));
+  if (!WebPDecodeRGBAInto(data.data(), data.size(), m_pixels.data(), m_pixels.size(),
+                          static_cast<int32>(stride))) {
+    m_pixels.clear();
+    CH_LOG_ERROR(ImageCodecLog, "Failed to decode WebP image {0} {1}", m_sourceFile,
+                 m_sourcePart);
+    return false;
+  }
+  m_width = static_cast<uint32>(features.width);
+  m_height = static_cast<uint32>(features.height);
   return true;
 }
 
