@@ -25,6 +25,7 @@
 #include "chScene.h"
 #include "chSpriteAtlasAsset.h"
 #include "chSpriteDraw.h"
+#include "chSpriteMaterialAsset.h"
 #include "chSpriteShader.h"
 #include "chTextureAsset.h"
 
@@ -40,6 +41,7 @@ struct SystemFileData
 {
   UUID texture;
   UUID atlas;
+  UUID material;
   float uvRect[4];
   float size[2];
   float minScale;
@@ -83,7 +85,7 @@ struct SystemFileData
   uint8 sizeKeyCount;
   uint8 padding2;
 };
-static_assert(sizeof(SystemFileData) == 208, "SystemFileData must have no padding");
+static_assert(sizeof(SystemFileData) == 224, "SystemFileData must have no padding");
 
 struct BurstFileData
 {
@@ -400,6 +402,7 @@ ParticleSystemComponent::serialize(DataStream& stream) const
   SystemFileData data{};
   data.texture = m_look.texture;
   data.atlas = m_flipbook.atlas;
+  data.material = m_look.material;
   for (uint32 i = 0; i < 4; ++i) {
     data.uvRect[i] = m_look.uvRect[i];
   }
@@ -513,6 +516,7 @@ ParticleSystemComponent::deserialize(DataStream& stream)
   m_capacity = Math::clamp(data.capacity, 1u, MAX_CAPACITY);
   ParticleLook look;
   look.texture = data.texture;
+  look.material = data.material;
   for (uint32 i = 0; i < 4; ++i) {
     look.uvRect[i] = data.uvRect[i];
   }
@@ -576,6 +580,9 @@ ParticleSystemComponent::collectReferences(Vector<UUID>& outReferences) const
   }
   if (!m_flipbook.atlas.isNull()) {
     outReferences.push_back(m_flipbook.atlas);
+  }
+  if (!m_look.material.isNull()) {
+    outReferences.push_back(m_look.material);
   }
 }
 
@@ -733,6 +740,7 @@ ParticleSystemComponent::resolveAssets()
 {
   m_texture = findLoaded<TextureAsset>(m_look.texture);
   m_atlas = findLoaded<SpriteAtlasAsset>(m_flipbook.atlas);
+  m_material = findLoaded<SpriteMaterialAsset>(m_look.material);
   m_bLookDirty = true;
 }
 
@@ -817,7 +825,9 @@ ParticleSystemComponent::addBatch(uint32 first, uint32 count, const EmitterPlace
                           .instanceCount = count,
                           .sortingLayer = m_look.sortingLayer,
                           .order = m_look.order,
-                          .blendMode = m_look.blendMode};
+                          .blendMode = m_look.blendMode,
+                          .parameters = {},
+                          .material = m_material.get()};
   ParticleBatchParameters parameters{.particleBufferIndex = particleBuffer->getBindlessIndex(),
                                      .firstParticle = first,
                                      .lookIndex = m_lookBuffer->getBindlessIndex(),

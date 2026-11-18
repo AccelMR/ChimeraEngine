@@ -82,15 +82,22 @@ class CH_CORE_EXPORT SpritePass
    */
   NODISCARD const IPipeline*
   getMaterialPipeline(const SpriteMaterialAsset& material,
+                      const SPtr<IShader>& vertexShader,
                       SpriteBlendMode blendMode,
                       Format colorFormat);
 
   /**
    * Gives every material the runs use a place in the frame's parameter bytes and fills
-   * m_materialDraws, in the order of the runs with a material.
+   * m_materialDraws, in the order of the runs with a material (sprites and custom batches).
    */
   void
-  prepareMaterials(Format colorFormat);
+  prepareMaterials(Span<const CustomSpriteBatch> customBatches, Format colorFormat);
+
+  /**
+   * Where the material's bytes start in the frame's buffer, added on first use.
+   */
+  NODISCARD uint32
+  addFrameMaterial(const SpriteMaterialAsset& material);
 
   SPtr<IShader> m_vertexShader;
   SPtr<IShader> m_fragmentShader;
@@ -109,11 +116,13 @@ class CH_CORE_EXPORT SpritePass
     uint32 vertexCount;
     uint32 instanceCount;
     Array<uint8, CustomSpriteBatch::MAX_PARAMETER_BYTES> parameters;
+    uint32 materialParametersOffset;
   };
 
   struct MaterialPipeline
   {
     const ShaderAsset* shader = nullptr;
+    const IShader* vertexShader = nullptr;
     uint32 revision = 0;
     SpriteBlendMode blendMode = SpriteBlendMode::Alpha;
     Format format = Format::Unknown;

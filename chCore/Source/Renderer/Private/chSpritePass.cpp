@@ -189,7 +189,7 @@ SpritePass::addPass(RenderGraph& graph,
     pipelines[mode + kBlendModes] =
         &getPipeline(static_cast<SpriteBlendMode>(mode), true, colorFormat);
   }
-  prepareMaterials(colorFormat);
+  prepareMaterials(customBatches, colorFormat);
   const SpriteBatchHeader header{
       .viewProjection = camera.getViewProjectionMatrix(),
       .pointSamplerIndex = m_pointSampler->getBindlessIndex(),
@@ -211,10 +211,20 @@ SpritePass::addPass(RenderGraph& graph,
     }
     const CustomSpriteBatch& batch = customBatches[run.bufferIndex];
     const IPipeline* pipeline = batch.shader->getPipeline(batch.blendMode, colorFormat);
+    uint32 materialOffset = 0;
+    // A material that cannot draw leaves the batch to its own shaders.
+    if (batch.material) {
+      if (const IPipeline* materialPipeline = getMaterialPipeline(
+              *batch.material, batch.shader->getVertexShader(), batch.blendMode, colorFormat)) {
+        pipeline = materialPipeline;
+        materialOffset = addFrameMaterial(*batch.material);
+      }
+    }
     m_customDraws.push_back({.pipeline = pipeline,
                              .vertexCount = batch.vertexCount,
                              .instanceCount = batch.instanceCount,
-                             .parameters = batch.parameters});
+                             .parameters = batch.parameters,
+                             .materialParametersOffset = materialOffset});
   }
 
   graph.addPass("Sprites")
@@ -242,6 +252,7 @@ SpritePass::addPass(RenderGraph& graph,
               continue;
             }
             custom.parameters = draw.parameters;
+            custom.header.materialParametersOffset = draw.materialParametersOffset;
             commandList.bindPipeline(*draw.pipeline);
             commandList.pushConstants(&custom, sizeof(custom));
             commandList.draw(draw.vertexCount, draw.instanceCount);
@@ -278,7 +289,8 @@ SpritePass::addPass(RenderGraph& graph,
 /*
  */
 void
-SpritePass::prepareMaterials(const Format colorFormat)
+SpritePass::prepareMaterials(Span<const CustomSpriteBatch> customBatches,
+                             const Format colorFormat)
 {
   m_materialDraws.clear();
   m_frameMaterials.clear();
@@ -289,24 +301,17 @@ SpritePass::prepareMaterials(const Format colorFormat)
     if (run.kind != SpriteRunKind::Sprites || !run.material) {
       continue;
     }
-    const SpriteMaterialAsset& material = *run.material;
     MaterialDraw& draw = m_materialDraws.emplace_back();
-    draw.pipeline = getMaterialPipeline(material, run.blendMode, colorFormat);
-    if (!draw.pipeline) {
-      continue;
+    draw.pipeline = getMaterialPipeline(*run.material, m_vertexShader, run.blendMode, colorFormat);
+    if (draw.pipeline) {
+      draw.parametersOffset = addFrameMaterial(*run.material);
     }
-    // A frame holds a few materials, so a search is cheaper than a map.
-    SIZE_T slot = 0;
-    while (slot < m_frameMaterials.size() && m_frameMaterials[slot] != &material) {
-      ++slot;
+  }
+  // Added here, before the upload, so the custom draws made after find their bytes.
+  for (const CustomSpriteBatch& batch : customBatches) {
+    if (batch.material && batch.material->canDraw()) {
+      static_cast<void>(addFrameMaterial(*batch.material));
     }
-    if (slot == m_frameMaterials.size()) {
-      const Span<const uint8> bytes = material.getParameterData();
-      m_frameMaterials.push_back(&material);
-      m_frameMaterialOffsets.push_back(static_cast<uint32>(m_materialBytes.size()));
-      m_materialBytes.insert(m_materialBytes.end(), bytes.begin(), bytes.end());
-    }
-    draw.parametersOffset = m_frameMaterialOffsets[slot];
   }
   if (m_materialBytes.empty()) {
     return;
@@ -321,19 +326,40 @@ SpritePass::prepareMaterials(const Format colorFormat)
 
 /*
  */
+uint32
+SpritePass::addFrameMaterial(const SpriteMaterialAsset& material)
+{
+  // A frame holds a few materials, so a search is cheaper than a map.
+  for (SIZE_T slot = 0; slot < m_frameMaterials.size(); ++slot) {
+    if (m_frameMaterials[slot] == &material) {
+      return m_frameMaterialOffsets[slot];
+    }
+  }
+  const uint32 offset = static_cast<uint32>(m_materialBytes.size());
+  const Span<const uint8> bytes = material.getParameterData();
+  m_frameMaterials.push_back(&material);
+  m_frameMaterialOffsets.push_back(offset);
+  m_materialBytes.insert(m_materialBytes.end(), bytes.begin(), bytes.end());
+  return offset;
+}
+
+/*
+ */
 const IPipeline*
 SpritePass::getMaterialPipeline(const SpriteMaterialAsset& material,
+                                const SPtr<IShader>& vertexShader,
                                 const SpriteBlendMode blendMode,
                                 const Format colorFormat)
 {
-  if (!material.canDraw()) {
+  if (!material.canDraw() || !vertexShader) {
     return nullptr;
   }
   ShaderAsset& shader = *material.getShader();
   const uint32 revision = shader.getRevision();
   MaterialPipeline* reusable = nullptr;
   for (MaterialPipeline& entry : m_materialPipelines) {
-    if (entry.shader == &shader && entry.blendMode == blendMode && entry.format == colorFormat) {
+    if (entry.shader == &shader && entry.vertexShader == vertexShader.get() &&
+        entry.blendMode == blendMode && entry.format == colorFormat) {
       if (entry.revision == revision) {
         return entry.pipeline;
       }
@@ -343,7 +369,7 @@ SpritePass::getMaterialPipeline(const SpriteMaterialAsset& material,
   const SPtr<IShader>& pixelShader = shader.getPixelShader();
   const IPipeline* pipeline =
       pixelShader ? m_pipelineCache
-                        .getOrCreate(SpriteShader::makePipelineDesc(m_vertexShader, pixelShader,
+                        .getOrCreate(SpriteShader::makePipelineDesc(vertexShader, pixelShader,
                                                                     blendMode, colorFormat))
                         .get()
                   : nullptr;
@@ -351,6 +377,7 @@ SpritePass::getMaterialPipeline(const SpriteMaterialAsset& material,
     reusable = &m_materialPipelines.emplace_back();
   }
   *reusable = {.shader = &shader,
+               .vertexShader = vertexShader.get(),
                .revision = revision,
                .blendMode = blendMode,
                .format = colorFormat,

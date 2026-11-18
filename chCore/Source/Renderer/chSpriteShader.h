@@ -55,6 +55,13 @@ class CH_CORE_EXPORT SpriteShader
   NODISCARD FORCEINLINE const String&
   getName() const noexcept { return m_name; }
 
+  /**
+   * Loaded on first use; null when the shaders could not be loaded. Sprite materials run
+   * their pixel shader behind it.
+   */
+  NODISCARD const SPtr<IShader>&
+  getVertexShader();
+
   void
   releaseGpuObjects();
 
@@ -75,6 +82,9 @@ class CH_CORE_EXPORT SpriteShader
                    Format colorFormat);
 
  private:
+  NODISCARD bool
+  loadShaders();
+
   Path m_directory;
   String m_name;
   SPtr<IShader> m_vertexShader;

@@ -207,6 +207,9 @@ struct CustomSpriteBatch
   int16 order = 0;
   SpriteBlendMode blendMode = SpriteBlendMode::Alpha;
   Array<uint8, MAX_PARAMETER_BYTES> parameters{};
+  // Runs its pixel shader behind the batch's vertex shader instead of the batch's own,
+  // which must give SpriteVertexOutput (chSpriteShading.hlsli). Kept alive by the owner.
+  const SpriteMaterialAsset* material = nullptr;
 };
 
 /**

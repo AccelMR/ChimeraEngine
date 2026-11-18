@@ -17,6 +17,7 @@
 #include "chScriptBinder.h"
 #include "chScriptMathTypes.h"
 #include "chScriptObjectTypes.h"
+#include "chSpriteMaterialAsset.h"
 #include "chSpriteAtlasAsset.h"
 #include "chStringUtils.h"
 #include "chTextureAsset.h"
@@ -211,6 +212,10 @@ configure(lua_State* state)
       look.texture = checkAssetId<TextureAsset, ScriptTexture, &ScriptTexture::texture>(
           state, value, "texture");
     }
+    else if (key == "material") {
+      look.material = checkAssetId<SpriteMaterialAsset, ScriptSpriteMaterial,
+                                   &ScriptSpriteMaterial::material>(state, value, "material");
+    }
     else if (key == "size") {
       look.size = checkSize(state, value);
     }
@@ -284,6 +289,7 @@ setLook(lua_State* state)
   const ScriptSpriteStyle& style = ScriptTraits<ScriptSpriteStyle>::check(state, 2);
   ParticleLook look = system.getLook();
   look.texture = style.texture;
+  look.material = style.material;
   for (uint32 i = 0; i < 4; ++i) {
     look.uvRect[i] = style.uvRect[i];
   }
@@ -551,6 +557,7 @@ describeShapes(lua_State* state)
       {"shape?", "\"Point\"|\"Circle\"|\"CircleEdge\"|\"Rectangle\"|\"Line\""},
       {"shapeSize?", "number|Vector2"},
       {"texture?", "Texture|string"},
+      {"material?", "SpriteMaterial|string"},
       {"size?", "number|Vector2"},
       {"minScale?", "number"},
       {"maxScale?", "number"},

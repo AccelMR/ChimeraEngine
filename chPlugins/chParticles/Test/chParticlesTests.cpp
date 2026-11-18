@@ -572,6 +572,7 @@ TEST_CASE("Particles - saving", "[Particles]")
   system.setMotion({.angle = 45.0f, .speed = 7.0f, .gravity = Vector2(1.0f, -3.0f)});
   ParticleLook look;
   look.texture = chEngineSDK::UUID::createRandom();
+  look.material = chEngineSDK::UUID::createRandom();
   look.size = Vector2(0.5f, 0.25f);
   look.color2 = LinearColor(1.0f, 0.0f, 0.0f, 1.0f);
   look.spinVariance = 90.0f;
@@ -602,6 +603,8 @@ TEST_CASE("Particles - saving", "[Particles]")
   REQUIRE(loaded.getBursts()[0].cycles == 3);
   REQUIRE(loaded.getMotion().angle == Approx(45.0f));
   REQUIRE(loaded.getLook().texture == look.texture);
+  // Without an asset manager the material is not found, but its id stays.
+  REQUIRE(loaded.getLook().material == look.material);
   REQUIRE(loaded.getLook().size.y == Approx(0.25f));
   REQUIRE(loaded.getLook().color2.g == 0.0f);
   REQUIRE(loaded.getLook().spinVariance == Approx(90.0f));
@@ -615,7 +618,7 @@ TEST_CASE("Particles - saving", "[Particles]")
   REQUIRE(loaded.getSizeCurve()[0].value == Approx(3.0f));
   Vector<chEngineSDK::UUID> references;
   loaded.collectReferences(references);
-  REQUIRE(references.size() == 2);
+  REQUIRE(references.size() == 3);
 
   Vector<uint8> bytes(stream.size() - 4);
   stream.seek(0);
