@@ -142,6 +142,16 @@ TEST_CASE("chCore - Script binder", "[Scripting]")
       assert(tostring(Vector3(1, 2, 3)) == "Vector3(1.000, 2.000, 3.000)")
       assert(Vector3(1, 2, 3) ~= Vector3(1, 2, 4))
       assert(Vector3(1, 2, 3) ~= "Vector3")
+
+      local function close(a, b) return (a - b):length() < 1e-3 end
+      assert(Vector2(3, 4):lengthSquared() == 25)
+      assert(math.abs(Vector2(0, 2):angle() - 90) < 1e-3)
+      assert(math.abs(Vector2(-1, -1):angle() - -135) < 1e-3)
+      assert(math.abs(Vector2(1, 0):angleTo(Vector2(0, -1)) - -90) < 1e-3)
+      assert(close(Vector2(2, 0):rotated(90), Vector2(0, 2)))
+      local r = Vector2(1, 0)
+      assert(rawequal(r:rotate(180), r) and close(r, Vector2(-1, 0)))
+      assert(close(Vector2.FromAngle(-90), Vector2(0, -1)))
     )lua"));
   }
 

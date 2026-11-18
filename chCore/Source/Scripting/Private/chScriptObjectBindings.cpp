@@ -13,6 +13,7 @@
 #include "chAnimationGraphAsset.h"
 #include "chAnimatorComponent.h"
 #include "chAssetManager.h"
+#include "chCamera.h"
 #include "chCameraComponent.h"
 #include "chGameObject.h"
 #include "chGameObjectSerializer.h"
@@ -559,6 +560,123 @@ getActiveCamera(lua_State* state)
   }
   const CameraComponent* camera = scene->getActiveCamera();
   return pushFound(state, camera ? camera->getOwner() : nullptr);
+}
+
+/*
+ * The active camera of the running script's scene, sized like the game view. False when the
+ * scene has no camera or nothing is drawn yet.
+ */
+bool
+makeGameCamera(lua_State* state, const ANSICHAR* function, Camera& outCamera)
+{
+  const ScriptManager& scripts = ScriptManager::instance();
+  const Scene* scene = scripts.getCurrentScene();
+  if (!scene) {
+    luaL_error(state, "%s needs a running script's scene", function);
+    return false;
+  }
+  const CameraComponent* camera = scene->getActiveCamera();
+  const Vector2& size = scripts.getGameViewSize();
+  if (!camera || size.x <= 0.0f || size.y <= 0.0f) {
+    return false;
+  }
+  camera->fillCamera(outCamera, size.x, size.y);
+  return true;
+}
+
+/*
+ * A point in window pixels as a fraction of the game view, which is what Camera takes.
+ */
+Vector2
+toViewFraction(const Vector2& screenPoint)
+{
+  const ScriptManager& scripts = ScriptManager::instance();
+  const Vector2& position = scripts.getGameViewPosition();
+  const Vector2& size = scripts.getGameViewSize();
+  return Vector2((screenPoint.x - position.x) / size.x, (screenPoint.y - position.y) / size.y);
+}
+
+/*
+ * Scene.screenToWorld(screen, depth?, out?): where the ray through a point in window pixels
+ * (as Input.getMousePosition gives it) meets the plane x = depth (0), as world Y and Z, the
+ * 2D coordinates. nil without a camera or when the ray never meets the plane.
+ */
+int32
+screenToWorld(lua_State* state)
+{
+  const Vector2 screenPoint = ScriptTraits<Vector2>::check(state, 1);
+  const float depth = static_cast<float>(luaL_optnumber(state, 2, 0.0));
+  Camera camera;
+  if (!makeGameCamera(state, "Scene.screenToWorld", camera)) {
+    lua_pushnil(state);
+    return 1;
+  }
+  const Ray ray = camera.screenToWorldRay(toViewFraction(screenPoint));
+  if (Math::abs(ray.direction.x) <= Math::SMALL_NUMBER) {
+    lua_pushnil(state);
+    return 1;
+  }
+  const float distance = (depth - ray.origin.x) / ray.direction.x;
+  if (distance < 0.0f) {
+    lua_pushnil(state);
+    return 1;
+  }
+  const Vector3 point = ray.origin + ray.direction * distance;
+  const Vector2 result(point.y, point.z);
+  if (!lua_isnoneornil(state, 3)) {
+    ScriptTraits<Vector2>::check(state, 3) = result;
+    lua_pushvalue(state, 3);
+    return 1;
+  }
+  ScriptTraits<Vector2>::push(state, result);
+  return 1;
+}
+
+/*
+ * Scene.screenToRay(screen): the origin and unit direction of the ray through a point in
+ * window pixels, for Scene.raycast. nil without a camera.
+ */
+int32
+screenToRay(lua_State* state)
+{
+  const Vector2 screenPoint = ScriptTraits<Vector2>::check(state, 1);
+  Camera camera;
+  if (!makeGameCamera(state, "Scene.screenToRay", camera)) {
+    lua_pushnil(state);
+    return 1;
+  }
+  const Ray ray = camera.screenToWorldRay(toViewFraction(screenPoint));
+  ScriptTraits<Vector3>::push(state, ray.origin);
+  ScriptTraits<Vector3>::push(state, ray.direction);
+  return 2;
+}
+
+/*
+ * Scene.worldToScreen(point, out?): where a world point lands, in window pixels. nil without
+ * a camera or behind it.
+ */
+int32
+worldToScreen(lua_State* state)
+{
+  const Vector3 point = ScriptTraits<Vector3>::check(state, 1);
+  Camera camera;
+  Vector2 fraction;
+  if (!makeGameCamera(state, "Scene.worldToScreen", camera) ||
+      !camera.worldToScreenPoint(point, fraction)) {
+    lua_pushnil(state);
+    return 1;
+  }
+  const ScriptManager& scripts = ScriptManager::instance();
+  const Vector2& position = scripts.getGameViewPosition();
+  const Vector2& size = scripts.getGameViewSize();
+  const Vector2 result(position.x + fraction.x * size.x, position.y + fraction.y * size.y);
+  if (!lua_isnoneornil(state, 2)) {
+    ScriptTraits<Vector2>::check(state, 2) = result;
+    lua_pushvalue(state, 2);
+    return 1;
+  }
+  ScriptTraits<Vector2>::push(state, result);
+  return 1;
 }
 
 /*
@@ -1863,6 +1981,11 @@ ScriptBindings::registerObjects(lua_State* state)
                    "ignore?: GameObject, out?: RaycastHit): RaycastHit?")
       .rawFunction("getActiveCamera", &getActiveCamera, "fun(): GameObject?")
       .rawFunction("setActiveCamera", &setActiveCamera, "fun(camera?: GameObject)")
+      .rawFunction("screenToWorld", &screenToWorld,
+                   "fun(screen: Vector2, depth?: number, out?: Vector2): Vector2?")
+      .rawFunction("screenToRay", &screenToRay, "fun(screen: Vector2): Vector3?, Vector3?")
+      .rawFunction("worldToScreen", &worldToScreen,
+                   "fun(point: Vector3, out?: Vector2): Vector2?")
       .rawFunction("findPrefab", &findPrefab, "fun(pathOrName: string): Prefab?")
       .rawFunction("instantiate", &instantiatePrefab,
                    "fun(prefab: Prefab|string, parent?: GameObject, position?: Vector3, "

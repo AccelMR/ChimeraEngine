@@ -292,6 +292,15 @@ EditorApplication::update(const float deltaTime)
     m_viewportHeight = height;
     m_editorCamera->setViewportSize(static_cast<float>(width), static_cast<float>(height));
   }
+  // Mouse positions are in window coordinates, as the panel's area is.
+  if (bPanel) {
+    ScriptManager::instance().setGameView(Vector2(m_viewportArea.x, m_viewportArea.y),
+                                          Vector2(m_viewportArea.width, m_viewportArea.height));
+  }
+  else {
+    ScriptManager::instance().setGameView(
+        Vector2::ZERO, Vector2(static_cast<float>(width), static_cast<float>(height)));
+  }
   ImportDialog::update();
   ScriptHotReload::update(deltaTime);
   ShaderHotReload::update(deltaTime);

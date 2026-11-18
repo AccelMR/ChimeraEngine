@@ -424,6 +424,46 @@ TEST_CASE("chCore - Script objects", "[Scripting]")
     REQUIRE(scripts.runString("assert(Scene.getActiveCamera() == Scene.find('High'))"));
   }
 
+  SECTION("Screen and world points")
+  {
+    scripts.setGameView(Vector2::ZERO, Vector2::ZERO);
+    REQUIRE(scripts.runString("assert(Scene.screenToWorld(Vector2(0, 0)) == nil)"));
+
+    // A 2D camera: orthographic, 10 units in front of the plane x = 0, 4 units of half height
+    // over a 200x100 view placed at (50, 20) in the window.
+    const SPtr<GameObject> eye = scene.createGameObject("Eye");
+    CameraComponent& camera = eye->addComponent<CameraComponent>();
+    camera.setProjectionType(CameraProjectionType::Orthographic);
+    camera.setOrthographicSize(4.0f);
+    camera.setPriority(100);
+    eye->getTransform().setLocalPosition(Vector3(-10.0f, 3.0f, 1.0f));
+    scene.updateTransforms();
+    REQUIRE(scripts.runString("assert(Scene.screenToWorld(Vector2(0, 0)) == nil)"));
+
+    scripts.setGameView(Vector2(50.0f, 20.0f), Vector2(200.0f, 100.0f));
+    REQUIRE(scripts.runString(R"lua(
+      local function close(a, b) return (a - b):length() < 1e-3 end
+      local center = Scene.screenToWorld(Vector2(150, 70))
+      assert(close(center, Vector2(3, 1)))
+      -- The top right corner: 8 units across, 4 up from the center.
+      local corner = Vector2(0, 0)
+      assert(rawequal(Scene.screenToWorld(Vector2(250, 20), 0, corner), corner))
+      assert(close(corner, Vector2(11, 5)))
+      assert(close(Scene.screenToWorld(Vector2(150, 70), 5), Vector2(3, 1)))
+      assert(Scene.screenToWorld(Vector2(150, 70), -20) == nil)
+
+      local origin, direction = Scene.screenToRay(Vector2(50, 120))
+      assert(close(direction, Vector3.FORWARD))
+      assert(math.abs(origin.y - -5) < 1e-4 and math.abs(origin.z - -3) < 1e-4)
+
+      assert(close(Scene.worldToScreen(Vector3(0, 11, 5)), Vector2(250, 20)))
+      local out = Vector2(0, 0)
+      assert(rawequal(Scene.worldToScreen(Vector3(0, 3, 1), out), out))
+      assert(close(out, Vector2(150, 70)))
+    )lua"));
+    scripts.setGameView(Vector2::ZERO, Vector2::ZERO);
+  }
+
   SECTION("Animator")
   {
     const SPtr<Model> model = chMakeShared<Model>();
