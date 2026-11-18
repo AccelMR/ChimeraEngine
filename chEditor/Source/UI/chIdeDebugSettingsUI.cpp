@@ -163,6 +163,28 @@ findBuildVariants(LaunchTarget& target)
   }
 }
 
+/*
+ * The editor-off Release build of the game preset, the one Package Project copies, so the
+ * game can be run as players get it. Building chGame there also builds the engine plugins.
+ */
+BuildVariant
+makeGameReleaseVariant()
+{
+#if USING(CH_PLATFORM_WIN32)
+  constexpr const ANSICHAR* kPreset = "windows-msvc-game";
+  constexpr const ANSICHAR* kExecutableFolder = "lib/Release";
+  constexpr const ANSICHAR* kBuildConfig = "Release";
+#else
+  constexpr const ANSICHAR* kPreset = "linux-clang-game";
+  constexpr const ANSICHAR* kExecutableFolder = "lib";
+  constexpr const ANSICHAR* kBuildConfig = "";
+#endif // USING(CH_PLATFORM_WIN32)
+  const Path directory = EnginePaths::getEngineRootDirectory() / ("build/" + String(kPreset));
+  const bool bConfigured = FileSystem::isFile(directory / "CMakeCache.txt");
+  return {"Release, no editor", directory, directory / kExecutableFolder, kBuildConfig,
+          bConfigured ? "" : kPreset};
+}
+
 #if !USING(CH_PLATFORM_WIN32)
 constexpr const ANSICHAR* kDebuggers[] = {"gdb", "lldb"};
 #endif // !USING(CH_PLATFORM_WIN32)
@@ -445,21 +467,32 @@ makeVSCodeBuildTask(const LaunchTarget& target, const BuildVariant& variant, Str
   return entry;
 }
 
+void
+addGameReleaseEntry(const LaunchTarget& target, Vector<String>& tasks, Vector<String>& entries)
+{
+  const BuildVariant variant = makeGameReleaseVariant();
+  if (!variant.configurePreset.empty()) {
+    tasks.push_back(makeVSCodeConfigureTask(target, variant));
+  }
+  tasks.push_back(makeVSCodeBuildTask(target, variant, "Game", "chGame"));
+  entries.push_back(makeVSCodeEntry(target, "Game (" + variant.name + ")",
+                                    makeFixedProgram(variant.executableDirectory, "chGame"),
+                                    makeBuildTaskLabel(target, variant, "Game")));
+}
+
 ResultLine
 writeVSCode(const LaunchTarget& target, Vector<ResultLine>& results)
 {
   const Path folder = EnginePaths::getEngineRootDirectory() / ".vscode";
   Vector<String> entries;
+  Vector<String> tasks;
   if (target.bFollowCMakeTools) {
-    Vector<String> tasks;
     for (const ANSICHAR* label : {"Editor", "Game"}) {
       const String program = String("ch") + label;
       tasks.push_back(makeCMakeToolsBuildTask(target, label, program));
       entries.push_back(makeVSCodeEntry(target, label, makeCMakeToolsProgram(program),
                                         makeCMakeToolsTaskLabel(target, label)));
     }
-    results.push_back(writeLaunchFile(folder / "tasks.json", "{\n  \"version\": \"2.0.0\",\n",
-                                      target.projectFile, tasks, "tasks"));
   }
   else if (target.variants.empty()) {
     results.push_back({false, "No CMakeCache.txt found above " +
@@ -472,7 +505,6 @@ writeVSCode(const LaunchTarget& target, Vector<ResultLine>& results)
     }
   }
   else {
-    Vector<String> tasks;
     for (const BuildVariant& variant : target.variants) {
       if (!variant.configurePreset.empty()) {
         tasks.push_back(makeVSCodeConfigureTask(target, variant));
@@ -486,9 +518,10 @@ writeVSCode(const LaunchTarget& target, Vector<ResultLine>& results)
             makeBuildTaskLabel(target, variant, label)));
       }
     }
-    results.push_back(writeLaunchFile(folder / "tasks.json", "{\n  \"version\": \"2.0.0\",\n",
-                                      target.projectFile, tasks, "tasks"));
   }
+  addGameReleaseEntry(target, tasks, entries);
+  results.push_back(writeLaunchFile(folder / "tasks.json", "{\n  \"version\": \"2.0.0\",\n",
+                                    target.projectFile, tasks, "tasks"));
   return writeLaunchFile(folder / "launch.json", "{\n  \"version\": \"0.2.0\",\n",
                          target.projectFile, entries);
 }
@@ -567,7 +600,8 @@ writeVcxprojUser(const Path& path, const String& arguments)
 
 /*
  * Every build folder made with the Visual Studio generator: the one this editor runs from
- * (<build>/lib/<Config>) and the ones under <EngineRoot>/build.
+ * (<build>/lib/<Config>) and the ones under <EngineRoot>/build, the game preset's too, which
+ * has chGame but no chEditor.
  */
 Vector<Path>
 findSolutionFolders()
@@ -586,7 +620,8 @@ findSolutionFolders()
     for (const String& other : seen) {
       bSeen = bSeen || other == folder.toString();
     }
-    if (!bSeen && FileSystem::isFile(folder / "chEditor/chEditor.vcxproj")) {
+    if (!bSeen && (FileSystem::isFile(folder / "chEditor/chEditor.vcxproj") ||
+                   FileSystem::isFile(folder / "chGame/chGame.vcxproj"))) {
       seen.push_back(folder.toString());
       result.push_back(folder);
     }
@@ -686,7 +721,9 @@ IdeDebugSettingsUI::render()
   }
 
   ImGui::TextWrapped("Adds launch settings that start chEditor and chGame on this project "
-                     "(-project), so the debugger stays on the process it started.");
+                     "(-project), so the debugger stays on the process it started. VS Code "
+                     "also gets \"Game (Release, no editor)\", which builds and runs the game "
+                     "preset that Package Project copies.");
   ImGui::Spacing();
   ImGui::Checkbox("VS Code (.vscode/launch.json, tasks.json)", &state.bVSCode);
   ImGui::Indent();
