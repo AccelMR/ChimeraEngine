@@ -36,6 +36,9 @@ ProjectilesEditor::registerDescriptions()
           "Texture", {.tooltip = "The whole image is shown; scripts can set a part of it "
                                  "with setLook(SpriteStyle)",
                       .objectType = ScriptPropertyType::Texture})
+      .memberProperty<&System::getLook, &System::setLook, &ProjectileLook::material>(
+          "Material", {.tooltip = "A sprite material that shades every projectile",
+                       .objectType = ScriptPropertyType::SpriteMaterial})
       .memberProperty<&System::getLook, &System::setLook, &ProjectileLook::size>(
           "Size", {.tooltip = "World units, times each projectile's scale"})
       .memberProperty<&System::getLook, &System::setLook, &ProjectileLook::pivot>(

@@ -25,6 +25,7 @@
 namespace chEngineSDK {
 class IBuffer;
 class SpriteAtlasAsset;
+class SpriteMaterialAsset;
 class TextureAsset;
 
 /**
@@ -107,6 +108,8 @@ struct ParticleLook
   int16 order = 0;
   SpriteBlendMode blendMode = SpriteBlendMode::Alpha;
   SpriteFilter filter = SpriteFilter::Linear;
+  // A SpriteMaterialAsset whose pixel shader shades the particles; null for the plugin's.
+  UUID material = UUID::null();
 };
 
 /**
@@ -363,6 +366,7 @@ class ParticleSystemComponent : public Component
 
   SPtr<TextureAsset> m_texture;
   SPtr<SpriteAtlasAsset> m_atlas;
+  SPtr<SpriteMaterialAsset> m_material;
   GpuParticleLook m_gpuLook{};
   uint32 m_textureAndFlags = GpuSpriteInstance::NO_TEXTURE;
   bool m_bLookDirty = true;

@@ -60,6 +60,7 @@ function PlayerShip:update(dt)
     -- Three shots fanned over 12 degrees around straight up (90).
     self.bullets:fireSpread(y, z + 0.5, 3, 90, 12)
     self.cooldown = self.fireInterval
+    Game:playSound(Game.sounds.shot, 0.25)
   end
 
   if self.flash > 0 then
@@ -82,6 +83,7 @@ function PlayerShip:damage(amount)
   -- Damage arrives as a number; lives stay whole.
   self.health = self.health - math.max(1, math.floor(amount))
   self.flash = 0.8
+  Game:playSound(Game.sounds.hurt, 0.7)
   local position = self.transform:getWorldPosition(self.position)
   Game:explode(position.y, position.z, 10)
   if self.health <= 0 then

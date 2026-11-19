@@ -58,6 +58,13 @@ class ImportDialog
    */
   NODISCARD static HEvent
   onAssetImported(const Function<void(const SPtr<IAsset>&)>& callback);
+
+  /**
+   * Tells the listeners of onAssetImported about an asset imported without the dialog (an
+   * engine effect picked in the Inspector), so the Content Browser shows it.
+   */
+  static void
+  notifyImported(const SPtr<IAsset>& asset);
 };
 
 } // namespace chEngineSDK

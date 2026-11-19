@@ -253,7 +253,7 @@ AssetManager::createAsset(const String& name, const Path& assetPath) {
   }
 
   CH_LOG(AssetSystem, Debug, "Asset {0} created with UUID {1} at path {2}", name,
-         assetUUID.toString(), assetPath.toString());
+         refUUID.toString(), assetPath.toString());
 
   // Its data is the default made in memory, so loading it from a file that does not exist
   // yet must not be tried.

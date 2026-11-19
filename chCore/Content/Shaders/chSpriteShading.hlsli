@@ -20,6 +20,16 @@ static const float kSdfEdge = 128.0f / 255.0f;
 static const float2 kCorners[6] = {float2(0.0f, 0.0f), float2(1.0f, 0.0f), float2(0.0f, 1.0f),
                                    float2(0.0f, 1.0f), float2(1.0f, 0.0f), float2(1.0f, 1.0f)};
 
+// What every sprite vertex shader gives the pixel shader, so a sprite material's pixel
+// shader works with sprites, projectiles and particles alike.
+struct SpriteVertexOutput
+{
+  float4 position : SV_Position;
+  float4 color : COLOR0;
+  float2 texCoord : TEXCOORD0;
+  nointerpolation uint textureAndFlags : TEXCOORD1;
+};
+
 float2
 unpackHalves(uint packed)
 {

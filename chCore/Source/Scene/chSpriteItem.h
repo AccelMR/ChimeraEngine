@@ -17,6 +17,7 @@
 #include "chVector3.h"
 
 namespace chEngineSDK {
+class SpriteMaterialAsset;
 class SpriteShader;
 
 /**
@@ -183,8 +184,8 @@ struct GlyphRunBatch
  */
 struct CustomSpriteBatch
 {
-  // 128 bytes of push constants minus the header (view projection and the two samplers).
-  static constexpr uint32 MAX_PARAMETER_BYTES = 56;
+  // 128 bytes of push constants minus the 96 of CH_SPRITE_BATCH_HEADER.
+  static constexpr uint32 MAX_PARAMETER_BYTES = 32;
 
   template<typename T>
   void
@@ -206,6 +207,9 @@ struct CustomSpriteBatch
   int16 order = 0;
   SpriteBlendMode blendMode = SpriteBlendMode::Alpha;
   Array<uint8, MAX_PARAMETER_BYTES> parameters{};
+  // Runs its pixel shader behind the batch's vertex shader instead of the batch's own,
+  // which must give SpriteVertexOutput (chSpriteShading.hlsli). Kept alive by the owner.
+  const SpriteMaterialAsset* material = nullptr;
 };
 
 /**
@@ -221,6 +225,9 @@ struct SpriteItem
   int16 sortingLayer = 0;
   int16 order = 0;
   SpriteBlendMode blendMode = SpriteBlendMode::Alpha;
+  // Shades the sprite instead of the engine's shader; sprites next to each other in the draw
+  // order with the same material draw together. Kept alive by whoever adds the sprite.
+  const SpriteMaterialAsset* material = nullptr;
   // The object the sprite belongs to, so the editor can find it from the sprite.
   GameObject* owner = nullptr;
   // False marks a free slot of the scene.

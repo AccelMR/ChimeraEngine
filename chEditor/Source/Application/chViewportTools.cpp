@@ -51,6 +51,11 @@ ConsoleVariable<bool> g_cvarShowBounds(
     "Draws the bounds of what the selected objects draw: the world box in yellow and the "
     "mesh's own box, turned with the object, in orange.",
     "ShowBounds");
+ConsoleVariable<bool> g_cvarViewportPostProcess(
+    "Editor.ViewportPostProcess",
+    true,
+    "Shows the scene's post-process passes in the viewport, also while editing.",
+    "ViewportPostProcess");
 ConsoleVariable<bool> g_cvarShowSkeleton(
     "Editor.ShowSkeleton",
     false,
@@ -409,6 +414,19 @@ ViewportTools::renderToolbar(bool bEditTools)
   }
   ImGui::SetItemTooltip("%s", g_cvarShowBounds.getHelp().c_str());
 #endif // USING(CH_DEBUG_DRAW)
+
+  ImGui::SameLine();
+  const bool bPostProcess = isPostProcessVisible();
+  if (bPostProcess) {
+    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+  }
+  if (ImGui::Button("Post")) {
+    setPostProcessVisible(!bPostProcess);
+  }
+  if (bPostProcess) {
+    ImGui::PopStyleColor();
+  }
+  ImGui::SetItemTooltip("%s", g_cvarViewportPostProcess.getHelp().c_str());
 
   ImGui::SameLine();
   const bool bStats = ProfilerUI::isOverlayVisible();
@@ -1071,6 +1089,24 @@ ViewportTools::setBoundsVisible(bool bVisible)
 {
   g_cvarShowBounds.set(bVisible, ConsoleVariableSource::Console);
   EngineConfig::setUserValue("Editor", "Editor", "ShowBounds", bVisible ? "true" : "false");
+}
+
+/*
+ */
+bool
+ViewportTools::isPostProcessVisible()
+{
+  return g_cvarViewportPostProcess.get();
+}
+
+/*
+ */
+void
+ViewportTools::setPostProcessVisible(bool bVisible)
+{
+  g_cvarViewportPostProcess.set(bVisible, ConsoleVariableSource::Console);
+  EngineConfig::setUserValue("Editor", "Editor", "ViewportPostProcess",
+                             bVisible ? "true" : "false");
 }
 
 

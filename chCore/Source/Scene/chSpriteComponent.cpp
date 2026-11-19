@@ -19,6 +19,7 @@
 #include "chSceneManager.h"
 #include "chSpriteAtlasAsset.h"
 #include "chSpriteDraw.h"
+#include "chSpriteMaterialAsset.h"
 #include "chTextureAsset.h"
 
 namespace chEngineSDK {
@@ -27,6 +28,7 @@ struct SpriteFileData
 {
   UUID texture;
   UUID atlas;
+  UUID material;
   uint32 frame;
   float sourcePosition[2];
   float sourceSize[2];
@@ -40,7 +42,7 @@ struct SpriteFileData
   uint8 flipX;
   uint8 flipY;
 };
-static_assert(sizeof(SpriteFileData) == 88, "SpriteFileData must have no padding");
+static_assert(sizeof(SpriteFileData) == 104, "SpriteFileData must have no padding");
 
 /*
  * Null when there is no such asset or it is of another type. Without an AssetManager
@@ -54,6 +56,20 @@ findTexture(const UUID& id)
   }
   const SPtr<IAsset> asset = AssetManager::instance().getAsset(id);
   return asset ? asset->as<TextureAsset>() : nullptr;
+}
+
+NODISCARD SPtr<SpriteMaterialAsset>
+findMaterial(const UUID& id)
+{
+  if (id.isNull() || !AssetManager::isStarted()) {
+    return nullptr;
+  }
+  const SPtr<IAsset> asset = AssetManager::instance().getAsset(id);
+  SPtr<SpriteMaterialAsset> material = asset ? asset->as<SpriteMaterialAsset>() : nullptr;
+  if (material && !material->isLoaded()) {
+    static_cast<void>(AssetManager::instance().syncLoadAsset(material));
+  }
+  return material;
 }
 
 NODISCARD SPtr<SpriteAtlasAsset>
@@ -185,6 +201,25 @@ SpriteComponent::setSorting(int16 sortingLayer, int16 order)
 /*
  */
 void
+SpriteComponent::setMaterial(const SPtr<SpriteMaterialAsset>& material)
+{
+  m_material = material;
+  m_materialId = material ? material->getUUID() : UUID::null();
+  updateSpriteItem();
+}
+
+/*
+ */
+void
+SpriteComponent::setMaterialId(const UUID& materialId)
+{
+  setMaterial(findMaterial(materialId));
+  m_materialId = materialId;
+}
+
+/*
+ */
+void
 SpriteComponent::setBlendMode(SpriteBlendMode blendMode)
 {
   m_blendMode = blendMode;
@@ -242,6 +277,7 @@ SpriteComponent::serialize(DataStream& stream) const
   const SpriteFileData data{
       .texture = m_textureId,
       .atlas = m_atlasId,
+      .material = m_materialId,
       .frame = m_frame,
       .sourcePosition = {m_sourcePosition.x, m_sourcePosition.y},
       .sourceSize = {m_sourceSize.x, m_sourceSize.y},
@@ -285,6 +321,11 @@ SpriteComponent::deserialize(DataStream& stream)
   m_filter = static_cast<SpriteFilter>(data.filter);
   m_bFlipX = data.flipX != 0;
   m_bFlipY = data.flipY != 0;
+  m_material = findMaterial(data.material);
+  m_materialId = data.material;
+  if (!m_material && !data.material.isNull()) {
+    CH_LOG_WARNING(SceneManagerLog, "A sprite lost its material {0}.", data.material);
+  }
 
   if (!data.atlas.isNull()) {
     const SPtr<SpriteAtlasAsset> atlas = findAtlas(data.atlas);
@@ -316,6 +357,9 @@ SpriteComponent::collectReferences(Vector<UUID>& outReferences) const
   }
   if (!m_atlasId.isNull()) {
     outReferences.push_back(m_atlasId);
+  }
+  if (!m_materialId.isNull()) {
+    outReferences.push_back(m_materialId);
   }
 }
 
@@ -387,6 +431,7 @@ SpriteComponent::updateSpriteItem()
   item.sortingLayer = m_sortingLayer;
   item.order = m_order;
   item.blendMode = m_blendMode;
+  item.material = m_material.get();
 }
 
 } // namespace chEngineSDK

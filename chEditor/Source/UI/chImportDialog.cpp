@@ -462,4 +462,12 @@ ImportDialog::onAssetImported(const Function<void(const SPtr<IAsset>&)>& callbac
   return getState().onImported.connect(callback);
 }
 
+/*
+ */
+void
+ImportDialog::notifyImported(const SPtr<IAsset>& asset)
+{
+  getState().onImported(asset);
+}
+
 } // namespace chEngineSDK

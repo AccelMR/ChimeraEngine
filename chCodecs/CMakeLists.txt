@@ -1,3 +1,5 @@
 add_subdirectory(chMeshCodec)
 add_subdirectory(chImageCodec)
 add_subdirectory(chFontCodec)
+add_subdirectory(chAudioCodec)
+add_subdirectory(chShaderCodec)

@@ -11,6 +11,7 @@
 
 #include "chPrerequisitesCore.h"
 
+#include "chAudioTypes.h"
 #include "chScriptBinder.h"
 #include "chUUID.h"
 
@@ -47,6 +48,21 @@ struct ScriptTexture
 
 CH_SCRIPT_VALUE_TYPE(ScriptPrefab, "Prefab");
 CH_SCRIPT_VALUE_TYPE(ScriptTexture, "Texture");
+
+/**
+ * Exists so scripts hold a sprite material as a plain value (SpriteMaterial.find gives one;
+ * Sprites.makeStyle and Sprite:setMaterial take it). Only the asset's UUID is kept; the values
+ * it sets belong to the shared asset, so every sprite using it changes.
+ */
+struct ScriptSpriteMaterial
+{
+  NODISCARD bool
+  operator==(const ScriptSpriteMaterial& other) const { return material == other.material; }
+
+  UUID material;
+};
+
+CH_SCRIPT_VALUE_TYPE(ScriptSpriteMaterial, "SpriteMaterial");
 
 /**
  * Exists so scripts hold a sprite atlas as a plain value (Atlas.find gives one;
@@ -87,6 +103,8 @@ struct ScriptSpriteStyle
   uint8 blendMode;
   uint8 filter;
   uint8 padding[2];
+  // A SpriteMaterialAsset, null for the engine's shader.
+  UUID material;
 };
 
 CH_SCRIPT_VALUE_TYPE(ScriptSpriteStyle, "SpriteStyle");
@@ -105,6 +123,23 @@ struct ScriptFont
 };
 
 CH_SCRIPT_VALUE_TYPE(ScriptFont, "Font");
+
+/**
+ * Exists so scripts hold an audio clip as a plain value (AudioClip.find and AudioClip
+ * properties give one; Audio.play and AudioSource:setClip take it). Only the asset's UUID is
+ * kept, so it never keeps the asset loaded and never dangles.
+ */
+struct ScriptAudioClip
+{
+  NODISCARD bool
+  operator==(const ScriptAudioClip& other) const { return clip == other.clip; }
+
+  UUID clip;
+};
+
+CH_SCRIPT_VALUE_TYPE(ScriptAudioClip, "AudioClip");
+// The handle Audio.play gives: a stale one (its sound ended) does nothing.
+CH_SCRIPT_VALUE_TYPE(AudioVoice, "AudioVoice");
 
 /**
  * Exists so what a text looks like is worked out once (Text.makeStyle) and then only placed

@@ -103,6 +103,9 @@ extern CH_CORE_EXPORT ConsoleVariable<bool> g_cvarSpotLights;
 // The ACES curve of the tonemap; off, the exposed color is only clamped.
 extern CH_CORE_EXPORT ConsoleVariable<bool> g_cvarTonemap;
 
+// Runs the passes of the scene's post-process components.
+extern CH_CORE_EXPORT ConsoleVariable<bool> g_cvarPostProcess;
+
 // Comma separated names of optional render passes that do not run
 // (-Renderer.DisabledPasses=ShadowDepth,GBuffer).
 extern CH_CORE_EXPORT ConsoleVariable<String> g_cvarDisabledPasses;

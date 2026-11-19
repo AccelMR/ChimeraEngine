@@ -36,13 +36,9 @@ struct PushConstants
 
 [[vk::push_constant]] ConstantBuffer<PushConstants> g_push : register(b0);
 
-struct VSOutput
-{
-  float4 position : SV_Position;
-  float4 color : COLOR0;
-  float2 texCoord : TEXCOORD0;
-  nointerpolation uint textureAndFlags : TEXCOORD1;
-};
+// The engine's sprite vertex output, so a sprite material's pixel shader can run behind
+// this vertex shader.
+typedef SpriteVertexOutput VSOutput;
 
 uint
 hashSeed(uint value)

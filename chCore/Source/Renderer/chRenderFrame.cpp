@@ -9,6 +9,7 @@
 #include "chRenderFrame.h"
 
 #include "chMesh.h"
+#include "chPostProcessComponent.h"
 #include "chRenderCulling.h"
 #include "chScene.h"
 
@@ -98,6 +99,12 @@ RenderFrame::extract(const Scene& scene,
   m_bHasSkyLight = skyLight != nullptr;
   if (skyLight) {
     m_skyLight = *skyLight;
+  }
+
+  m_postProcessPasses.clear();
+  m_postProcessParameters.clear();
+  for (const PostProcessComponent* postProcess : scene.getPostProcesses()) {
+    postProcess->appendPasses(m_postProcessPasses, m_postProcessParameters);
   }
 
   m_sceneLines = scene.getDebugDraw();

@@ -243,6 +243,7 @@ setLook(lua_State* state)
   look.order = style.order;
   look.blendMode = static_cast<SpriteBlendMode>(style.blendMode);
   look.filter = static_cast<SpriteFilter>(style.filter);
+  look.material = style.material;
   look.bFaceVelocity = lua_isnoneornil(state, 3) || lua_toboolean(state, 3) != 0;
   system.setLook(look);
   return 0;

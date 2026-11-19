@@ -15,6 +15,7 @@
 #include "chModule.h"
 #include "chScriptProperty.h"
 #include "chUUID.h"
+#include "chVector2.h"
 
 struct lua_State;
 
@@ -203,6 +204,24 @@ class CH_CORE_EXPORT ScriptManager : public Module<ScriptManager>
   getInputManager() const noexcept { return m_input; }
 
   /**
+   * Where the game is drawn, in window pixels like the mouse position: the whole window in a
+   * game, the viewport panel in the editor. The application sets it every frame, so
+   * Scene.screenToWorld can turn mouse positions into world points.
+   */
+  FORCEINLINE void
+  setGameView(const Vector2& position, const Vector2& size) noexcept
+  {
+    m_gameViewPosition = position;
+    m_gameViewSize = size;
+  }
+
+  NODISCARD FORCEINLINE const Vector2&
+  getGameViewPosition() const noexcept { return m_gameViewPosition; }
+
+  NODISCARD FORCEINLINE const Vector2&
+  getGameViewSize() const noexcept { return m_gameViewSize; }
+
+  /**
    * Gives the next key that goes down to the Lua function behind callback (a registry
    * reference this takes over), called with the key's number. Needs an InputManager.
    */
@@ -319,6 +338,8 @@ class CH_CORE_EXPORT ScriptManager : public Module<ScriptManager>
   UnorderedMap<UUID, ScriptClassInfo> m_classes;
   Scene* m_currentScene = nullptr;
   InputManager* m_input = nullptr;
+  Vector2 m_gameViewPosition = Vector2::ZERO;
+  Vector2 m_gameViewSize = Vector2::ZERO;
   // Alive while the InputManager holds a key capture a script asked for.
   WeakPtr<void> m_keyCapture;
   int32 m_timeTable = ScriptClassInfo::NO_REFERENCE;

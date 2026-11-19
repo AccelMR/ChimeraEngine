@@ -117,6 +117,12 @@ ConsoleVariable<bool> g_cvarTonemap(
     true,
     "Applies the ACES curve after the exposure; off, the color is only clamped.");
 
+ConsoleVariable<bool> g_cvarPostProcess(
+    "Renderer.PostProcess",
+    true,
+    "Runs the passes of the scene's post-process components.",
+    "PostProcess");
+
 ConsoleVariable<String> g_cvarDisabledPasses(
     "Renderer.DisabledPasses",
     "",

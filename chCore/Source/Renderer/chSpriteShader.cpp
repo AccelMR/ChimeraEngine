@@ -46,11 +46,11 @@ SpriteShader::~SpriteShader()
 
 /*
  */
-const IPipeline*
-SpriteShader::getPipeline(SpriteBlendMode blendMode, Format colorFormat)
+bool
+SpriteShader::loadShaders()
 {
   if (m_bLoadFailed) {
-    return nullptr;
+    return false;
   }
   if (!m_vertexShader) {
     IGraphicsAPI& graphicsAPI = IGraphicsAPI::instance();
@@ -60,8 +60,28 @@ SpriteShader::getPipeline(SpriteBlendMode blendMode, Format colorFormat)
       m_vertexShader.reset();
       m_fragmentShader.reset();
       m_bLoadFailed = true;
-      return nullptr;
+      return false;
     }
+  }
+  return true;
+}
+
+/*
+ */
+const SPtr<IShader>&
+SpriteShader::getVertexShader()
+{
+  static_cast<void>(loadShaders());
+  return m_vertexShader;
+}
+
+/*
+ */
+const IPipeline*
+SpriteShader::getPipeline(SpriteBlendMode blendMode, Format colorFormat)
+{
+  if (!loadShaders()) {
+    return nullptr;
   }
   if (colorFormat != m_pipelineFormat) {
     m_pipelines.fill(nullptr);

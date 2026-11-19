@@ -10,6 +10,7 @@
 #include "chGameApplication.h"
 
 #include "chAssetManager.h"
+#include "chAudioManager.h"
 #include "chCameraComponent.h"
 #include "chConsoleVariable.h"
 #include "chEnginePaths.h"
@@ -59,6 +60,7 @@ GameApplication::onPostInitialize()
   // bindings the state is made with.
   EnginePlugins::loadEnabled();
 
+  AudioManager::startUp();
   AssetManager::startUp();
   AssetManager& assetManager = AssetManager::instance();
   assetManager.initialize();
@@ -128,6 +130,10 @@ GameApplication::destroyModules()
   if (ScriptManager::isStarted()) {
     ScriptManager::shutDown();
   }
+  // Last: voices keep the clips they play alive, so nothing above needs it.
+  if (AudioManager::isStarted()) {
+    AudioManager::shutDown();
+  }
 
   WindowedApplication::destroyModules();
 }
@@ -145,6 +151,11 @@ GameApplication::fixedUpdate(const float deltaTime)
 void
 GameApplication::update(const float deltaTime)
 {
+  const ISwapChain& swapChain = *getSwapChain();
+  const float width = static_cast<float>(swapChain.getWidth());
+  const float height = static_cast<float>(swapChain.getHeight());
+  // The game fills the window, so mouse positions are already in the game view.
+  ScriptManager::instance().setGameView(Vector2::ZERO, Vector2(width, height));
   {
     CH_PROFILE_SCOPE("SceneUpdate");
     SceneManager& sceneManager = SceneManager::instance();
@@ -161,9 +172,6 @@ GameApplication::update(const float deltaTime)
   }
 
   // After the transforms, which the camera follows.
-  const ISwapChain& swapChain = *getSwapChain();
-  const float width = static_cast<float>(swapChain.getWidth());
-  const float height = static_cast<float>(swapChain.getHeight());
   if (const CameraComponent* camera = m_scene->getActiveCamera()) {
     camera->fillCamera(m_camera, width, height);
   }
@@ -174,6 +182,9 @@ GameApplication::update(const float deltaTime)
     }
     m_camera.setViewportSize(width, height);
   }
+  AudioManager& audio = AudioManager::instance();
+  audio.updateListener(m_camera, deltaTime);
+  audio.update();
 
   m_sceneRenderer->extract(*m_scene, m_camera, LinearColor::BLACK);
 }

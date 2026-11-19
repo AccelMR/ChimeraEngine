@@ -19,6 +19,7 @@
 #include "chScriptManager.h"
 #include "chScriptObjectTypes.h"
 #include "chSpriteDraw.h"
+#include "chSpriteMaterialAsset.h"
 #include "chTextureAsset.h"
 
 #include "lua.h"
@@ -50,8 +51,9 @@ struct SystemFileData {
   uint32 capacity;
   uint32 hitTeams;
   float cellSize;
+  UUID material;
 };
-static_assert(sizeof(SystemFileData) == 124, "SystemFileData must have no padding");
+static_assert(sizeof(SystemFileData) == 140, "SystemFileData must have no padding");
 
 NODISCARD bool
 isFinite(const float* values, const SIZE_T count)
@@ -284,7 +286,8 @@ ProjectileSystemComponent::draw()
     instance.center = Vector3(m_look.depth, projectile.position.x, projectile.position.y)
                       - instance.halfAxisU * pivotU - instance.halfAxisV * pivotV;
     spriteDraw.instance(instance, Math::abs(halfWidth) + Math::abs(halfHeight),
-                        m_look.sortingLayer, m_look.order, m_look.blendMode);
+                        m_look.sortingLayer, m_look.order, m_look.blendMode,
+                        m_material.get());
   }
 }
 
@@ -351,7 +354,8 @@ ProjectileSystemComponent::serialize(DataStream& stream) const
       .pierce = m_defaults.pierce,
       .capacity = m_capacity,
       .hitTeams = m_hitTeams,
-      .cellSize = m_cellSize};
+      .cellSize = m_cellSize,
+      .material = m_look.material};
   const uint32 version = SERIALIZATION_VERSION;
   stream.write(&version, sizeof(version));
   stream.write(&data, sizeof(data));
@@ -381,6 +385,7 @@ ProjectileSystemComponent::deserialize(DataStream& stream)
 
   ProjectileLook look;
   look.texture = data.texture;
+  look.material = data.material;
   for (uint32 i = 0; i < 4; ++i) {
     look.uvRect[i] = data.uvRect[i];
   }
@@ -414,6 +419,9 @@ ProjectileSystemComponent::deserialize(DataStream& stream)
 void
 ProjectileSystemComponent::collectReferences(Vector<UUID>& outReferences) const
 {
+  if (!m_look.material.isNull()) {
+    outReferences.push_back(m_look.material);
+  }
   if (!m_look.texture.isNull()) {
     outReferences.push_back(m_look.texture);
   }
@@ -620,11 +628,22 @@ void
 ProjectileSystemComponent::resolveTexture()
 {
   m_texture.reset();
+  m_material.reset();
   m_textureAndFlags = SpriteDraw::makeTextureFlags(nullptr, m_look.filter);
-  if (m_look.texture.isNull() || !AssetManager::isStarted()) {
+  if (!AssetManager::isStarted()) {
     return;
   }
   AssetManager& assetManager = AssetManager::instance();
+  if (!m_look.material.isNull()) {
+    const SPtr<IAsset> materialAsset = assetManager.getAsset(m_look.material);
+    m_material = materialAsset ? materialAsset->as<SpriteMaterialAsset>() : nullptr;
+    if (m_material && !m_material->isLoaded() && !assetManager.syncLoadAsset(m_material)) {
+      m_material.reset();
+    }
+  }
+  if (m_look.texture.isNull()) {
+    return;
+  }
   const SPtr<IAsset> asset = assetManager.getAsset(m_look.texture);
   m_texture = asset ? asset->as<TextureAsset>() : nullptr;
   if (m_texture && !m_texture->isLoaded() && !assetManager.syncLoadAsset(m_texture)) {

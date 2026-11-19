@@ -166,15 +166,10 @@ addBinaries(const PackageDesc& desc, Vector<FileCopy>& outCopies, String& outErr
     outError = "Could not read " + projectFile.toString() + ".";
     return false;
   }
-  const bool bDebugBuild = ProjectPackager::isDebugBuild(desc.binaryDirectory);
   const Path pluginDirectory{String(EnginePaths::ENGINE_PLUGIN_FOLDER)};
   for (const String& plugin : descriptor.plugins) {
-    String fileName = plugin;
-    if (bDebugBuild) {
-      fileName += 'd';
-    }
-    fileName += DynamicLibrary::EXTENSION;
-    const Path source = desc.binaryDirectory.join(pluginDirectory).join(Path(fileName));
+    const Path source = ProjectPackager::getPluginPath(desc.binaryDirectory, plugin);
+    const String fileName = source.getFileName();
     if (!FileSystem::isFile(source)) {
       outError = "The project enables the plugin " + plugin + ", but the build has no " +
                  source.toString() + ".";
@@ -388,6 +383,33 @@ ProjectPackager::isDebugBuild(const Path& directory)
   String fileName("chCored");
   fileName += DynamicLibrary::EXTENSION;
   return FileSystem::isFile(directory.join(Path(std::move(fileName))));
+}
+
+/*
+ */
+Path
+ProjectPackager::getEngineLibraryPath(const Path& directory)
+{
+  String fileName("chCore");
+  if (isDebugBuild(directory)) {
+    fileName += 'd';
+  }
+  fileName += DynamicLibrary::EXTENSION;
+  return directory.join(Path(std::move(fileName)));
+}
+
+/*
+ */
+Path
+ProjectPackager::getPluginPath(const Path& directory, const String& plugin)
+{
+  String fileName = plugin;
+  if (isDebugBuild(directory)) {
+    fileName += 'd';
+  }
+  fileName += DynamicLibrary::EXTENSION;
+  return directory.join(Path(String(EnginePaths::ENGINE_PLUGIN_FOLDER)))
+      .join(Path(std::move(fileName)));
 }
 
 /*

@@ -12,6 +12,7 @@
 
 #include "chAssetDragDrop.h"
 #include "chAssetManager.h"
+#include "chAudioSourceComponent.h"
 #include "chContentAssetUI.h"
 #include "chEditorScene.h"
 #include "chEditorCamera.h"
@@ -81,7 +82,8 @@ getObjectIcon(const GameObject& gameObject)
   if (!gameObject.getPrefab().isNull()) {
     return ICON_FA_CUBES;
   }
-  const ANSICHAR* icon = ICON_FA_DOT_CIRCLE;
+  const ANSICHAR* icon = nullptr;
+  bool bAudio = false;
   for (const UniquePtr<Component>& component : gameObject.getComponents()) {
     const UUID& typeId = component->getTypeId();
     if (typeId == TypeTraits<DirectionalLightComponent>::getTypeId()) {
@@ -111,8 +113,15 @@ getObjectIcon(const GameObject& gameObject)
     else if (typeId == TypeTraits<TextComponent>::getTypeId()) {
       icon = ICON_FA_FONT;
     }
+    else if (typeId == TypeTraits<AudioSourceComponent>::getTypeId()) {
+      bAudio = true;
+    }
   }
-  return icon;
+  // Sound only names objects that show nothing; what they draw names them better.
+  if (icon) {
+    return icon;
+  }
+  return bAudio ? ICON_FA_VOLUME_UP : ICON_FA_DOT_CIRCLE;
 }
 
 /*

@@ -103,6 +103,20 @@ else()
   target_compile_definitions(chLua PRIVATE LUA_USE_POSIX)
 endif()
 
+# miniaudio plays the sound (chCore's AudioManager). Static and PRIVATE to chCore, so no
+# other module sees it; position independent because chCore is a shared library. The engine
+# has its own assets, so miniaudio's resource manager (file loading) and encoders are out.
+add_library(chMiniaudio STATIC "${CMAKE_SOURCE_DIR}/Externals/chMiniaudio/chMiniaudio.c")
+target_include_directories(chMiniaudio SYSTEM PUBLIC "${CMAKE_SOURCE_DIR}/Externals/miniaudio")
+target_compile_definitions(chMiniaudio PUBLIC MA_NO_RESOURCE_MANAGER MA_NO_ENCODING)
+set_target_properties(chMiniaudio PROPERTIES POSITION_INDEPENDENT_CODE ON
+                                             FOLDER Externals/miniaudio)
+if(NOT WIN32)
+  # Backends (PulseAudio, ALSA, JACK) are opened at run time with dlopen.
+  find_package(Threads REQUIRED)
+  target_link_libraries(chMiniaudio PUBLIC Threads::Threads ${CMAKE_DL_LIBS} m)
+endif()
+
 # ---------- Engine ----------
 add_subdirectory(chUtilities)
 add_subdirectory(chCore)

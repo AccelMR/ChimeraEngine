@@ -47,9 +47,12 @@ struct DialogState
 {
   bool bOpenRequested = false;
   bool bVSCode = true;
+  bool bFollowCMakeTools = true;
 #if USING(CH_PLATFORM_WIN32)
   bool bVisualStudioSolution = true;
   bool bVisualStudioFolder = true;
+#else
+  int32 debuggerIndex = 0;
 #endif // USING(CH_PLATFORM_WIN32)
   Vector<ResultLine> results;
 };
@@ -62,6 +65,20 @@ getState()
 }
 
 /*
+ * One build configuration (Debug or Release) the entries can start and rebuild.
+ */
+struct BuildVariant
+{
+  String name;
+  Path buildDirectory;
+  Path executableDirectory;
+  // Passed as --config for multi-config generators; empty for single-config ones.
+  String buildConfig;
+  // Set when the build folder is not configured yet, so the task configures it first.
+  String configurePreset;
+};
+
+/*
  * What every generated entry needs to know about the project and the build that runs now.
  */
 struct LaunchTarget
@@ -69,8 +86,108 @@ struct LaunchTarget
   String projectName;
   String projectFile;
   Path executableDirectory;
-  bool bHasGame = false;
+  Vector<BuildVariant> variants;
+  String miMode = "gdb";
+  bool bFollowCMakeTools = true;
 };
+
+String
+makeBuildTaskLabel(const LaunchTarget& target, const BuildVariant& variant, StringView label)
+{
+  return "Build " + String(label) + " (" + variant.name + "): " + target.projectName;
+}
+
+String
+makeConfigureTaskLabel(const LaunchTarget& target, const BuildVariant& variant)
+{
+  return "Configure " + variant.configurePreset + ": " + target.projectName;
+}
+
+bool
+replaceSuffix(String& text, StringView from, StringView to)
+{
+  if (text.size() < from.size() || text.compare(text.size() - from.size(), from.size(),
+                                                from.data(), from.size()) != 0) {
+    return false;
+  }
+  text.replace(text.size() - from.size(), from.size(), to);
+  return true;
+}
+
+/*
+ * The CMake build folder is the first folder above the executable with a CMakeCache.txt:
+ * <build>/lib for single-config generators, <build>/lib/<Config> for multi-config ones.
+ * Multi-config folders build both configurations; single-config presets are named
+ * <base>-debug and <base>-release (build/<presetName>), so the other one sits next to it.
+ */
+void
+findBuildVariants(LaunchTarget& target)
+{
+  Path buildDirectory;
+  int32 depth = 0;
+  Path folder = target.executableDirectory;
+  for (; depth < 3; ++depth) {
+    folder = folder.getDirectory();
+    if (FileSystem::isFile(folder / "CMakeCache.txt")) {
+      buildDirectory = folder;
+      break;
+    }
+  }
+  if (buildDirectory.toString().empty()) {
+    return;
+  }
+
+  if (depth == 1) {
+    for (const ANSICHAR* config : {"Debug", "Release"}) {
+      target.variants.push_back(
+          {config, buildDirectory, buildDirectory / ("lib/" + String(config)), config, ""});
+    }
+    return;
+  }
+
+  const String preset = buildDirectory.getFileName();
+  String debugPreset = preset;
+  String releasePreset = preset;
+  if (!replaceSuffix(releasePreset, "-debug", "-release") &&
+      !replaceSuffix(debugPreset, "-release", "-debug")) {
+    target.variants.push_back({"Current", buildDirectory, target.executableDirectory, "", ""});
+    return;
+  }
+  const Path buildRoot = buildDirectory.getDirectory();
+  for (const auto& [name, presetName] :
+       {std::pair<const ANSICHAR*, String>{"Debug", debugPreset}, {"Release", releasePreset}}) {
+    const Path directory = buildRoot / presetName;
+    const bool bConfigured = FileSystem::isFile(directory / "CMakeCache.txt");
+    target.variants.push_back(
+        {name, directory, directory / "lib", "", bConfigured ? "" : presetName});
+  }
+}
+
+/*
+ * The editor-off Release build of the game preset, the one Package Project copies, so the
+ * game can be run as players get it. Building chGame there also builds the engine plugins.
+ */
+BuildVariant
+makeGameReleaseVariant()
+{
+#if USING(CH_PLATFORM_WIN32)
+  constexpr const ANSICHAR* kPreset = "windows-msvc-game";
+  constexpr const ANSICHAR* kExecutableFolder = "lib/Release";
+  constexpr const ANSICHAR* kBuildConfig = "Release";
+#else
+  constexpr const ANSICHAR* kPreset = "linux-clang-game";
+  constexpr const ANSICHAR* kExecutableFolder = "lib";
+  constexpr const ANSICHAR* kBuildConfig = "";
+#endif // USING(CH_PLATFORM_WIN32)
+  const Path directory = EnginePaths::getEngineRootDirectory() / ("build/" + String(kPreset));
+  const bool bConfigured = FileSystem::isFile(directory / "CMakeCache.txt");
+  return {"Release, no editor", directory, directory / kExecutableFolder, kBuildConfig,
+          bConfigured ? "" : kPreset};
+}
+
+#if !USING(CH_PLATFORM_WIN32)
+constexpr const ANSICHAR* kDebuggers[] = {"gdb", "lldb"};
+#endif // !USING(CH_PLATFORM_WIN32)
 
 String
 escapeJson(StringView text)
@@ -168,14 +285,15 @@ removeMarkedBlock(String& text, const String& key)
 }
 
 /*
- * Puts the project's entries first in the "configurations" array. The block is replaced
- * whole on the next run, so entries of other projects and the user's own stay as they are.
+ * Puts the project's entries first in the arrayName array. The block is replaced whole on
+ * the next run, so entries of other projects and the user's own stay as they are.
  */
 bool
-insertMarkedBlock(String& text, const String& key, const Vector<String>& entries)
+insertMarkedBlock(String& text, const String& arrayName, const String& key,
+                  const Vector<String>& entries)
 {
   removeMarkedBlock(text, key);
-  const SIZE_T name = text.find("\"configurations\"");
+  const SIZE_T name = text.find("\"" + arrayName + "\"");
   if (name == String::npos) {
     return false;
   }
@@ -202,19 +320,20 @@ insertMarkedBlock(String& text, const String& key, const Vector<String>& entries
 }
 
 /*
- * Writes the entries into a launch file of VS Code or Visual Studio, made with header when it
- * does not exist yet.
+ * Writes the entries into the arrayName list of a launch or tasks file of VS Code or Visual
+ * Studio, made with header when it does not exist yet.
  */
 ResultLine
 writeLaunchFile(const Path& path, const String& header, const String& key,
-                const Vector<String>& entries)
+                const Vector<String>& entries, const String& arrayName = "configurations")
 {
   String text = FileSystem::isFile(path) ? readText(path) : String();
   if (text.empty()) {
-    text = header + "  \"configurations\": [\n  ]\n}\n";
+    text = header + "  \"" + arrayName + "\": [\n  ]\n}\n";
   }
-  if (!insertMarkedBlock(text, key, entries)) {
-    return {false, path.toString() + " has no \"configurations\" list; it was not changed."};
+  if (!insertMarkedBlock(text, arrayName, key, entries)) {
+    return {false,
+            path.toString() + " has no \"" + arrayName + "\" list; it was not changed."};
   }
   if (!writeText(path, text)) {
     return {false, "Could not write " + path.toString() + "."};
@@ -222,41 +341,189 @@ writeLaunchFile(const Path& path, const String& header, const String& key,
   return {true, "Wrote " + path.toString()};
 }
 
+#if USING(CH_PLATFORM_WIN32)
+// The MSVC preset prints "file(line): error", the clang ones "file:line: error".
+constexpr const ANSICHAR* kProblemMatchers = "[\"$msCompile\", \"$gcc\"]";
+#else
+constexpr const ANSICHAR* kProblemMatchers = "[\"$gcc\"]";
+#endif // USING(CH_PLATFORM_WIN32)
+
+/*
+ * program is already JSON text (escaped, or a VS Code variable).
+ */
 String
-makeVSCodeEntry(const LaunchTarget& target, StringView label, StringView program)
+makeVSCodeEntry(const LaunchTarget& target, StringView name, StringView program,
+                StringView preLaunchTask)
 {
-  const String executable =
-      escapeJson((target.executableDirectory / (String(program) + kExecutableExtension))
-                     .toString());
 #if USING(CH_PLATFORM_WIN32)
   constexpr const ANSICHAR* kDebugger = "      \"type\": \"cppvsdbg\",\n";
-  constexpr const ANSICHAR* kConsole = "      \"console\": \"internalConsole\"\n";
+  const String lastLine = "      \"console\": \"internalConsole\"\n";
 #else
   constexpr const ANSICHAR* kDebugger = "      \"type\": \"cppdbg\",\n";
-  constexpr const ANSICHAR* kConsole = "      \"MIMode\": \"gdb\"\n";
+  const String lastLine = "      \"MIMode\": \"" + target.miMode + "\"\n";
 #endif // USING(CH_PLATFORM_WIN32)
   String entry = "    {\n";
-  entry += "      \"name\": \"" + String(label) + ": " + escapeJson(target.projectName) + "\",\n";
+  entry += "      \"name\": \"" + String(name) + ": " + escapeJson(target.projectName) + "\",\n";
   entry += kDebugger;
   entry += "      \"request\": \"launch\",\n";
-  entry += "      \"program\": \"" + executable + "\",\n";
+  entry += "      \"program\": \"" + String(program) + "\",\n";
   entry += "      \"args\": [\"-project=" + escapeJson(target.projectFile) + "\"],\n";
   entry += "      \"cwd\": \"${workspaceFolder}\",\n";
-  entry += kConsole;
+  if (!preLaunchTask.empty()) {
+    entry += "      \"preLaunchTask\": \"" + escapeJson(preLaunchTask) + "\",\n";
+  }
+  entry += lastLine;
   entry += "    }";
   return entry;
 }
 
-ResultLine
-writeVSCode(const LaunchTarget& target)
+String
+makeFixedProgram(const Path& executableDirectory, StringView program)
 {
-  Vector<String> entries;
-  entries.push_back(makeVSCodeEntry(target, "Editor", "chEditor"));
-  if (target.bHasGame) {
-    entries.push_back(makeVSCodeEntry(target, "Game", "chGame"));
+  return escapeJson(
+      (executableDirectory / (String(program) + kExecutableExtension)).toString());
+}
+
+/*
+ * Every executable of the engine goes to the same output folder, so the folder of whatever
+ * launch target the CMake Tools tab has selected also holds this program, for any preset and
+ * generator (lib or lib/<Config>). The "get" form does not build the launch target.
+ */
+String
+makeCMakeToolsProgram(StringView program)
+{
+  return "${command:cmake.getLaunchTargetDirectory}/" + String(program) + kExecutableExtension;
+}
+
+String
+makeCMakeToolsTaskLabel(const LaunchTarget& target, StringView label)
+{
+  return "Build " + String(label) + " (CMake Tools preset): " + target.projectName;
+}
+
+/*
+ * Builds program with the build preset selected in the CMake Tools tab, so its compiler,
+ * build folder and job count are the ones the tab uses.
+ */
+String
+makeCMakeToolsBuildTask(const LaunchTarget& target, StringView label, StringView program)
+{
+  String entry = "    {\n";
+  entry += "      \"label\": \"" + escapeJson(makeCMakeToolsTaskLabel(target, label)) + "\",\n";
+  entry += "      \"type\": \"cmake\",\n";
+  entry += "      \"command\": \"build\",\n";
+  entry += "      \"preset\": \"${command:cmake.activeBuildPresetName}\",\n";
+  entry += "      \"targets\": [\"" + String(program) + "\"],\n";
+  entry += "      \"group\": \"build\",\n";
+  entry += "      \"problemMatcher\": " + String(kProblemMatchers) + "\n";
+  entry += "    }";
+  return entry;
+}
+
+/*
+ * Configures a build folder that does not exist yet with its CMake preset.
+ */
+String
+makeVSCodeConfigureTask(const LaunchTarget& target, const BuildVariant& variant)
+{
+  String entry = "    {\n";
+  entry += "      \"label\": \"" + escapeJson(makeConfigureTaskLabel(target, variant)) + "\",\n";
+  entry += "      \"type\": \"shell\",\n";
+  entry += "      \"command\": \"cmake\",\n";
+  entry += "      \"args\": [\"--preset\", \"" + escapeJson(variant.configurePreset) + "\"],\n";
+  entry += "      \"options\": { \"cwd\": \"" +
+           escapeJson(EnginePaths::getEngineRootDirectory().toString()) + "\" },\n";
+  entry += "      \"problemMatcher\": []\n";
+  entry += "    }";
+  return entry;
+}
+
+/*
+ * A task that builds program in the variant's build folder, so the debugger never starts a
+ * stale binary. Multi-config generators also need the configuration (lib/<Config>).
+ */
+String
+makeVSCodeBuildTask(const LaunchTarget& target, const BuildVariant& variant, StringView label,
+                    StringView program)
+{
+  String entry = "    {\n";
+  entry +=
+      "      \"label\": \"" + escapeJson(makeBuildTaskLabel(target, variant, label)) + "\",\n";
+  entry += "      \"type\": \"shell\",\n";
+  entry += "      \"command\": \"cmake\",\n";
+  entry += "      \"args\": [\"--build\", \"" + escapeJson(variant.buildDirectory.toString()) +
+           "\", \"--target\", \"" + String(program) + "\"";
+  if (!variant.buildConfig.empty()) {
+    entry += ", \"--config\", \"" + escapeJson(variant.buildConfig) + "\"";
   }
-  const Path path = EnginePaths::getEngineRootDirectory() / ".vscode/launch.json";
-  return writeLaunchFile(path, "{\n  \"version\": \"0.2.0\",\n", target.projectFile, entries);
+  entry += "],\n";
+  if (!variant.configurePreset.empty()) {
+    entry += "      \"dependsOn\": [\"" + escapeJson(makeConfigureTaskLabel(target, variant)) +
+             "\"],\n";
+  }
+  entry += "      \"group\": \"build\",\n";
+  entry += "      \"problemMatcher\": " + String(kProblemMatchers) + "\n";
+  entry += "    }";
+  return entry;
+}
+
+void
+addGameReleaseEntry(const LaunchTarget& target, Vector<String>& tasks, Vector<String>& entries)
+{
+  const BuildVariant variant = makeGameReleaseVariant();
+  if (!variant.configurePreset.empty()) {
+    tasks.push_back(makeVSCodeConfigureTask(target, variant));
+  }
+  tasks.push_back(makeVSCodeBuildTask(target, variant, "Game", "chGame"));
+  entries.push_back(makeVSCodeEntry(target, "Game (" + variant.name + ")",
+                                    makeFixedProgram(variant.executableDirectory, "chGame"),
+                                    makeBuildTaskLabel(target, variant, "Game")));
+}
+
+ResultLine
+writeVSCode(const LaunchTarget& target, Vector<ResultLine>& results)
+{
+  const Path folder = EnginePaths::getEngineRootDirectory() / ".vscode";
+  Vector<String> entries;
+  Vector<String> tasks;
+  if (target.bFollowCMakeTools) {
+    for (const ANSICHAR* label : {"Editor", "Game"}) {
+      const String program = String("ch") + label;
+      tasks.push_back(makeCMakeToolsBuildTask(target, label, program));
+      entries.push_back(makeVSCodeEntry(target, label, makeCMakeToolsProgram(program),
+                                        makeCMakeToolsTaskLabel(target, label)));
+    }
+  }
+  else if (target.variants.empty()) {
+    results.push_back({false, "No CMakeCache.txt found above " +
+                                  target.executableDirectory.toString() +
+                                  "; the entries will not rebuild before launch."});
+    for (const ANSICHAR* label : {"Editor", "Game"}) {
+      const String program = String("ch") + label;
+      entries.push_back(makeVSCodeEntry(
+          target, label, makeFixedProgram(target.executableDirectory, program), ""));
+    }
+  }
+  else {
+    for (const BuildVariant& variant : target.variants) {
+      if (!variant.configurePreset.empty()) {
+        tasks.push_back(makeVSCodeConfigureTask(target, variant));
+      }
+      for (const ANSICHAR* label : {"Editor", "Game"}) {
+        const String program = String("ch") + label;
+        tasks.push_back(makeVSCodeBuildTask(target, variant, label, program));
+        entries.push_back(makeVSCodeEntry(
+            target, String(label) + " (" + variant.name + ")",
+            makeFixedProgram(variant.executableDirectory, program),
+            makeBuildTaskLabel(target, variant, label)));
+      }
+    }
+  }
+  addGameReleaseEntry(target, tasks, entries);
+  results.push_back(writeLaunchFile(folder / "tasks.json", "{\n  \"version\": \"2.0.0\",\n",
+                                    target.projectFile, tasks, "tasks"));
+  return writeLaunchFile(folder / "launch.json", "{\n  \"version\": \"0.2.0\",\n",
+                         target.projectFile, entries);
 }
 
 #if USING(CH_PLATFORM_WIN32)
@@ -333,7 +600,8 @@ writeVcxprojUser(const Path& path, const String& arguments)
 
 /*
  * Every build folder made with the Visual Studio generator: the one this editor runs from
- * (<build>/lib/<Config>) and the ones under <EngineRoot>/build.
+ * (<build>/lib/<Config>) and the ones under <EngineRoot>/build, the game preset's too, which
+ * has chGame but no chEditor.
  */
 Vector<Path>
 findSolutionFolders()
@@ -352,7 +620,8 @@ findSolutionFolders()
     for (const String& other : seen) {
       bSeen = bSeen || other == folder.toString();
     }
-    if (!bSeen && FileSystem::isFile(folder / "chEditor/chEditor.vcxproj")) {
+    if (!bSeen && (FileSystem::isFile(folder / "chEditor/chEditor.vcxproj") ||
+                   FileSystem::isFile(folder / "chGame/chGame.vcxproj"))) {
       seen.push_back(folder.toString());
       result.push_back(folder);
     }
@@ -392,11 +661,14 @@ generate(DialogState& state)
     target.projectName = EnginePaths::getProjectFile().getFileName(false);
   }
   target.executableDirectory = FileSystem::getExecutableDirectory();
-  target.bHasGame =
-      FileSystem::isFile(target.executableDirectory / (String("chGame") + kExecutableExtension));
+  findBuildVariants(target);
+  target.bFollowCMakeTools = state.bFollowCMakeTools;
+#if !USING(CH_PLATFORM_WIN32)
+  target.miMode = kDebuggers[state.debuggerIndex];
+#endif // !USING(CH_PLATFORM_WIN32)
 
   if (state.bVSCode) {
-    state.results.push_back(writeVSCode(target));
+    state.results.push_back(writeVSCode(target, state.results));
   }
 #if USING(CH_PLATFORM_WIN32)
   if (state.bVisualStudioSolution) {
@@ -449,13 +721,33 @@ IdeDebugSettingsUI::render()
   }
 
   ImGui::TextWrapped("Adds launch settings that start chEditor and chGame on this project "
-                     "(-project), so the debugger stays on the process it started.");
+                     "(-project), so the debugger stays on the process it started. VS Code "
+                     "also gets \"Game (Release, no editor)\", which builds and runs the game "
+                     "preset that Package Project copies.");
   ImGui::Spacing();
-  ImGui::Checkbox("VS Code (.vscode/launch.json)", &state.bVSCode);
+  ImGui::Checkbox("VS Code (.vscode/launch.json, tasks.json)", &state.bVSCode);
+  ImGui::Indent();
+  ImGui::BeginDisabled(!state.bVSCode);
+  ImGui::Checkbox("Follow the CMake Tools tab", &state.bFollowCMakeTools);
+  ImGui::SetItemTooltip("On: Editor and Game build with the build preset selected in the CMake "
+                        "Tools tab and start from its build folder, so changing the preset "
+                        "there needs no new settings. Needs the CMake Tools extension with "
+                        "presets and a launch target selected.\nOff: Debug and Release entries "
+                        "fixed to the build folders found next to this editor.");
+  ImGui::EndDisabled();
+  ImGui::Unindent();
 #if USING(CH_PLATFORM_WIN32)
   ImGui::Checkbox("Visual Studio solution (build/*/chEditor.vcxproj.user)",
                   &state.bVisualStudioSolution);
   ImGui::Checkbox("Visual Studio Open Folder (.vs/launch.vs.json)", &state.bVisualStudioFolder);
+#else
+  ImGui::BeginDisabled(!state.bVSCode);
+  ImGui::TextUnformatted("Debugger:");
+  ImGui::SameLine();
+  ImGui::RadioButton("gdb", &state.debuggerIndex, 0);
+  ImGui::SameLine();
+  ImGui::RadioButton("lldb", &state.debuggerIndex, 1);
+  ImGui::EndDisabled();
 #endif // USING(CH_PLATFORM_WIN32)
   ImGui::TextDisabled("Each project keeps its own entries; the rest of each file is kept.");
   ImGui::Spacing();

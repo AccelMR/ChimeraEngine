@@ -29,6 +29,8 @@ enum class AssetType
   Script,
   SpriteAtlas,
   Font,
+  Audio,
+  SpriteMaterial,
   Unknown
 };
 

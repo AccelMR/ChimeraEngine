@@ -116,6 +116,9 @@ struct DialogState
   Path gameBuild;
   // Why the folder chosen by hand was not taken.
   String buildMessage;
+  // The build checkGameBuild looked at, and what it found wrong with it (empty when nothing).
+  Path checkedBuild;
+  String buildWarning;
   // The editor's own folder, when it holds the game runtime; used for development packages.
   Path editorBuild;
   // The folder dialog keeps a pointer to it until it answers.
@@ -671,6 +674,58 @@ renderSceneList(DialogState& state)
   }
 }
 
+/*
+ * A runtime that lacks a plugin the project enables cannot be packaged, and one whose engine
+ * is older than the editor's may not read the assets the editor saves now. Write times only
+ * hint at the second, so it is a warning and never stops the package.
+ */
+void
+checkGameBuild(DialogState& state)
+{
+  state.checkedBuild = state.gameBuild;
+  state.buildWarning.clear();
+  if (state.gameBuild.empty()) {
+    return;
+  }
+
+  String missing;
+  for (const String& plugin : EnginePaths::getProjectDescriptor().plugins) {
+    if (!FileSystem::isFile(ProjectPackager::getPluginPath(state.gameBuild, plugin))) {
+      if (!missing.empty()) {
+        missing += ", ";
+      }
+      missing += plugin;
+    }
+  }
+  if (!missing.empty()) {
+    state.buildWarning = "This runtime lacks plugins the project enables (" + missing +
+                         "), so the package would fail. It was built before they existed; "
+                         "build it again from the engine folder with:";
+    return;
+  }
+
+  const int64 runtimeTime =
+      FileSystem::getLastWriteTime(ProjectPackager::getEngineLibraryPath(state.gameBuild));
+  const int64 editorTime = FileSystem::getLastWriteTime(
+      ProjectPackager::getEngineLibraryPath(EnginePaths::getPluginDirectory()));
+  if (runtimeTime != 0 && editorTime != 0 && runtimeTime < editorTime) {
+    state.buildWarning = "This runtime's engine is older than the editor's, so it may not "
+                         "read the assets the editor saves now. Build it again from the "
+                         "engine folder with:";
+  }
+}
+
+void
+renderBuildCommands(SIZE_T configurationIndex)
+{
+  ImGui::Indent();
+  ImGui::TextUnformatted(kBuildCommands[configurationIndex]);
+  ImGui::Unindent();
+  if (ImGui::Button(ICON_FA_COPY "  Copy Commands")) {
+    ImGui::SetClipboardText(kBuildCommands[configurationIndex]);
+  }
+}
+
 void
 renderBuildSection(DialogState& state)
 {
@@ -689,12 +744,26 @@ renderBuildSection(DialogState& state)
   ImGui::SetItemTooltip("Release for players. Debug keeps checks and is slower; to step "
                         "through the game, debug chGame from the IDE instead.");
 
+  if (state.checkedBuild.toString() != state.gameBuild.toString()) {
+    checkGameBuild(state);
+  }
   if (!state.gameBuild.empty()) {
-    ImGui::TextColored(kSuccessColor, ICON_FA_CHECK_CIRCLE "  %s runtime found",
+    ImGui::TextColored(state.buildWarning.empty() ? kSuccessColor : kWarningColor,
+                       ICON_FA_CHECK_CIRCLE "  %s runtime found",
                        kConfigurationNames[configurationIndex]);
     ImGui::SetItemTooltip("chGame built without the editor, copied into the package and "
                           "renamed to the game:\n%s",
                           state.gameBuild.toString().c_str());
+    if (!state.buildWarning.empty()) {
+      ImGui::PushStyleColor(ImGuiCol_Text, kWarningColor);
+      ImGui::TextWrapped(ICON_FA_EXCLAMATION_TRIANGLE "  %s", state.buildWarning.c_str());
+      ImGui::PopStyleColor();
+      renderBuildCommands(configurationIndex);
+      ImGui::SameLine();
+      if (ImGui::Button("Check Again")) {
+        checkGameBuild(state);
+      }
+    }
   }
   else {
     ImGui::PushStyleColor(ImGuiCol_Text, kWarningColor);
@@ -704,12 +773,7 @@ renderBuildSection(DialogState& state)
                        "with:",
                        kConfigurationNames[configurationIndex]);
     ImGui::PopStyleColor();
-    ImGui::Indent();
-    ImGui::TextUnformatted(kBuildCommands[configurationIndex]);
-    ImGui::Unindent();
-    if (ImGui::Button(ICON_FA_COPY "  Copy Commands")) {
-      ImGui::SetClipboardText(kBuildCommands[configurationIndex]);
-    }
+    renderBuildCommands(configurationIndex);
     ImGui::SameLine();
     if (ImGui::Button("Look Again")) {
       state.gameBuild = findGameBuild(state.configuration);

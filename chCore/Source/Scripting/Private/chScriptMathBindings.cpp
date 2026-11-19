@@ -160,6 +160,42 @@ vector2ToString(const Vector2& self)
   return self.toString();
 }
 
+// Angles in degrees counterclockwise from +X (X right, Y up), the convention 2D scripts use
+// for world Y and Z.
+float
+vector2Angle(const Vector2& self)
+{
+  return Math::atan2(self.y, self.x).valueDegree();
+}
+
+float
+vector2AngleTo(const Vector2& self, const Vector2& other)
+{
+  return Math::atan2(self.cross(other), self.dot(other)).valueDegree();
+}
+
+Vector2
+vector2Rotated(const Vector2& self, const float degrees)
+{
+  float sine;
+  float cosine;
+  Math::sinCos(degrees * Math::DEG2RAD, sine, cosine);
+  return Vector2(self.x * cosine - self.y * sine, self.x * sine + self.y * cosine);
+}
+
+Vector2&
+vector2RotateInPlace(Vector2& self, const float degrees)
+{
+  self = vector2Rotated(self, degrees);
+  return self;
+}
+
+Vector2
+vector2FromAngle(const float degrees)
+{
+  return vector2Rotated(Vector2::UNIT_X, degrees);
+}
+
 Vector3&
 setVector3(Vector3& self, const float x, const float y, const float z)
 {
@@ -364,6 +400,11 @@ ScriptBindings::registerMath(lua_State* state)
         .field<&Vector2::y>("y")
         .method<&Vector2::cross>("cross", "other")
         .method<&setVector2>("set", "x", "y")
+        .method<&vector2Angle>("angle")
+        .method<&vector2AngleTo>("angleTo", "other")
+        .method<&vector2Rotated>("rotated", "degrees")
+        .method<&vector2RotateInPlace>("rotate", "degrees")
+        .staticFunction<&vector2FromAngle>("FromAngle", "degrees")
         .metamethod<ScriptOperator::ToString, &vector2ToString>()
         .constant("ZERO", Vector2::ZERO)
         .constant("ONE", Vector2::UNIT)

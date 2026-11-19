@@ -27,6 +27,9 @@
 #include "chSkeletonAsset.h"
 #include "chAnimationClipAsset.h"
 #include "chAnimationGraphAsset.h"
+#include "chAudioClipAsset.h"
+#include "chShaderAsset.h"
+#include "chSpriteMaterialAsset.h"
 #include "chScriptAsset.h"
 #include "chSpriteAtlasAsset.h"
 #include "chFontAsset.h"
@@ -212,6 +215,15 @@ UIHelpers::getIconFromAssetType(const SPtr<IAsset>& asset)
   }
   if (asset->isTypeOf<FontAsset>()) {
     return {AssetType::Font, ICON_FA_FONT};
+  }
+  if (asset->isTypeOf<AudioClipAsset>()) {
+    return {AssetType::Audio, ICON_FA_VOLUME_UP};
+  }
+  if (asset->isTypeOf<ShaderAsset>()) {
+    return {AssetType::Shader, ICON_FA_MAGIC};
+  }
+  if (asset->isTypeOf<SpriteMaterialAsset>()) {
+    return {AssetType::SpriteMaterial, ICON_FA_PAINT_BRUSH};
   }
   return {AssetType::Unknown, ICON_FA_FILE};
 }

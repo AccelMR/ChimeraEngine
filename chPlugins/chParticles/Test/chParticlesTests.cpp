@@ -1,13 +1,12 @@
 /************************************************************************/
 /**
- * @file chParticlesTestMain.cpp
+ * @file chParticlesTests.cpp
  * @author AccelMR
  * @date 2026/11/13
  * @brief
  *  Tests of the particles plugin, built with its sources.
  */
 /************************************************************************/
-#define CATCH_CONFIG_MAIN
 #include "catch.hpp"
 
 #include <bit>
@@ -100,7 +99,7 @@ makeFixedMotion()
 }
 } // namespace
 
-TEST_CASE("Particles - age ring")
+TEST_CASE("Particles - age ring", "[Particles]")
 {
   GpuAgeRing<uint32> ring;
   ring.create(4);
@@ -153,7 +152,7 @@ TEST_CASE("Particles - age ring")
   }
 }
 
-TEST_CASE("Particles - age motion")
+TEST_CASE("Particles - age motion", "[Particles]")
 {
   const Random random(7);
   const AgeMotion straight{.angle = 0.0f, .spread = 0.0f, .speed = 3.0f,
@@ -189,7 +188,7 @@ TEST_CASE("Particles - age motion")
   REQUIRE(gpu.drag == 0.0f);
 }
 
-TEST_CASE("Floating numbers - tiers")
+TEST_CASE("Floating numbers - tiers", "[FloatingNumbers]")
 {
   useTestFont();
   TestSystem test;
@@ -222,7 +221,7 @@ TEST_CASE("Floating numbers - tiers")
   REQUIRE(system.getTiers().size() == 1);
 }
 
-TEST_CASE("Floating numbers - spawning")
+TEST_CASE("Floating numbers - spawning", "[FloatingNumbers]")
 {
   useTestFont();
   TestSystem test;
@@ -300,7 +299,7 @@ TEST_CASE("Floating numbers - spawning")
   }
 }
 
-TEST_CASE("Floating numbers - saving")
+TEST_CASE("Floating numbers - saving", "[FloatingNumbers]")
 {
   useTestFont();
   TestSystem test;
@@ -345,7 +344,7 @@ TEST_CASE("Floating numbers - saving")
   REQUIRE_FALSE(broken.deserialize(cut));
 }
 
-TEST_CASE("Floating numbers - scripts")
+TEST_CASE("Floating numbers - scripts", "[FloatingNumbers]")
 {
   useTestFont();
   ScriptManager& scripts = getScripts();
@@ -395,7 +394,7 @@ TEST_CASE("Floating numbers - scripts")
   REQUIRE_FALSE(scripts.runString("Scene.find('Damage'):getFloatingNumbers():spawn(1, 0, 0, { tier = 9 })"));
 }
 
-TEST_CASE("Particles - emission")
+TEST_CASE("Particles - emission", "[Particles]")
 {
   TestParticles test;
   ParticleSystemComponent& system = test.system;
@@ -522,7 +521,7 @@ TEST_CASE("Particles - emission")
   }
 }
 
-TEST_CASE("Particles - look")
+TEST_CASE("Particles - look", "[Particles]")
 {
   TestParticles test;
   ParticleSystemComponent& system = test.system;
@@ -560,7 +559,7 @@ TEST_CASE("Particles - look")
   REQUIRE(gpu.textureAndFlags == GpuSpriteInstance::NO_TEXTURE);
 }
 
-TEST_CASE("Particles - saving")
+TEST_CASE("Particles - saving", "[Particles]")
 {
   TestParticles test;
   ParticleSystemComponent& system = test.system;
@@ -573,6 +572,7 @@ TEST_CASE("Particles - saving")
   system.setMotion({.angle = 45.0f, .speed = 7.0f, .gravity = Vector2(1.0f, -3.0f)});
   ParticleLook look;
   look.texture = chEngineSDK::UUID::createRandom();
+  look.material = chEngineSDK::UUID::createRandom();
   look.size = Vector2(0.5f, 0.25f);
   look.color2 = LinearColor(1.0f, 0.0f, 0.0f, 1.0f);
   look.spinVariance = 90.0f;
@@ -603,6 +603,8 @@ TEST_CASE("Particles - saving")
   REQUIRE(loaded.getBursts()[0].cycles == 3);
   REQUIRE(loaded.getMotion().angle == Approx(45.0f));
   REQUIRE(loaded.getLook().texture == look.texture);
+  // Without an asset manager the material is not found, but its id stays.
+  REQUIRE(loaded.getLook().material == look.material);
   REQUIRE(loaded.getLook().size.y == Approx(0.25f));
   REQUIRE(loaded.getLook().color2.g == 0.0f);
   REQUIRE(loaded.getLook().spinVariance == Approx(90.0f));
@@ -616,7 +618,7 @@ TEST_CASE("Particles - saving")
   REQUIRE(loaded.getSizeCurve()[0].value == Approx(3.0f));
   Vector<chEngineSDK::UUID> references;
   loaded.collectReferences(references);
-  REQUIRE(references.size() == 2);
+  REQUIRE(references.size() == 3);
 
   Vector<uint8> bytes(stream.size() - 4);
   stream.seek(0);
@@ -628,7 +630,7 @@ TEST_CASE("Particles - saving")
   REQUIRE_FALSE(broken.deserialize(cut));
 }
 
-TEST_CASE("Particles - scripts")
+TEST_CASE("Particles - scripts", "[Particles]")
 {
   ScriptManager& scripts = getScripts();
   Scene scene("Scripts", chEngineSDK::UUID::createRandom());
@@ -687,7 +689,7 @@ TEST_CASE("Particles - scripts")
                                   "{0, 1} }"));
 }
 
-TEST_CASE("Particles - benchmark", "[.]")
+TEST_CASE("Particles - benchmark", "[Particles][.]")
 {
   TestParticles test;
   ParticleSystemComponent& system = test.system;
@@ -708,7 +710,7 @@ TEST_CASE("Particles - benchmark", "[.]")
   REQUIRE(system.getLiveCount() == kCount);
 }
 
-TEST_CASE("Floating numbers - benchmark", "[.]")
+TEST_CASE("Floating numbers - benchmark", "[FloatingNumbers][.]")
 {
   useTestFont();
   TestSystem test;

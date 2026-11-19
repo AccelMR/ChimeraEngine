@@ -11,6 +11,9 @@
 #include "chEditorApplication.h"
 #include "chAssetDragDrop.h"
 #include "chAssetManager.h"
+#include "chAudioClipAsset.h"
+#include "chAudioManager.h"
+#include "chAudioSourceComponent.h"
 #include "chCameraComponent.h"
 #include "chEditorCamera.h"
 #include "chCoreComponentEditors.h"
@@ -60,6 +63,7 @@
 #include "chScriptDefinitionsUI.h"
 #include "chScriptHotReload.h"
 #include "chScriptManager.h"
+#include "chShaderHotReload.h"
 #include "chStringUtils.h"
 
 #include "chContentAssetUI.h"
@@ -184,6 +188,7 @@ EditorApplication::destroyModules()
   m_onKeyReleasedEvent.disconnect();
   m_updateInjection.disconnect();
   ScriptHotReload::shutDown();
+  ShaderHotReload::shutDown();
 
   // Its node editor lives in the ImGui context.
   AnimationGraphEditorUI::shutDown();
@@ -224,6 +229,10 @@ EditorApplication::destroyModules()
   // when it closes.
   if (ScriptManager::isStarted()) {
     ScriptManager::shutDown();
+  }
+  // Voices keep the clips they play alive, so nothing above needs it.
+  if (AudioManager::isStarted()) {
+    AudioManager::shutDown();
   }
 #if USING(CH_CODECS)
   // The codec objects live in the codec libraries, which stay loaded until the parent
@@ -283,8 +292,18 @@ EditorApplication::update(const float deltaTime)
     m_viewportHeight = height;
     m_editorCamera->setViewportSize(static_cast<float>(width), static_cast<float>(height));
   }
+  // Mouse positions are in window coordinates, as the panel's area is.
+  if (bPanel) {
+    ScriptManager::instance().setGameView(Vector2(m_viewportArea.x, m_viewportArea.y),
+                                          Vector2(m_viewportArea.width, m_viewportArea.height));
+  }
+  else {
+    ScriptManager::instance().setGameView(
+        Vector2::ZERO, Vector2(static_cast<float>(width), static_cast<float>(height)));
+  }
   ImportDialog::update();
   ScriptHotReload::update(deltaTime);
+  ShaderHotReload::update(deltaTime);
   Path chosenProject;
   if (ProjectBrowserUI::takeChosenProject(chosenProject) &&
       !(FileSystem::absolutePath(chosenProject) ==
@@ -354,6 +373,12 @@ EditorApplication::update(const float deltaTime)
     updatedScene.updateTransforms();
   }
   updateViewCamera(updatedScene);
+  {
+    AudioManager& audio = AudioManager::instance();
+    audio.setAllPaused(EditorScene::isPlaying() && EditorScene::isPaused());
+    audio.updateListener(getViewCamera(), deltaTime);
+    audio.update();
+  }
 
   // Like the grid, the editor's lines hide with the rest of the UI, and while the viewport
   // shows the game.
@@ -383,6 +408,7 @@ EditorApplication::onRender(ICommandList& commandList, const ISwapChain& swapCha
   AnimationGraphEditorUI::recordFrame(commandList);
   CameraPreviewUI::recordFrame(commandList);
   AssetThumbnails::recordFrame(commandList);
+  m_sceneRenderer->setPostProcessEnabled(ViewportTools::isPostProcessVisible());
   RenderGraph& graph = m_sceneRenderer->beginFrame();
   const RGTextureHandle backBuffer =
       graph.importTexture("BackBuffer", swapChain.getCurrentTexture(),
@@ -491,6 +517,7 @@ EditorApplication::initializeEditorComponents() {
   EnginePlugins::loadEnabled();
   CoreComponentEditors::registerDescriptions();
 
+  AudioManager::startUp();
   AssetManager::startUp();
   AssetManager& assetManager = AssetManager::instance();
   assetManager.initialize();
@@ -799,6 +826,9 @@ EditorApplication::renderViewportPanel()
     if (m_editorCamera->is2D() && !EditorScene::isPlaying()) {
       acceptSpriteDrop(scene, parent);
     }
+    if (!EditorScene::isPlaying()) {
+      acceptAudioDrop(scene, parent);
+    }
     ImGui::EndDragDropTarget();
   }
 
@@ -927,6 +957,29 @@ EditorApplication::acceptFontDrop(Scene& scene, GameObject* parent)
 /*
  */
 void
+EditorApplication::acceptAudioDrop(Scene& scene, GameObject* parent)
+{
+  // Clips travel as any asset; only one that is a clip is taken.
+  const SPtr<IAsset> dragged = AssetDragDrop::peekAnyAsset();
+  if (!dragged || !dragged->isTypeOf<AudioClipAsset>()) {
+    return;
+  }
+  const SPtr<IAsset> asset = AssetDragDrop::acceptAnyAsset();
+  if (!asset || (!asset->isLoaded() && !AssetManager::instance().syncLoadAsset(asset))) {
+    return;
+  }
+  const SPtr<GameObject> gameObject = scene.createGameObject(asset->getName(), parent);
+  AudioSourceComponent& source =
+      gameObject->addComponent<AudioSourceComponent>(asset->as<AudioClipAsset>());
+  source.setSpatial(!m_editorCamera->is2D());
+  placeAtMouse(gameObject);
+  EditorSelection::setSelectedGameObject(gameObject);
+  EditorScene::recordCreated(*gameObject, "Drop Audio Clip");
+}
+
+/*
+ */
+void
 EditorApplication::placeAtMouse(const SPtr<GameObject>& gameObject)
 {
   if (!gameObject) {
@@ -988,6 +1041,11 @@ EditorApplication::updateViewCamera(const Scene& scene)
   // did while ejected.
   const bool bPlaying = EditorScene::isPlaying();
   const Camera& editorCamera = m_editorCamera->getCamera();
+  if (bPlaying != m_bWasPlaying) {
+    // Sounds of the game (one-shots of scripts included) end with it, and none of the
+    // edited scene carries into Play.
+    AudioManager::instance().stopAll();
+  }
   if (bPlaying && !m_bWasPlaying) {
     m_positionBeforePlay = editorCamera.getPosition();
     m_lookAtBeforePlay = editorCamera.getLookAt();

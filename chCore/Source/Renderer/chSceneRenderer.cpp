@@ -18,6 +18,7 @@
 #include "chImageBasedLighting.h"
 #include "chLightItem.h"
 #include "chLogger.h"
+#include "chPostProcessRenderer.h"
 #include "chProfiler.h"
 #include "chShadowRenderer.h"
 #include "chSkinningPass.h"
@@ -51,7 +52,8 @@ SceneRenderer::SceneRenderer(const SceneRendererDesc& desc)
     m_skinningPass(new SkinningPass()),
     m_imageBasedLighting(new ImageBasedLighting()),
     m_skyPass(new SkyPass()),
-    m_tonemapPass(new TonemapPass())
+    m_tonemapPass(new TonemapPass()),
+    m_postProcessRenderer(new PostProcessRenderer())
 {}
 
 /*
@@ -91,6 +93,11 @@ SceneRenderer::addScenePasses(RGTextureHandle output)
   CH_PROFILE_SCOPE("AddScenePasses");
   // First, so every pass after it draws the skinned vertices.
   m_skinningPass->addPass(m_graph, m_frame.getWritableItems());
+  m_bRunPostProcess = m_desc.bPostProcess && m_bPostProcessEnabled && g_cvarPostProcess.get() &&
+                      !m_frame.getPostProcessPasses().empty();
+  if (m_bRunPostProcess) {
+    m_postProcessRenderer->beginFrame(m_frame);
+  }
   const Camera& camera = m_frame.getCamera();
   const Frustum& frustum = camera.getFrustum();
   {
@@ -211,7 +218,7 @@ SceneRenderer::addLitPasses(const RenderView& view, RGTextureHandle output)
       {.format = kSceneColorFormat, .width = outputDesc.width, .height = outputDesc.height});
   const RGTextureHandle depth = m_renderPath->addPasses(m_graph, litView, sceneColor);
   m_skyPass->addPass(m_graph, view.camera, m_frame.getSkyLight(), sceneColor, depth);
-  m_tonemapPass->addPass(m_graph, sceneColor, output);
+  addTonemapAndPostProcess(sceneColor, output, false);
   return depth;
 }
 
@@ -235,8 +242,37 @@ SceneRenderer::addSpritePasses(const RenderView& view, RGTextureHandle output)
                         view.clearColor,
                         sceneColor);
   m_visibleSprites = m_spritePass->getLastInstanceCount();
-  m_tonemapPass->addPass(m_graph, sceneColor, output, true);
+  addTonemapAndPostProcess(sceneColor, output, true);
   return {};
+}
+
+/*
+ */
+void
+SceneRenderer::addTonemapAndPostProcess(RGTextureHandle sceneColor,
+                                        const RGTextureHandle output,
+                                        const bool bEncodeOnly)
+{
+  if (!m_bRunPostProcess) {
+    m_tonemapPass->addPass(m_graph, sceneColor, output, bEncodeOnly);
+    return;
+  }
+  const RGTextureDesc outputDesc = m_graph.getTextureDesc(output);
+  if (m_postProcessRenderer->prepare(PostProcessStage::BeforeTonemap, kSceneColorFormat) > 0) {
+    sceneColor =
+        m_postProcessRenderer->addPasses(m_graph, PostProcessStage::BeforeTonemap, sceneColor);
+  }
+  if (m_postProcessRenderer->prepare(PostProcessStage::AfterTonemap, outputDesc.format) == 0) {
+    m_tonemapPass->addPass(m_graph, sceneColor, output, bEncodeOnly);
+    return;
+  }
+  // The output's format, so the passes see the image as it will be shown.
+  const RGTextureHandle tonemapped = m_graph.createTexture(
+      "TonemappedColor",
+      {.format = outputDesc.format, .width = outputDesc.width, .height = outputDesc.height});
+  m_tonemapPass->addPass(m_graph, sceneColor, tonemapped, bEncodeOnly);
+  static_cast<void>(m_postProcessRenderer->addPasses(
+      m_graph, PostProcessStage::AfterTonemap, tonemapped, output));
 }
 
 /*

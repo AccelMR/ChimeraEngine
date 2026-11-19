@@ -1,7 +1,7 @@
 -- chimera-uuid: 18ae49fd-5b21-4824-bd14-0b07e2899437
--- Runs the shooter: spawns enemies, owns the enemy bullets and the explosion sparks, keeps
--- the score (drawn in the top right corner) and opens the map again after a game over. Other
--- scripts reach it through the global Game, set when it starts.
+-- Runs the shooter: spawns enemies, owns the enemy bullets, the explosion sparks and the
+-- sounds, keeps the score (drawn in the top right corner) and opens the map again after a
+-- game over. Other scripts reach it through the global Game, set when it starts.
 ---@class GameManager : Script
 ---@field enemy Prefab
 ---@field spawnInterval number
@@ -52,6 +52,23 @@ function GameManager:onStart()
   self.timer = 1.0
   self.over = false
   self.player = Scene.find("Player")
+
+  -- Clips are found once; playing one is a C call with plain numbers, so a sound per shot
+  -- makes no garbage. Each clip's voice limit (set in the Asset Inspector) keeps rapid fire
+  -- from taking every voice.
+  self.sounds = { shot = AudioClip.find("S_ShotPlayer"), enemyShot = AudioClip.find("S_ShotEnemy"),
+                  explosion = AudioClip.find("S_Explosion"), hurt = AudioClip.find("S_Hurt") }
+  -- Sprite materials the enemies swap to: a white flash when hit, a dissolve when they die.
+  -- Each is one shared asset; what differs per enemy rides in its sprite's color.
+  self.materials = { hitFlash = SpriteMaterial.find("SM_HitFlash"),
+                     dissolve = SpriteMaterial.find("SM_Dissolve") }
+  -- The camera's Post Process holds the engine's CRT effect; C turns it on and off.
+  self.postProcess = Scene.find("Camera"):getPostProcess()
+  -- The music is a global voice: opening the map again after a game over runs onStart again,
+  -- and the music keeps playing through it instead of starting a second time.
+  if not (MusicVoice and MusicVoice:isPlaying()) then
+    MusicVoice = Audio.play("S_Music", { loop = true, volume = 0.45, fadeIn = 1.5 })
+  end
 
   -- Every enemy shoots through this one system, which hits team 1: the player.
   self.enemyBullets = self.gameObject:addProjectiles()
@@ -194,7 +211,7 @@ function GameManager:updateStress(dt)
                                 or "before the stress test"))
   end
   if not self.stressOn then
-    Text.draw(self.stressHintStyle, "P: stress test", -self.halfWidth + 0.3,
+    Text.draw(self.stressHintStyle, "P: stress test    C: CRT", -self.halfWidth + 0.3,
               -self.halfHeight + 0.2)
     return
   end
@@ -262,6 +279,10 @@ end
 function GameManager:update(dt)
   self:drawHud()
   self:updateStress(dt)
+  if Input.wasActionPressed("ToggleCRT") and self.postProcess
+     and self.postProcess:getPassCount() > 0 then
+    self.postProcess:setEnabled(1, not self.postProcess:isEnabled(1))
+  end
   if self.over then
     if Input.wasActionPressed("Restart") then
       Scene.openMap("Main")
@@ -289,6 +310,15 @@ end
 
 function GameManager:explode(y, z, count)
   self.sparks:emit(count, y, z)
+  -- Bigger explosions sound lower.
+  self:playSound(self.sounds.explosion, 0.6, 1.25 - math.min(count, 48) / 80)
+end
+
+-- Plays a sound with a small random change of pitch, so repeated sounds do not all match.
+function GameManager:playSound(clip, volume, pitch)
+  if clip then
+    Audio.play(clip, volume, (pitch or 1) * (0.94 + math.random() * 0.12))
+  end
 end
 
 function GameManager:enemyKilled(y, z, points)

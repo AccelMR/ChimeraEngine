@@ -23,6 +23,7 @@
 
 namespace chEngineSDK {
 class CameraComponent;
+class PostProcessComponent;
 class Frustum;
 
 /**
@@ -329,6 +330,23 @@ class CH_CORE_EXPORT Scene : public Object
   getCameras() const { return m_cameras; }
 
   /**
+   * Called by PostProcessComponent while it is registered, and again when its priority
+   * changes, so the list stays sorted.
+   */
+  void
+  addPostProcess(PostProcessComponent& postProcess);
+
+  void
+  removePostProcess(PostProcessComponent& postProcess);
+
+  /**
+   * Every registered post-process component, lower priority first; equals keep the order
+   * they registered in.
+   */
+  NODISCARD FORCEINLINE const Vector<PostProcessComponent*>&
+  getPostProcesses() const { return m_postProcesses; }
+
+  /**
    * Lines the scene's components draw in update(). Cleared when update() starts.
    */
   NODISCARD FORCEINLINE DebugDraw&
@@ -492,6 +510,7 @@ class CH_CORE_EXPORT Scene : public Object
   uint32 m_nextSkyLightOrder = 0;
   // In registration order.
   Vector<CameraComponent*> m_cameras;
+  Vector<PostProcessComponent*> m_postProcesses;
   CameraComponent* m_chosenCamera = nullptr;
   DebugDraw m_debugDraw;
   DebugDraw m_fixedDebugDraw;

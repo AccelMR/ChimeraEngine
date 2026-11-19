@@ -14,6 +14,8 @@
 #include "chAnimationPreviewUI.h"
 #include "chAssetDragDrop.h"
 #include "chAssetManager.h"
+#include "chAudioClipAsset.h"
+#include "chAudioManager.h"
 #include "chConsoleVariable.h"
 #include "chEngineConfig.h"
 #include "chFont.h"
@@ -29,9 +31,12 @@
 #include "chModelAsset.h"
 #include "chRotator.h"
 #include "chSkeleton.h"
+#include "chShaderAsset.h"
+#include "chShaderHotReload.h"
 #include "chSkeletonAsset.h"
 #include "chSpriteAtlasAsset.h"
 #include "chSpriteAtlasEditorUI.h"
+#include "chSpriteMaterialAsset.h"
 #include "chStringUtils.h"
 #include "chTextureAsset.h"
 #include "chUIHelpers.h"
@@ -289,6 +294,34 @@ getFontEditState()
   return s_state;
 }
 
+/**
+ * The settings being edited for the clip shown, applied only on Apply (a new clip is decoded
+ * again), and the voice of the preview.
+ */
+struct AudioEditState
+{
+  UUID asset = UUID::null();
+  AudioClipSettings settings;
+  AudioVoice preview;
+};
+
+AudioEditState&
+getAudioEditState()
+{
+  static AudioEditState s_state;
+  return s_state;
+}
+
+void
+stopAudioPreview()
+{
+  AudioEditState& state = getAudioEditState();
+  if (AudioManager::isStarted()) {
+    AudioManager::instance().stop(state.preview);
+  }
+  state.preview = {};
+}
+
 NODISCARD bool
 sameSettings(const FontSettings& a, const FontSettings& b)
 {
@@ -378,6 +411,355 @@ renderFont(const SPtr<FontAsset>& asset)
 }
 
 /*
+ * One widget for a shader parameter's value; true when it changed. bSave is set when the
+ * edit is finished (a drag released, a box ticked), the moment to write the asset.
+ */
+bool
+renderShaderValue(const ShaderParameter& parameter, Vector4& value, bool& bSave)
+{
+  const bool bRange = parameter.minimum < parameter.maximum;
+  bool bChanged = false;
+  switch (parameter.type) {
+    case ShaderParameterType::Float:
+      bChanged = bRange ? ImGui::SliderFloat(parameter.name.c_str(), &value.x, parameter.minimum,
+                                             parameter.maximum)
+                        : ImGui::DragFloat(parameter.name.c_str(), &value.x, 0.01f);
+      break;
+    case ShaderParameterType::Int: {
+      int32 number = static_cast<int32>(value.x);
+      bChanged = bRange ? ImGui::SliderInt(parameter.name.c_str(), &number,
+                                           static_cast<int32>(parameter.minimum),
+                                           static_cast<int32>(parameter.maximum))
+                        : ImGui::DragInt(parameter.name.c_str(), &number);
+      value.x = static_cast<float>(number);
+      break;
+    }
+    case ShaderParameterType::Bool: {
+      bool bValue = value.x != 0.0f;
+      if (ImGui::Checkbox(parameter.name.c_str(), &bValue)) {
+        value.x = bValue ? 1.0f : 0.0f;
+        bSave = true;
+        return true;
+      }
+      return false;
+    }
+    case ShaderParameterType::Float2:
+      bChanged = ImGui::DragFloat2(parameter.name.c_str(), &value.x, 0.01f);
+      break;
+    case ShaderParameterType::Float3:
+      bChanged = ImGui::DragFloat3(parameter.name.c_str(), &value.x, 0.01f);
+      break;
+    case ShaderParameterType::Float4:
+      bChanged = ImGui::DragFloat4(parameter.name.c_str(), &value.x, 0.01f);
+      break;
+    case ShaderParameterType::Color:
+    case ShaderParameterType::COUNT:
+      bChanged = ImGui::ColorEdit4(parameter.name.c_str(), &value.x, ImGuiColorEditFlags_Float);
+      break;
+  }
+  bSave |= ImGui::IsItemDeactivatedAfterEdit();
+  return bChanged;
+}
+
+/*
+ * The shader and its values, written to the asset when an edit ends. Every sprite using
+ * the material shows the change at once.
+ */
+void
+renderSpriteMaterial(const SPtr<SpriteMaterialAsset>& material)
+{
+  bool bSave = false;
+  const SPtr<ShaderAsset>& shader = material->getShader();
+  ImGui::TextUnformatted("Shader");
+  ImGui::SameLine();
+  const ANSICHAR* shaderName =
+      shader ? shader->getName()
+             : (material->getShaderId().isNull() ? "None (drop a sprite shader)"
+                                                 : "Missing shader");
+  if (ImGui::Button(shaderName, ImVec2(-FLT_MIN, 0.0f))) {
+    ImGui::OpenPopup("PickSpriteShader");
+  }
+  ImGui::SetItemTooltip("A .hlsl with // CH_SHADER Sprite, imported into the project");
+  SPtr<ShaderAsset> picked;
+  if (ImGui::BeginDragDropTarget()) {
+    const SPtr<IAsset> dragged = AssetDragDrop::peekAnyAsset();
+    if (dragged && dragged->isTypeOf<ShaderAsset>()) {
+      if (const SPtr<IAsset> dropped = AssetDragDrop::acceptAnyAsset()) {
+        picked = dropped->as<ShaderAsset>();
+      }
+    }
+    ImGui::EndDragDropTarget();
+  }
+  if (ImGui::BeginPopup("PickSpriteShader")) {
+    static Vector<SPtr<IAsset>> s_shaders;
+    if (ImGui::IsWindowAppearing()) {
+      s_shaders.clear();
+      AssetManager::instance().getAssetsOfType(AssetTypeTraits<ShaderAsset>::getTypeId(),
+                                               s_shaders);
+    }
+    if (s_shaders.empty()) {
+      ImGui::TextDisabled("The project has no shaders; import a .hlsl file");
+    }
+    for (const SPtr<IAsset>& asset : s_shaders) {
+      if (ImGui::Selectable(asset->getName())) {
+        picked = asset->as<ShaderAsset>();
+      }
+      ImGui::SetItemTooltip("%s", asset->getAssetPath());
+    }
+    ImGui::EndPopup();
+  }
+  if (picked) {
+    if (!picked->isLoaded()) {
+      static_cast<void>(AssetManager::instance().syncLoadAsset(picked));
+    }
+    bSave |= material->setShader(picked);
+  }
+
+  if (!shader) {
+    ImGui::TextDisabled("Sprites using it draw as the engine draws them until it has a "
+                        "shader.");
+  }
+  else {
+    if (shader->getKind() != ShaderAssetKind::Sprite) {
+      ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                         "Not a sprite shader; add // CH_SHADER Sprite to it.");
+    }
+    if (!shader->getCompileError().empty()) {
+      ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                         "The shader's last compile failed; see its Asset Inspector.");
+    }
+    ImGui::SeparatorText("Values");
+    if (shader->getParameters().empty()) {
+      ImGui::TextDisabled("The shader declares no CH_PARAM values.");
+    }
+    for (const ShaderParameter& parameter : shader->getParameters()) {
+      ImGui::PushID(parameter.name.c_str());
+      const ShaderValueOverride* entry = material->findOverride(parameter.name);
+      Vector4 value = entry ? entry->value : parameter.defaultValue;
+      ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - ImGui::GetFrameHeight() -
+                              ImGui::GetStyle().ItemSpacing.x);
+      if (renderShaderValue(parameter, value, bSave)) {
+        static_cast<void>(material->setValue(parameter.name, value));
+      }
+      if (!parameter.tooltip.empty()) {
+        ImGui::SetItemTooltip("%s", parameter.tooltip.c_str());
+      }
+      if (entry) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton(ICON_FA_UNDO)) {
+          material->resetValue(parameter.name);
+          bSave = true;
+        }
+        ImGui::SetItemTooltip("Back to the shader's default");
+      }
+      ImGui::PopID();
+    }
+  }
+
+  if (bSave && !AssetManager::instance().saveAsset(material)) {
+    CH_LOG_ERROR(AssetInspectorLog, "Failed to save sprite material {0}", material->getName());
+  }
+}
+
+/*
+ */
+void
+renderShader(const SPtr<ShaderAsset>& asset)
+{
+  const String& error = asset->getCompileError();
+  if (!error.empty()) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+    ImGui::TextWrapped("The last compile failed; the asset keeps the code that worked.");
+    ImGui::TextWrapped("%s", error.c_str());
+    ImGui::PopStyleColor();
+  }
+
+  const AssetEditorData& editorData = asset->getEditorData();
+  ImGui::Text("Post-process, %s",
+              asset->getStage() == PostProcessStage::BeforeTonemap
+                  ? "before the tonemap (linear HDR)"
+                  : "after the tonemap (final image)");
+  if (!editorData.sourceFile.empty()) {
+    ImGui::TextWrapped("Source: %s", editorData.sourceFile.toString().c_str());
+    if (ImGui::Button(ICON_FA_SYNC "  Compile Again")) {
+      static_cast<void>(ShaderHotReload::compileAgain(asset));
+    }
+    ImGui::SetItemTooltip("Compiles the source now; it also compiles by itself when the "
+                          "file or one it includes is saved");
+    ImGui::SameLine();
+    if (ImGui::Button(ICON_FA_EDIT "  Open Source")) {
+      chUIHelpers::UIHelpers::openScript(editorData.sourceFile);
+    }
+  }
+  const Vector<Path>& includes = asset->getIncludedFiles();
+  if (!includes.empty() &&
+      ImGui::TreeNode("##Includes", "Includes (%u)", static_cast<uint32>(includes.size()))) {
+    for (const Path& file : includes) {
+      ImGui::TextUnformatted(file.toString().c_str());
+    }
+    ImGui::TreePop();
+  }
+
+  ImGui::SeparatorText("Code");
+  for (const ShaderBinary& binary : asset->getData().binaries) {
+    if (binary.vertexCode.empty()) {
+      ImGui::Text("%s: pixel %.1f KB, the engine's vertex shader", binary.format.c_str(),
+                  static_cast<float>(binary.pixelCode.size()) / 1024.0f);
+    }
+    else {
+      ImGui::Text("%s: pixel %.1f KB, vertex %.1f KB", binary.format.c_str(),
+                  static_cast<float>(binary.pixelCode.size()) / 1024.0f,
+                  static_cast<float>(binary.vertexCode.size()) / 1024.0f);
+    }
+  }
+
+  ImGui::SeparatorText("Parameters");
+  const Span<const ShaderParameter> parameters = asset->getParameters();
+  if (parameters.empty()) {
+    ImGui::TextDisabled("None. Declare them with // CH_PARAM lines in the source.");
+    return;
+  }
+  if (!ImGui::BeginTable("##ShaderParameters", 4,
+                         ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
+                             ImGuiTableFlags_SizingStretchProp)) {
+    return;
+  }
+  ImGui::TableSetupColumn("Name");
+  ImGui::TableSetupColumn("Type");
+  ImGui::TableSetupColumn("Default");
+  ImGui::TableSetupColumn("Range");
+  ImGui::TableHeadersRow();
+  for (const ShaderParameter& parameter : parameters) {
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    ImGui::TextUnformatted(parameter.name.c_str());
+    if (!parameter.tooltip.empty()) {
+      ImGui::SetItemTooltip("%s", parameter.tooltip.c_str());
+    }
+    ImGui::TableNextColumn();
+    const StringView typeName = ShaderParameters::getTypeName(parameter.type);
+    ImGui::TextUnformatted(typeName.data(), typeName.data() + typeName.size());
+    ImGui::TableNextColumn();
+    const Vector4& value = parameter.defaultValue;
+    switch (ShaderParameters::getComponentCount(parameter.type)) {
+    case 1:
+      ImGui::Text("%g", value.x);
+      break;
+    case 2:
+      ImGui::Text("%g, %g", value.x, value.y);
+      break;
+    case 3:
+      ImGui::Text("%g, %g, %g", value.x, value.y, value.z);
+      break;
+    default:
+      ImGui::Text("%g, %g, %g, %g", value.x, value.y, value.z, value.w);
+      break;
+    }
+    ImGui::TableNextColumn();
+    if (parameter.minimum < parameter.maximum) {
+      ImGui::Text("%g to %g", parameter.minimum, parameter.maximum);
+    }
+  }
+  ImGui::EndTable();
+}
+
+NODISCARD bool
+sameSettings(const AudioClipSettings& a, const AudioClipSettings& b)
+{
+  return a.loadMode == b.loadMode && a.bus == b.bus && a.volume == b.volume &&
+         a.maxVoices == b.maxVoices;
+}
+
+/*
+ */
+void
+renderAudioClip(const SPtr<AudioClipAsset>& asset)
+{
+  AudioEditState& state = getAudioEditState();
+  if (state.asset != asset->getUUID()) {
+    stopAudioPreview();
+    state.asset = asset->getUUID();
+    if (asset->getClip()) {
+      state.settings = asset->getClip()->getSettings();
+    }
+  }
+  const SPtr<AudioClip>& clip = asset->getClip();
+  if (!clip) {
+    ImGui::TextDisabled("The file is not a sound this build reads.");
+    return;
+  }
+
+  const AudioClipInfo& info = clip->getInfo();
+  ImGui::Text("%.2f s, %u %s, %u Hz, file %u KB", info.getDuration(), info.channels,
+              info.channels == 1 ? "channel" : "channels", info.sampleRate,
+              static_cast<uint32>(clip->getEncodedData().size() / 1024));
+  if (!clip->isStreamed()) {
+    ImGui::TextDisabled("Decoded in memory: %u KB",
+                        static_cast<uint32>(clip->getSamples().size_bytes() / 1024));
+  }
+
+  AudioManager* audio = AudioManager::isStarted() ? &AudioManager::instance() : nullptr;
+  const bool bPlaying = audio && audio->isPlaying(state.preview);
+  if (bPlaying) {
+    if (ImGui::Button(ICON_FA_STOP "  Stop")) {
+      stopAudioPreview();
+    }
+    ImGui::SameLine();
+    ImGui::Text("%.2f / %.2f s", audio->getTime(state.preview), info.getDuration());
+  }
+  else {
+    ImGui::BeginDisabled(!audio);
+    if (ImGui::Button(ICON_FA_PLAY "  Play")) {
+      state.preview = audio->play(clip);
+    }
+    ImGui::EndDisabled();
+  }
+
+  ImGui::SeparatorText("Playback");
+  static constexpr const ANSICHAR* kModes[] = {"Decompress (decoded when it loads)",
+                                               "Stream (decoded while it plays)"};
+  int32 mode = static_cast<int32>(state.settings.loadMode);
+  if (ImGui::Combo("Load Mode", &mode, kModes, 2)) {
+    state.settings.loadMode = static_cast<AudioClipLoadMode>(mode);
+  }
+  ImGui::SetItemTooltip("Decompress for short sounds played often (no decoding while they "
+                        "play); Stream for music and long sounds (little memory)");
+  static constexpr const ANSICHAR* kBuses[] = {"Sound Effects", "Music"};
+  int32 bus = static_cast<int32>(state.settings.bus);
+  if (ImGui::Combo("Bus", &bus, kBuses, 2)) {
+    state.settings.bus = static_cast<AudioBus>(bus);
+  }
+  ImGui::SetItemTooltip("Whose volume (Audio.SfxVolume or Audio.MusicVolume) it follows");
+  ImGui::SliderFloat("Volume", &state.settings.volume, 0.0f, 2.0f, "%.2f");
+  ImGui::SetItemTooltip("Multiplies the volume every voice of the clip plays with");
+  int32 maxVoices = static_cast<int32>(state.settings.maxVoices);
+  if (ImGui::SliderInt("Max Voices", &maxVoices, 0, 32, maxVoices == 0 ? "No limit" : "%d")) {
+    state.settings.maxVoices = static_cast<uint32>(Math::max(maxVoices, 0));
+  }
+  ImGui::SetItemTooltip("Voices of this clip at once; a new one stops the oldest. Keeps a "
+                        "sound played by every bullet from taking every voice.");
+
+  const bool bChanged = !sameSettings(state.settings, clip->getSettings());
+  ImGui::BeginDisabled(!bChanged);
+  if (ImGui::Button(ICON_FA_CHECK "  Apply")) {
+    stopAudioPreview();
+    asset->setSettings(state.settings);
+    if (!AssetManager::instance().saveAsset(asset)) {
+      CH_LOG_ERROR(AssetInspectorLog, "Could not save audio clip {0}.", asset->getName());
+    }
+    state.asset = UUID::null();
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Revert")) {
+    state.asset = UUID::null();
+  }
+  ImGui::EndDisabled();
+  if (bChanged) {
+    ImGui::TextDisabled("Sources and sounds already playing keep the old settings.");
+  }
+}
+
+/*
  */
 void
 renderAsset(const SPtr<IAsset>& asset)
@@ -423,6 +805,15 @@ renderAsset(const SPtr<IAsset>& asset)
   }
   else if (const SPtr<FontAsset> font = asset->as<FontAsset>()) {
     renderFont(font);
+  }
+  else if (const SPtr<AudioClipAsset> audioClip = asset->as<AudioClipAsset>()) {
+    renderAudioClip(audioClip);
+  }
+  else if (const SPtr<ShaderAsset> shader = asset->as<ShaderAsset>()) {
+    renderShader(shader);
+  }
+  else if (const SPtr<SpriteMaterialAsset> spriteMaterial = asset->as<SpriteMaterialAsset>()) {
+    renderSpriteMaterial(spriteMaterial);
   }
   else {
     ImGui::TextDisabled("Nothing to show for this type.");
@@ -492,6 +883,7 @@ AssetInspectorUI::close(const IAsset& asset)
   InspectorState& state = getState();
   if (state.asset.get() == &asset) {
     state.asset.reset();
+    stopAudioPreview();
   }
   // Rows of the shown model may point at it too.
   Algorithm::removeAllIf(state.modelClips,
@@ -523,6 +915,7 @@ AssetInspectorUI::shutDown()
 {
   InspectorState& state = getState();
   state.asset.reset();
+  stopAudioPreview();
   state.modelClips.clear();
   state.boneChildren.clear();
 }

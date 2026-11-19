@@ -20,6 +20,7 @@
 
 namespace chEngineSDK {
 class SpriteAtlasAsset;
+class SpriteMaterialAsset;
 class TextureAsset;
 struct SpriteAtlasFrame;
 
@@ -161,6 +162,27 @@ class CH_CORE_EXPORT SpriteComponent : public Component
   getFilter() const noexcept { return m_filter; }
 
   /**
+   * Shades the sprite with the material's shader; null draws it as the engine does.
+   */
+  void
+  setMaterial(const SPtr<SpriteMaterialAsset>& material);
+
+  /**
+   * By UUID, null for none; the asset is loaded. For the editor.
+   */
+  void
+  setMaterialId(const UUID& materialId);
+
+  NODISCARD FORCEINLINE const SPtr<SpriteMaterialAsset>&
+  getMaterial() const noexcept { return m_material; }
+
+  /**
+   * Kept when the asset is missing, so saving again keeps the reference.
+   */
+  NODISCARD FORCEINLINE const UUID&
+  getMaterialId() const noexcept { return m_materialId; }
+
+  /**
    * Width and height in world units before the GameObject's scale. Without a texture and
    * without a source size it is one unit square.
    */
@@ -214,6 +236,8 @@ class CH_CORE_EXPORT SpriteComponent : public Component
   UUID m_textureId = UUID::null();
   SPtr<SpriteAtlasAsset> m_atlas;
   UUID m_atlasId = UUID::null();
+  SPtr<SpriteMaterialAsset> m_material;
+  UUID m_materialId = UUID::null();
   uint32 m_frame = NO_FRAME;
   Vector2 m_sourcePosition = Vector2::ZERO;
   Vector2 m_sourceSize = Vector2::ZERO;

@@ -15,6 +15,7 @@
 #include "chLightItem.h"
 #include "chLinearColor.h"
 #include "chRenderItem.h"
+#include "chPostProcessItem.h"
 #include "chSkyLightItem.h"
 #include "chSpriteItem.h"
 
@@ -130,6 +131,24 @@ class CH_CORE_EXPORT RenderFrame
   /**
    * The lines of the scene's update and fixed step and the application's.
    */
+  /**
+   * Passes of every enabled post-process component, in the order they run.
+   */
+  NODISCARD FORCEINLINE Span<const PostProcessPassItem>
+  getPostProcessPasses() const
+  {
+    return m_postProcessPasses;
+  }
+
+  /**
+   * The parameter bytes of every pass, one after the other.
+   */
+  NODISCARD FORCEINLINE Span<const uint8>
+  getPostProcessParameters() const
+  {
+    return m_postProcessParameters;
+  }
+
   NODISCARD Span<const DebugDraw* const>
   getDebugLines() const
   {
@@ -163,6 +182,8 @@ class CH_CORE_EXPORT RenderFrame
   Vector<CustomSpriteBatch> m_customBatches;
   SkyLightItem m_skyLight;
   bool m_bHasSkyLight = false;
+  Vector<PostProcessPassItem> m_postProcessPasses;
+  Vector<uint8> m_postProcessParameters;
   DebugDraw m_sceneLines;
   DebugDraw m_fixedSceneLines;
   DebugDraw m_extraLines;
