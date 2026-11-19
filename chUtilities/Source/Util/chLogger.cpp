@@ -455,7 +455,9 @@ Logger::openConsoleWindow()
   if (output && output != INVALID_HANDLE_VALUE && GetFileType(output) != FILE_TYPE_UNKNOWN) {
     return;
   }
-  if (!AllocConsole()) {
+  // Started from a shell or a script, the log goes to that console, which also keeps it
+  // after the program ends.
+  if (!AttachConsole(ATTACH_PARENT_PROCESS) && !AllocConsole()) {
     return;
   }
   // The C streams were bound to nothing when the program started; std::cout writes through

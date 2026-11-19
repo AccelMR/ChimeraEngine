@@ -14,12 +14,8 @@
 namespace chEngineSDK {
 
 /**
- * Exists so the editor and the game can be debugged on a project straight from an IDE: picking
- * a project in the project browser starts a new process, which the debugger does not follow.
- * It writes launch settings that pass -project to chEditor and chGame: entries in the engine's
- * .vscode/launch.json and .vs/launch.vs.json (each project between marker comments, the rest of
- * the file kept), and the .vcxproj.user of every Visual Studio solution under build/. All of
- * these files are ignored by git.
+ * Exists so the IDE debug settings can be written from the editor: File > Generate IDE Debug
+ * Settings... shows the options of IdeDebugSettings and what each file got.
  */
 class IdeDebugSettingsUI
 {

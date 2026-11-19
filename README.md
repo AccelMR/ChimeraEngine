@@ -49,6 +49,13 @@ You can also skip the command line and build from an IDE. Both read the same pre
 
 Once a project is open in the editor, File > Generate IDE Debug Settings... writes debugger
 settings for VS Code and Visual Studio that start the editor or the game on that project.
+The same can be done without opening the editor; on a fresh clone the script also fetches
+the submodules and builds the editor first:
+
+```sh
+GenerateIdeSettings.bat Examples\Example2D      # Windows
+./GenerateIdeSettings.sh Examples/Example2D     # Linux, add -Debugger=lldb for LLDB
+```
 
 Open one of the example projects in the editor:
 
@@ -133,3 +140,8 @@ There are two examples:
 
 Third-party libraries (SDL3, Lua, ImGui, assimp, miniaudio, libwebp and others) live in
 submodules and keep their own licenses.
+
+## License
+
+Chimera is released under the [MIT License](LICENSE). The fonts in `chEditor/Content/Fonts`
+and `chCore/Content/Fonts` keep their own licenses (SIL Open Font License).

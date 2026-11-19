@@ -9,10 +9,7 @@
 /************************************************************************/
 #include "chIdeDebugSettingsUI.h"
 
-#include "chEnginePaths.h"
-#include "chFileSystem.h"
-#include "chLogger.h"
-#include "chProjectDescriptor.h"
+#include "chIdeDebugSettings.h"
 
 #include "imgui.h"
 
@@ -22,39 +19,24 @@
 
 namespace chEngineSDK {
 
-CH_LOG_DECLARE_STATIC(IdeDebugSettingsLog, All);
-
 namespace {
 constexpr const ANSICHAR* kPopupName = "Generate IDE Debug Settings";
-constexpr const ANSICHAR* kBeginMarker = "// chimera-generated begin ";
-constexpr const ANSICHAR* kEndMarker = "// chimera-generated end ";
 constexpr ImVec4 kErrorColor(1.0f, 0.4f, 0.4f, 1.0f);
+constexpr ImVec4 kWarningColor(1.0f, 0.8f, 0.4f, 1.0f);
 constexpr ImVec4 kSuccessColor(0.5f, 0.9f, 0.5f, 1.0f);
 
-#if USING(CH_PLATFORM_WIN32)
-constexpr const ANSICHAR* kExecutableExtension = ".exe";
-#else
-constexpr const ANSICHAR* kExecutableExtension = "";
-#endif // USING(CH_PLATFORM_WIN32)
-
-struct ResultLine
-{
-  bool bSuccess = false;
-  String text;
-};
+#if !USING(CH_PLATFORM_WIN32)
+constexpr const ANSICHAR* kDebuggers[] = {"gdb", "lldb"};
+#endif // !USING(CH_PLATFORM_WIN32)
 
 struct DialogState
 {
   bool bOpenRequested = false;
-  bool bVSCode = true;
-  bool bFollowCMakeTools = true;
-#if USING(CH_PLATFORM_WIN32)
-  bool bVisualStudioSolution = true;
-  bool bVisualStudioFolder = true;
-#else
+  IdeDebugSettingsOptions options;
+#if !USING(CH_PLATFORM_WIN32)
   int32 debuggerIndex = 0;
-#endif // USING(CH_PLATFORM_WIN32)
-  Vector<ResultLine> results;
+#endif // !USING(CH_PLATFORM_WIN32)
+  Vector<IdeDebugSettingsResult> results;
 };
 
 DialogState&
@@ -64,629 +46,25 @@ getState()
   return state;
 }
 
-/*
- * One build configuration (Debug or Release) the entries can start and rebuild.
- */
-struct BuildVariant
+ImVec4
+getResultColor(IdeDebugSettingsResultKind kind)
 {
-  String name;
-  Path buildDirectory;
-  Path executableDirectory;
-  // Passed as --config for multi-config generators; empty for single-config ones.
-  String buildConfig;
-  // Set when the build folder is not configured yet, so the task configures it first.
-  String configurePreset;
-};
-
-/*
- * What every generated entry needs to know about the project and the build that runs now.
- */
-struct LaunchTarget
-{
-  String projectName;
-  String projectFile;
-  Path executableDirectory;
-  Vector<BuildVariant> variants;
-  String miMode = "gdb";
-  bool bFollowCMakeTools = true;
-};
-
-String
-makeBuildTaskLabel(const LaunchTarget& target, const BuildVariant& variant, StringView label)
-{
-  return "Build " + String(label) + " (" + variant.name + "): " + target.projectName;
+  switch (kind) {
+    case IdeDebugSettingsResultKind::Written: return kSuccessColor;
+    case IdeDebugSettingsResultKind::Warning: return kWarningColor;
+    case IdeDebugSettingsResultKind::Error: return kErrorColor;
+  }
+  return kErrorColor;
 }
-
-String
-makeConfigureTaskLabel(const LaunchTarget& target, const BuildVariant& variant)
-{
-  return "Configure " + variant.configurePreset + ": " + target.projectName;
-}
-
-bool
-replaceSuffix(String& text, StringView from, StringView to)
-{
-  if (text.size() < from.size() || text.compare(text.size() - from.size(), from.size(),
-                                                from.data(), from.size()) != 0) {
-    return false;
-  }
-  text.replace(text.size() - from.size(), from.size(), to);
-  return true;
-}
-
-/*
- * The CMake build folder is the first folder above the executable with a CMakeCache.txt:
- * <build>/lib for single-config generators, <build>/lib/<Config> for multi-config ones.
- * Multi-config folders build both configurations; single-config presets are named
- * <base>-debug and <base>-release (build/<presetName>), so the other one sits next to it.
- */
-void
-findBuildVariants(LaunchTarget& target)
-{
-  Path buildDirectory;
-  int32 depth = 0;
-  Path folder = target.executableDirectory;
-  for (; depth < 3; ++depth) {
-    folder = folder.getDirectory();
-    if (FileSystem::isFile(folder / "CMakeCache.txt")) {
-      buildDirectory = folder;
-      break;
-    }
-  }
-  if (buildDirectory.toString().empty()) {
-    return;
-  }
-
-  if (depth == 1) {
-    for (const ANSICHAR* config : {"Debug", "Release"}) {
-      target.variants.push_back(
-          {config, buildDirectory, buildDirectory / ("lib/" + String(config)), config, ""});
-    }
-    return;
-  }
-
-  const String preset = buildDirectory.getFileName();
-  String debugPreset = preset;
-  String releasePreset = preset;
-  if (!replaceSuffix(releasePreset, "-debug", "-release") &&
-      !replaceSuffix(debugPreset, "-release", "-debug")) {
-    target.variants.push_back({"Current", buildDirectory, target.executableDirectory, "", ""});
-    return;
-  }
-  const Path buildRoot = buildDirectory.getDirectory();
-  for (const auto& [name, presetName] :
-       {std::pair<const ANSICHAR*, String>{"Debug", debugPreset}, {"Release", releasePreset}}) {
-    const Path directory = buildRoot / presetName;
-    const bool bConfigured = FileSystem::isFile(directory / "CMakeCache.txt");
-    target.variants.push_back(
-        {name, directory, directory / "lib", "", bConfigured ? "" : presetName});
-  }
-}
-
-/*
- * The editor-off Release build of the game preset, the one Package Project copies, so the
- * game can be run as players get it. Building chGame there also builds the engine plugins.
- */
-BuildVariant
-makeGameReleaseVariant()
-{
-#if USING(CH_PLATFORM_WIN32)
-  constexpr const ANSICHAR* kPreset = "windows-msvc-game";
-  constexpr const ANSICHAR* kExecutableFolder = "lib/Release";
-  constexpr const ANSICHAR* kBuildConfig = "Release";
-#else
-  constexpr const ANSICHAR* kPreset = "linux-clang-game";
-  constexpr const ANSICHAR* kExecutableFolder = "lib";
-  constexpr const ANSICHAR* kBuildConfig = "";
-#endif // USING(CH_PLATFORM_WIN32)
-  const Path directory = EnginePaths::getEngineRootDirectory() / ("build/" + String(kPreset));
-  const bool bConfigured = FileSystem::isFile(directory / "CMakeCache.txt");
-  return {"Release, no editor", directory, directory / kExecutableFolder, kBuildConfig,
-          bConfigured ? "" : kPreset};
-}
-
-#if !USING(CH_PLATFORM_WIN32)
-constexpr const ANSICHAR* kDebuggers[] = {"gdb", "lldb"};
-#endif // !USING(CH_PLATFORM_WIN32)
-
-String
-escapeJson(StringView text)
-{
-  String result;
-  result.reserve(text.size());
-  for (const ANSICHAR c : text) {
-    if (c == '"' || c == '\\') {
-      result += '\\';
-    }
-    result += c;
-  }
-  return result;
-}
-
-
-#if USING(CH_PLATFORM_WIN32)
-String
-escapeXml(StringView text)
-{
-  String result;
-  result.reserve(text.size());
-  for (const ANSICHAR c : text) {
-    switch (c) {
-      case '&': result += "&amp;"; break;
-      case '<': result += "&lt;"; break;
-      case '>': result += "&gt;"; break;
-      case '"': result += "&quot;"; break;
-      default: result += c; break;
-    }
-  }
-  return result;
-}
-#endif // USING(CH_PLATFORM_WIN32)
-
-String
-readText(const Path& path)
-{
-  const Vector<uint8> bytes = FileSystem::fastRead(path);
-  return String(reinterpret_cast<const ANSICHAR*>(bytes.data()), bytes.size());
-}
-
-bool
-writeText(const Path& path, const String& text)
-{
-  const SPtr<DataStream> stream = FileSystem::createAndOpenFile(path);
-  return stream && stream->write(text.data(), text.size()) == text.size();
-}
-
-/*
- * Skips spaces and comments, which launch files may hold, so the caller sees the next value.
- */
-SIZE_T
-skipJsonSpace(const String& text, SIZE_T position)
-{
-  while (position < text.size()) {
-    const ANSICHAR c = text[position];
-    if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
-      ++position;
-    }
-    else if (text.compare(position, 2, "//") == 0) {
-      const SIZE_T lineEnd = text.find('\n', position);
-      position = lineEnd == String::npos ? text.size() : lineEnd + 1;
-    }
-    else if (text.compare(position, 2, "/*") == 0) {
-      const SIZE_T commentEnd = text.find("*/", position + 2);
-      position = commentEnd == String::npos ? text.size() : commentEnd + 2;
-    }
-    else {
-      break;
-    }
-  }
-  return position;
-}
-
-/*
- * Removes the lines of an earlier block of this project, markers included.
- */
-void
-removeMarkedBlock(String& text, const String& key)
-{
-  const SIZE_T begin = text.find(kBeginMarker + key);
-  if (begin == String::npos) {
-    return;
-  }
-  const SIZE_T end = text.find(kEndMarker + key, begin);
-  if (end == String::npos) {
-    return;
-  }
-  const SIZE_T lineStart = text.rfind('\n', begin);
-  const SIZE_T removeStart = lineStart == String::npos ? 0 : lineStart + 1;
-  const SIZE_T lineEnd = text.find('\n', end);
-  const SIZE_T removeEnd = lineEnd == String::npos ? text.size() : lineEnd + 1;
-  text.erase(removeStart, removeEnd - removeStart);
-}
-
-/*
- * Puts the project's entries first in the arrayName array. The block is replaced whole on
- * the next run, so entries of other projects and the user's own stay as they are.
- */
-bool
-insertMarkedBlock(String& text, const String& arrayName, const String& key,
-                  const Vector<String>& entries)
-{
-  removeMarkedBlock(text, key);
-  const SIZE_T name = text.find("\"" + arrayName + "\"");
-  if (name == String::npos) {
-    return false;
-  }
-  const SIZE_T arrayStart = text.find('[', name);
-  if (arrayStart == String::npos) {
-    return false;
-  }
-  const SIZE_T next = skipJsonSpace(text, arrayStart + 1);
-  // JSON has no trailing comma, so the last entry only gets one when more follow.
-  const bool bMoreFollow = next < text.size() && text[next] != ']';
-
-  String block = "\n    ";
-  block += kBeginMarker + key + "\n";
-  for (SIZE_T i = 0; i < entries.size(); ++i) {
-    block += entries[i];
-    block += (i + 1 < entries.size() || bMoreFollow) ? ",\n" : "\n";
-  }
-  block += "    ";
-  block += kEndMarker + key;
-
-  // Keeps the line break that followed the "[", so the block sits on its own lines.
-  text.insert(arrayStart + 1, block);
-  return true;
-}
-
-/*
- * Writes the entries into the arrayName list of a launch or tasks file of VS Code or Visual
- * Studio, made with header when it does not exist yet.
- */
-ResultLine
-writeLaunchFile(const Path& path, const String& header, const String& key,
-                const Vector<String>& entries, const String& arrayName = "configurations")
-{
-  String text = FileSystem::isFile(path) ? readText(path) : String();
-  if (text.empty()) {
-    text = header + "  \"" + arrayName + "\": [\n  ]\n}\n";
-  }
-  if (!insertMarkedBlock(text, arrayName, key, entries)) {
-    return {false,
-            path.toString() + " has no \"" + arrayName + "\" list; it was not changed."};
-  }
-  if (!writeText(path, text)) {
-    return {false, "Could not write " + path.toString() + "."};
-  }
-  return {true, "Wrote " + path.toString()};
-}
-
-#if USING(CH_PLATFORM_WIN32)
-// The MSVC preset prints "file(line): error", the clang ones "file:line: error".
-constexpr const ANSICHAR* kProblemMatchers = "[\"$msCompile\", \"$gcc\"]";
-#else
-constexpr const ANSICHAR* kProblemMatchers = "[\"$gcc\"]";
-#endif // USING(CH_PLATFORM_WIN32)
-
-/*
- * program is already JSON text (escaped, or a VS Code variable).
- */
-String
-makeVSCodeEntry(const LaunchTarget& target, StringView name, StringView program,
-                StringView preLaunchTask)
-{
-#if USING(CH_PLATFORM_WIN32)
-  constexpr const ANSICHAR* kDebugger = "      \"type\": \"cppvsdbg\",\n";
-  const String lastLine = "      \"console\": \"internalConsole\"\n";
-#else
-  constexpr const ANSICHAR* kDebugger = "      \"type\": \"cppdbg\",\n";
-  const String lastLine = "      \"MIMode\": \"" + target.miMode + "\"\n";
-#endif // USING(CH_PLATFORM_WIN32)
-  String entry = "    {\n";
-  entry += "      \"name\": \"" + String(name) + ": " + escapeJson(target.projectName) + "\",\n";
-  entry += kDebugger;
-  entry += "      \"request\": \"launch\",\n";
-  entry += "      \"program\": \"" + String(program) + "\",\n";
-  entry += "      \"args\": [\"-project=" + escapeJson(target.projectFile) + "\"],\n";
-  entry += "      \"cwd\": \"${workspaceFolder}\",\n";
-  if (!preLaunchTask.empty()) {
-    entry += "      \"preLaunchTask\": \"" + escapeJson(preLaunchTask) + "\",\n";
-  }
-  entry += lastLine;
-  entry += "    }";
-  return entry;
-}
-
-String
-makeFixedProgram(const Path& executableDirectory, StringView program)
-{
-  return escapeJson(
-      (executableDirectory / (String(program) + kExecutableExtension)).toString());
-}
-
-/*
- * Every executable of the engine goes to the same output folder, so the folder of whatever
- * launch target the CMake Tools tab has selected also holds this program, for any preset and
- * generator (lib or lib/<Config>). The "get" form does not build the launch target.
- */
-String
-makeCMakeToolsProgram(StringView program)
-{
-  return "${command:cmake.getLaunchTargetDirectory}/" + String(program) + kExecutableExtension;
-}
-
-String
-makeCMakeToolsTaskLabel(const LaunchTarget& target, StringView label)
-{
-  return "Build " + String(label) + " (CMake Tools preset): " + target.projectName;
-}
-
-/*
- * Builds program with the build preset selected in the CMake Tools tab, so its compiler,
- * build folder and job count are the ones the tab uses.
- */
-String
-makeCMakeToolsBuildTask(const LaunchTarget& target, StringView label, StringView program)
-{
-  String entry = "    {\n";
-  entry += "      \"label\": \"" + escapeJson(makeCMakeToolsTaskLabel(target, label)) + "\",\n";
-  entry += "      \"type\": \"cmake\",\n";
-  entry += "      \"command\": \"build\",\n";
-  entry += "      \"preset\": \"${command:cmake.activeBuildPresetName}\",\n";
-  entry += "      \"targets\": [\"" + String(program) + "\"],\n";
-  entry += "      \"group\": \"build\",\n";
-  entry += "      \"problemMatcher\": " + String(kProblemMatchers) + "\n";
-  entry += "    }";
-  return entry;
-}
-
-/*
- * Configures a build folder that does not exist yet with its CMake preset.
- */
-String
-makeVSCodeConfigureTask(const LaunchTarget& target, const BuildVariant& variant)
-{
-  String entry = "    {\n";
-  entry += "      \"label\": \"" + escapeJson(makeConfigureTaskLabel(target, variant)) + "\",\n";
-  entry += "      \"type\": \"shell\",\n";
-  entry += "      \"command\": \"cmake\",\n";
-  entry += "      \"args\": [\"--preset\", \"" + escapeJson(variant.configurePreset) + "\"],\n";
-  entry += "      \"options\": { \"cwd\": \"" +
-           escapeJson(EnginePaths::getEngineRootDirectory().toString()) + "\" },\n";
-  entry += "      \"problemMatcher\": []\n";
-  entry += "    }";
-  return entry;
-}
-
-/*
- * A task that builds program in the variant's build folder, so the debugger never starts a
- * stale binary. Multi-config generators also need the configuration (lib/<Config>).
- */
-String
-makeVSCodeBuildTask(const LaunchTarget& target, const BuildVariant& variant, StringView label,
-                    StringView program)
-{
-  String entry = "    {\n";
-  entry +=
-      "      \"label\": \"" + escapeJson(makeBuildTaskLabel(target, variant, label)) + "\",\n";
-  entry += "      \"type\": \"shell\",\n";
-  entry += "      \"command\": \"cmake\",\n";
-  entry += "      \"args\": [\"--build\", \"" + escapeJson(variant.buildDirectory.toString()) +
-           "\", \"--target\", \"" + String(program) + "\"";
-  if (!variant.buildConfig.empty()) {
-    entry += ", \"--config\", \"" + escapeJson(variant.buildConfig) + "\"";
-  }
-  entry += "],\n";
-  if (!variant.configurePreset.empty()) {
-    entry += "      \"dependsOn\": [\"" + escapeJson(makeConfigureTaskLabel(target, variant)) +
-             "\"],\n";
-  }
-  entry += "      \"group\": \"build\",\n";
-  entry += "      \"problemMatcher\": " + String(kProblemMatchers) + "\n";
-  entry += "    }";
-  return entry;
-}
-
-void
-addGameReleaseEntry(const LaunchTarget& target, Vector<String>& tasks, Vector<String>& entries)
-{
-  const BuildVariant variant = makeGameReleaseVariant();
-  if (!variant.configurePreset.empty()) {
-    tasks.push_back(makeVSCodeConfigureTask(target, variant));
-  }
-  tasks.push_back(makeVSCodeBuildTask(target, variant, "Game", "chGame"));
-  entries.push_back(makeVSCodeEntry(target, "Game (" + variant.name + ")",
-                                    makeFixedProgram(variant.executableDirectory, "chGame"),
-                                    makeBuildTaskLabel(target, variant, "Game")));
-}
-
-ResultLine
-writeVSCode(const LaunchTarget& target, Vector<ResultLine>& results)
-{
-  const Path folder = EnginePaths::getEngineRootDirectory() / ".vscode";
-  Vector<String> entries;
-  Vector<String> tasks;
-  if (target.bFollowCMakeTools) {
-    for (const ANSICHAR* label : {"Editor", "Game"}) {
-      const String program = String("ch") + label;
-      tasks.push_back(makeCMakeToolsBuildTask(target, label, program));
-      entries.push_back(makeVSCodeEntry(target, label, makeCMakeToolsProgram(program),
-                                        makeCMakeToolsTaskLabel(target, label)));
-    }
-  }
-  else if (target.variants.empty()) {
-    results.push_back({false, "No CMakeCache.txt found above " +
-                                  target.executableDirectory.toString() +
-                                  "; the entries will not rebuild before launch."});
-    for (const ANSICHAR* label : {"Editor", "Game"}) {
-      const String program = String("ch") + label;
-      entries.push_back(makeVSCodeEntry(
-          target, label, makeFixedProgram(target.executableDirectory, program), ""));
-    }
-  }
-  else {
-    for (const BuildVariant& variant : target.variants) {
-      if (!variant.configurePreset.empty()) {
-        tasks.push_back(makeVSCodeConfigureTask(target, variant));
-      }
-      for (const ANSICHAR* label : {"Editor", "Game"}) {
-        const String program = String("ch") + label;
-        tasks.push_back(makeVSCodeBuildTask(target, variant, label, program));
-        entries.push_back(makeVSCodeEntry(
-            target, String(label) + " (" + variant.name + ")",
-            makeFixedProgram(variant.executableDirectory, program),
-            makeBuildTaskLabel(target, variant, label)));
-      }
-    }
-  }
-  addGameReleaseEntry(target, tasks, entries);
-  results.push_back(writeLaunchFile(folder / "tasks.json", "{\n  \"version\": \"2.0.0\",\n",
-                                    target.projectFile, tasks, "tasks"));
-  return writeLaunchFile(folder / "launch.json", "{\n  \"version\": \"0.2.0\",\n",
-                         target.projectFile, entries);
-}
-
-#if USING(CH_PLATFORM_WIN32)
-/*
- * Visual Studio's Open Folder mode builds with its own CMake, so the entry names the target
- * as its Startup Item list does; the single-config presets put it in lib/.
- */
-String
-makeVisualStudioFolderEntry(const LaunchTarget& target, StringView label, StringView program)
-{
-  const String exe = String(program) + kExecutableExtension;
-  String entry = "    {\n";
-  entry += "      \"type\": \"default\",\n";
-  entry += "      \"project\": \"CMakeLists.txt\",\n";
-  entry += "      \"projectTarget\": \"" + exe + " (lib\\\\" + exe + ")\",\n";
-  entry += "      \"name\": \"" + String(label) + ": " + escapeJson(target.projectName) + "\",\n";
-  entry += "      \"args\": [\"-project=" + escapeJson(target.projectFile) + "\"]\n";
-  entry += "    }";
-  return entry;
-}
-
-ResultLine
-writeVisualStudioFolder(const LaunchTarget& target)
-{
-  Vector<String> entries;
-  entries.push_back(makeVisualStudioFolderEntry(target, "Editor", "chEditor"));
-  entries.push_back(makeVisualStudioFolderEntry(target, "Game", "chGame"));
-  const Path path = EnginePaths::getEngineRootDirectory() / ".vs/launch.vs.json";
-  return writeLaunchFile(path, "{\n  \"version\": \"0.2.1\",\n  \"defaults\": {},\n",
-                         target.projectFile, entries);
-}
-
-/*
- * Sets the debugger arguments of a project of a solution. CMake never writes the .user file,
- * so the value survives a new configure; other settings in it are kept.
- */
-ResultLine
-writeVcxprojUser(const Path& path, const String& arguments)
-{
-  constexpr const ANSICHAR* kOpenTag = "<LocalDebuggerCommandArguments>";
-  constexpr const ANSICHAR* kCloseTag = "</LocalDebuggerCommandArguments>";
-  const String group = String("  <PropertyGroup>\n    ") + kOpenTag + arguments + kCloseTag +
-                       "\n    <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>\n"
-                       "  </PropertyGroup>\n";
-
-  String text = FileSystem::isFile(path) ? readText(path) : String();
-  if (text.find(kOpenTag) != String::npos) {
-    // Every configuration that sets its own arguments gets the project.
-    SIZE_T position = 0;
-    while ((position = text.find(kOpenTag, position)) != String::npos) {
-      const SIZE_T valueStart = position + std::char_traits<ANSICHAR>::length(kOpenTag);
-      const SIZE_T valueEnd = text.find(kCloseTag, valueStart);
-      if (valueEnd == String::npos) {
-        break;
-      }
-      text.replace(valueStart, valueEnd - valueStart, arguments);
-      position = valueStart + arguments.size();
-    }
-  }
-  else if (const SIZE_T projectEnd = text.rfind("</Project>"); projectEnd != String::npos) {
-    text.insert(projectEnd, group);
-  }
-  else {
-    text = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
-           "<Project ToolsVersion=\"Current\" "
-           "xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n" +
-           group + "</Project>\n";
-  }
-  if (!writeText(path, text)) {
-    return {false, "Could not write " + path.toString() + "."};
-  }
-  return {true, "Wrote " + path.toString()};
-}
-
-/*
- * Every build folder made with the Visual Studio generator: the one this editor runs from
- * (<build>/lib/<Config>) and the ones under <EngineRoot>/build, the game preset's too, which
- * has chGame but no chEditor.
- */
-Vector<Path>
-findSolutionFolders()
-{
-  Vector<Path> candidates;
-  const Path executableDirectory = FileSystem::getExecutableDirectory();
-  candidates.push_back(executableDirectory.getDirectory().getDirectory());
-  Vector<Path> files;
-  FileSystem::getChildren(EnginePaths::getEngineRootDirectory() / "build", files, candidates);
-
-  Vector<Path> result;
-  Vector<String> seen;
-  for (const Path& candidate : candidates) {
-    const Path folder = FileSystem::absolutePath(candidate);
-    bool bSeen = false;
-    for (const String& other : seen) {
-      bSeen = bSeen || other == folder.toString();
-    }
-    if (!bSeen && (FileSystem::isFile(folder / "chEditor/chEditor.vcxproj") ||
-                   FileSystem::isFile(folder / "chGame/chGame.vcxproj"))) {
-      seen.push_back(folder.toString());
-      result.push_back(folder);
-    }
-  }
-  return result;
-}
-
-void
-writeVisualStudioSolutions(const LaunchTarget& target, Vector<ResultLine>& results)
-{
-  const Vector<Path> folders = findSolutionFolders();
-  if (folders.empty()) {
-    results.push_back({false, "No Visual Studio solution found under build/ (configure the "
-                              "windows-msvc preset first)."});
-    return;
-  }
-  const String arguments = escapeXml("-project=\"" + target.projectFile + "\"");
-  for (const Path& folder : folders) {
-    for (const ANSICHAR* program : {"chEditor", "chGame"}) {
-      const Path project = folder / (String(program) + "/" + program + ".vcxproj");
-      if (FileSystem::isFile(project)) {
-        results.push_back(writeVcxprojUser(Path(project.toString() + ".user"), arguments));
-      }
-    }
-  }
-}
-#endif // USING(CH_PLATFORM_WIN32)
 
 void
 generate(DialogState& state)
 {
   state.results.clear();
-  LaunchTarget target;
-  target.projectFile = FileSystem::absolutePath(EnginePaths::getProjectFile()).toString();
-  target.projectName = EnginePaths::getProjectDescriptor().name;
-  if (target.projectName.empty()) {
-    target.projectName = EnginePaths::getProjectFile().getFileName(false);
-  }
-  target.executableDirectory = FileSystem::getExecutableDirectory();
-  findBuildVariants(target);
-  target.bFollowCMakeTools = state.bFollowCMakeTools;
 #if !USING(CH_PLATFORM_WIN32)
-  target.miMode = kDebuggers[state.debuggerIndex];
+  state.options.debugger = kDebuggers[state.debuggerIndex];
 #endif // !USING(CH_PLATFORM_WIN32)
-
-  if (state.bVSCode) {
-    state.results.push_back(writeVSCode(target, state.results));
-  }
-#if USING(CH_PLATFORM_WIN32)
-  if (state.bVisualStudioSolution) {
-    writeVisualStudioSolutions(target, state.results);
-  }
-  if (state.bVisualStudioFolder) {
-    state.results.push_back(writeVisualStudioFolder(target));
-  }
-#endif // USING(CH_PLATFORM_WIN32)
-
-  for (const ResultLine& line : state.results) {
-    if (line.bSuccess) {
-      CH_LOG_INFO(IdeDebugSettingsLog, "{0}", line.text);
-    }
-    else {
-      CH_LOG_WARNING(IdeDebugSettingsLog, "{0}", line.text);
-    }
-  }
+  IdeDebugSettings::generate(state.options, state.results);
 }
 } // namespace
 
@@ -725,10 +103,10 @@ IdeDebugSettingsUI::render()
                      "also gets \"Game (Release, no editor)\", which builds and runs the game "
                      "preset that Package Project copies.");
   ImGui::Spacing();
-  ImGui::Checkbox("VS Code (.vscode/launch.json, tasks.json)", &state.bVSCode);
+  ImGui::Checkbox("VS Code (.vscode/launch.json, tasks.json)", &state.options.bVSCode);
   ImGui::Indent();
-  ImGui::BeginDisabled(!state.bVSCode);
-  ImGui::Checkbox("Follow the CMake Tools tab", &state.bFollowCMakeTools);
+  ImGui::BeginDisabled(!state.options.bVSCode);
+  ImGui::Checkbox("Follow the CMake Tools tab", &state.options.bFollowCMakeTools);
   ImGui::SetItemTooltip("On: Editor and Game build with the build preset selected in the CMake "
                         "Tools tab and start from its build folder, so changing the preset "
                         "there needs no new settings. Needs the CMake Tools extension with "
@@ -738,10 +116,10 @@ IdeDebugSettingsUI::render()
   ImGui::Unindent();
 #if USING(CH_PLATFORM_WIN32)
   ImGui::Checkbox("Visual Studio solution (build/*/chEditor.vcxproj.user)",
-                  &state.bVisualStudioSolution);
-  ImGui::Checkbox("Visual Studio Open Folder (.vs/launch.vs.json)", &state.bVisualStudioFolder);
+                  &state.options.bVisualStudioSolution);
+  ImGui::Checkbox("Visual Studio Open Folder (.vs/launch.vs.json)", &state.options.bVisualStudioFolder);
 #else
-  ImGui::BeginDisabled(!state.bVSCode);
+  ImGui::BeginDisabled(!state.options.bVSCode);
   ImGui::TextUnformatted("Debugger:");
   ImGui::SameLine();
   ImGui::RadioButton("gdb", &state.debuggerIndex, 0);
@@ -762,8 +140,8 @@ IdeDebugSettingsUI::render()
 
   if (!state.results.empty()) {
     ImGui::Separator();
-    for (const ResultLine& line : state.results) {
-      ImGui::PushStyleColor(ImGuiCol_Text, line.bSuccess ? kSuccessColor : kErrorColor);
+    for (const IdeDebugSettingsResult& line : state.results) {
+      ImGui::PushStyleColor(ImGuiCol_Text, getResultColor(line.kind));
       ImGui::TextWrapped("%s", line.text.c_str());
       ImGui::PopStyleColor();
     }
