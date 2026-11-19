@@ -83,6 +83,14 @@ UIViewport::removeUserWidget(UIUserWidget* userWidget)
       setFocusedWidget(nullptr);
     }
 
+    if (m_hovered != nullptr && m_hovered->getUserWidget() == userWidget) {
+      dispatchPointerExit();
+    }
+
+    if (m_captured != nullptr && m_captured->getUserWidget() == userWidget) {
+      m_captured = nullptr;
+    }
+
     userWidget->destruct();
     userWidget->setViewport(nullptr);
     m_userWidgets.erase(m_userWidgets.begin() + static_cast<ptrdiff_t>(index));
@@ -98,6 +106,8 @@ void
 UIViewport::clearUserWidgets()
 {
   setFocusedWidget(nullptr);
+  dispatchPointerExit();
+  m_captured = nullptr;
 
   for (UniquePtr<UIUserWidget>& userWidget : m_userWidgets) {
     if (userWidget) {
@@ -153,6 +163,17 @@ UIViewport::tick(float deltaTime)
     setFocusedWidget(nullptr);
   }
 
+  // The same goes for the widget under the pointer and the one holding the capture.
+  if (m_hovered != nullptr &&
+      (!ownsWidget(m_hovered) || !m_hovered->isEnabled() || !m_hovered->isVisible())) {
+    dispatchPointerExit();
+  }
+
+  if (m_captured != nullptr &&
+      (!ownsWidget(m_captured) || !m_captured->isEnabled() || !m_captured->isVisible())) {
+    m_captured = nullptr;
+  }
+
   for (UniquePtr<UIUserWidget>& userWidget : m_userWidgets) {
     if (userWidget) {
       userWidget->tick(deltaTime);
@@ -169,6 +190,126 @@ UIViewport::paint(UIDrawList& drawList) const
     if (userWidget && userWidget->getWidgetTree()) {
       userWidget->getWidgetTree()->paint(drawList);
     }
+  }
+}
+
+/*
+ */
+void
+UIViewport::processInput(const InputState& state)
+{
+  processPointer(state.getMousePosition(),
+                 state.isDown(InputKey::MouseLeft),
+                 state.wasPressed(InputKey::MouseLeft),
+                 state.wasReleased(InputKey::MouseLeft),
+                 state.getMouseWheel());
+}
+
+/*
+ */
+void
+UIViewport::processInput(const InputManager& input)
+{
+  processInput(input.getState());
+
+  ActionState actions;
+  actions.bSubmit = input.wasActionPressed(m_actionBindings.submit);
+  actions.bCancel = input.wasActionPressed(m_actionBindings.cancel);
+  actions.bNavigateUp = input.wasActionPressed(m_actionBindings.navigateUp);
+  actions.bNavigateDown = input.wasActionPressed(m_actionBindings.navigateDown);
+  actions.bNavigateLeft = input.wasActionPressed(m_actionBindings.navigateLeft);
+  actions.bNavigateRight = input.wasActionPressed(m_actionBindings.navigateRight);
+  actions.bNext = input.wasActionPressed(m_actionBindings.next);
+  actions.bPrevious = input.wasActionPressed(m_actionBindings.previous);
+
+  processActions(actions);
+}
+
+/*
+ */
+void
+UIViewport::processPointer(const Vector2& position,
+                           bool bDown,
+                           bool bPressed,
+                           bool bReleased,
+                           const Vector2& wheel)
+{
+  m_pointerPosition = position;
+  UIWidget* hit = hitTest(position);
+
+  // Hover follows the topmost widget under the pointer; enter and exit only fire on a
+  // change, so a widget does not get the same event every frame.
+  if (hit != m_hovered) {
+    dispatchPointerExit();
+    m_hovered = hit;
+    if (m_hovered != nullptr) {
+      m_hovered->onPointerEnter(m_hovered->toLocalPoint(position));
+    }
+  }
+
+  if (bPressed && bDown) {
+    // The widget that takes the press keeps the pointer until the release, even when the
+    // pointer leaves it. A click also gives keyboard focus to the control it lands on.
+    m_captured = hit;
+    if (m_captured != nullptr) {
+      focusForPointer(m_captured);
+      m_captured->onPointerDown(m_captured->toLocalPoint(position));
+    }
+  }
+
+  if (bReleased) {
+    UIWidget* captured = m_captured;
+    m_captured = nullptr;
+    if (captured != nullptr) {
+      captured->onPointerUp(captured->toLocalPoint(position));
+      // A release outside the widget cancels the click, as UMG does.
+      if (captured->containsPoint(position)) {
+        captured->onPointerClick(captured->toLocalPoint(position));
+      }
+    }
+  }
+
+  if (hit != nullptr && wheel != Vector2::ZERO) {
+    // The wheel bubbles from the widget under the pointer to its ancestors, so a scroll
+    // box still sees it when a label or a button is on top.
+    const float delta = wheel.y != 0.0f ? wheel.y : wheel.x;
+    for (UIWidget* widget = hit; widget != nullptr; widget = widget->getParent()) {
+      widget->onScroll(delta);
+    }
+  }
+}
+
+/*
+ */
+void
+UIViewport::processActions(const ActionState& actions)
+{
+  if (actions.bSubmit && m_focused != nullptr) {
+    m_focused->onSubmit();
+  }
+
+  if (actions.bCancel && m_focused != nullptr) {
+    m_focused->onCancel();
+  }
+
+  // One navigation step per frame; a direction wins over Next/Previous.
+  if (actions.bNavigateUp) {
+    moveFocus(UINavigation::Up);
+  }
+  else if (actions.bNavigateDown) {
+    moveFocus(UINavigation::Down);
+  }
+  else if (actions.bNavigateLeft) {
+    moveFocus(UINavigation::Left);
+  }
+  else if (actions.bNavigateRight) {
+    moveFocus(UINavigation::Right);
+  }
+  else if (actions.bNext) {
+    moveFocus(UINavigation::Next);
+  }
+  else if (actions.bPrevious) {
+    moveFocus(UINavigation::Previous);
   }
 }
 
@@ -371,6 +512,33 @@ UIViewport::collectAllFocusable(Vector<UIWidget*>& out) const
       collectFocusable(userWidget->getRootWidget(), out);
     }
   }
+}
+
+/*
+ */
+void
+UIViewport::focusForPointer(UIWidget* hit)
+{
+  // A click on a label inside a button focuses the button, the first control above it.
+  for (UIWidget* widget = hit; widget != nullptr; widget = widget->getParent()) {
+    if (widget->canFocus()) {
+      setFocusedWidget(widget);
+      return;
+    }
+  }
+}
+
+/*
+ */
+void
+UIViewport::dispatchPointerExit()
+{
+  if (m_hovered == nullptr) {
+    return;
+  }
+
+  m_hovered->onPointerExit(m_hovered->toLocalPoint(m_pointerPosition));
+  m_hovered = nullptr;
 }
 
 /*

@@ -35,6 +35,15 @@ class CH_CORE_EXPORT UIPanelSlot
   UIPanelSlot&
   operator=(UIPanelSlot&&) = delete;
 
+  /**
+   * Name of the concrete slot class, used by the UI document registry to rebuild a slot.
+   */
+  NODISCARD virtual const ANSICHAR*
+  getTypeName() const noexcept
+  {
+    return "UIPanelSlot";
+  }
+
   NODISCARD FORCEINLINE UIWidget*
   getContent() const noexcept
   {

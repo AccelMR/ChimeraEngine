@@ -273,10 +273,7 @@ SpritePass::addPass(RenderGraph& graph,
           }
           if (run.kind == SpriteRunKind::Sprites) {
             sprite.firstInstance = run.firstInstance;
-<<<<<<< HEAD
-            commandList.bindPipeline(*pipelines[blend + encodedOffset]);
-=======
-            const IPipeline* pipeline = pipelines[blend];
+            const IPipeline* pipeline = pipelines[blend + encodedOffset];
             if (run.material) {
               const MaterialDraw& draw = m_materialDraws[materialIndex++];
               if (draw.pipeline) {
@@ -285,7 +282,6 @@ SpritePass::addPass(RenderGraph& graph,
               }
             }
             commandList.bindPipeline(*pipeline);
->>>>>>> origin/main
             commandList.pushConstants(&sprite, sizeof(sprite));
             commandList.draw(kVerticesPerSprite, run.instanceCount);
             continue;

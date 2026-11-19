@@ -3,6 +3,7 @@
 //
 // CH_VARIANT encode CH_UI_ENCODE
 
+#include "chColor.hlsli"
 #include "chSpriteBatch.hlsli"
 
 // Must match GpuSpriteInstance in chSpriteItem.h.

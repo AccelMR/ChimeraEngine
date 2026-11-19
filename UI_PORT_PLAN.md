@@ -1,9 +1,9 @@
 # Chimera UI Port — Design and Plan
 
-Status: **point 3 (renderer) implemented and tested.** Next: point 4 (basic widgets).
+Status: **point 4 (basic widgets) implemented and tested.** Next: point 5 (input).
 
-Verified: `chCoreTest` builds and passes — 270,518 assertions in 99 test cases; the seven
-UI cases hold 184 assertions.
+Verified: `chCoreTest` builds and passes — 271,259 assertions in 114 test cases; the eleven
+UI cases hold 243 assertions.
 
 This is the shared memory of the port. It records the decisions, the class model, and
 the order the work is done in, so the design does not have to be rebuilt from chat.
@@ -115,7 +115,21 @@ UIWidget
 - `UIViewport` owns user widgets, arranges them on resize, ticks/paints them, hit-tests
   last-to-first and owns focus. Focus navigation implements `Escape`, `Explicit`, `Wrap`,
   `Stop`, `Custom`, plus `Next`/`Previous` document order. Pointer dispatch is point 5.
-- `paint(UIDrawList&)` is a stub until point 3.
+- `paint(UIDrawList&)` is implemented; widgets draw through the draw list and `UIRenderer`
+  adds the overlay pass.
+
+## Basic widgets as implemented
+
+- `UICanvasPanel` gives new children a `UICanvasPanelSlot`; `addChildAt` places one at an
+  absolute rectangle. The slot keeps the SFMX anchor formula and carries the parent's
+  scale and clip to the child.
+- `UITextBlock` builds and caches a `TextLayout` with a top-left pivot, rebuilt when the
+  text, font, size, color, margin or wrapping width changes. It uses `Font::getDefault()`
+  when no font is set and is not focusable.
+- `UIImage` draws a `TextureAsset` region with a filter, flips, tint and blend mode; a null
+  texture draws the tint alone. It is not focusable.
+- `UIButton` derives from `UIContentWidget`, is focusable, paints normal/hovered/pressed/
+  disabled colors and calls `onClicked` on click or submit. Pointer dispatch is point 5.
 
 ## Layout model
 
@@ -184,8 +198,8 @@ pos    = ref + position - alignment * size
    `UINavigationLink`, `UIRenderTransform`).
 2. [x] **Widget layer** — `UIWidget`, `UIWidgetTree`, `UIUserWidget`,
    `UIPanelWidget`, `UIPanelSlot`, `UIContentWidget`, `UIViewport`.
-3. [ ] **Renderer** — `UIDrawList`, `UIRenderer`, `SpritePass` load/encode.
-4. [ ] **Basic widgets** — `UICanvasPanel` + `UICanvasPanelSlot`, `UITextBlock`,
+3. [x] **Renderer** — `UIDrawList`, `UIRenderer`, `SpritePass` load/encode.
+4. [x] **Basic widgets** — `UICanvasPanel` + `UICanvasPanelSlot`, `UITextBlock`,
    `UIImage`, `UIButton`.
 5. [ ] **Input** — pointer, hover/press/click, wheel, focus, navigation.
 6. [ ] **HUD sample** — `UIHudWidget : UIUserWidget`, added to `UIViewport` from
@@ -211,16 +225,19 @@ Current:
 - `chCore/Source/UI/chUIPanelWidget.h/.cpp`
 - `chCore/Source/UI/chUIPanelSlot.h/.cpp`
 - `chCore/Source/UI/chUIContentWidget.h/.cpp`
+- `chCore/Source/UI/chUIDrawList.h/.cpp`
+- `chCore/Source/UI/chUIRenderer.h/.cpp`
+- `chCore/Source/UI/chUICanvasPanel.h/.cpp`
+- `chCore/Source/UI/chUICanvasPanelSlot.h/.cpp`
+- `chCore/Source/UI/chUITextBlock.h/.cpp`
+- `chCore/Source/UI/chUIImage.h/.cpp`
+- `chCore/Source/UI/chUIButton.h/.cpp`
+- `chCore/Test/UI/chUITests.cpp`
 
 Planned:
 
-- `chCore/Source/UI/chUIDrawList.h/.cpp`
-- `chCore/Source/UI/chUIRenderer.h/.cpp`
 - `chCore/Source/UI/chUIDocument.h/.cpp`
 - `chCore/Source/UI/chUIDocumentAsset.h/.cpp`
-- `chCore/Source/UI/Panels/...`
-- `chCore/Source/UI/Widgets/...`
-- `chCore/Source/UI/Slots/...`
 
 `ch_collect_sources` globs `Source/**/*.cpp|h`, so new files need no `CMakeLists.txt`
 edit. `Private/` folders are not on the public include path.
@@ -229,6 +246,12 @@ edit. `Private/` folders are not on the public include path.
 
 - Widget events: `UIWidget` uses virtual hooks only for now. If scripting or game code
   needs subscriptions without subclassing, add `Event<>` members in point 10.
+- Render transforms: hit-testing applies them, painting text, images and button
+  backgrounds does not yet.
+- Button padding: the content fills the button; add a content margin when UMG-style
+  padding is needed.
+- Auto size: no slot sizes a widget from its desired size yet; `UITextBlock::getDesiredSize`
+  is ready for the boxes and size box in point 8.
 - Clipping: group sprites by clip rect in `SpriteBatcher`, or a clip rect per
   instance. Not needed until `UIScrollBox`.
 - Colour space: the encoded-output variant is the chosen path; confirm with the
