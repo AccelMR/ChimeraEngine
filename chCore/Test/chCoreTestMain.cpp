@@ -103,6 +103,15 @@
 #include "chTextLayout.h"
 #include "chTextureMips.h"
 #include "chTransientTexturePool.h"
+#include "chUIContentWidget.h"
+#include "chUIDrawList.h"
+#include "chUIPanelWidget.h"
+#include "chUIRect.h"
+#include "chUITypes.h"
+#include "chUIUserWidget.h"
+#include "chUIViewport.h"
+#include "chUIWidget.h"
+#include "chUIWidgetTree.h"
 #include "chUUID.h"
 #include "chVector2.h"
 #include "chVector3.h"
@@ -408,6 +417,535 @@ TEST_CASE("chCore - FormatUtils")
     REQUIRE(FormatUtils::getMipSize(Format::R8G8B8A8_UNORM, 4, 2) == 32);
     REQUIRE(FormatUtils::getMipSize(Format::R8_UNORM, 3, 3) == 9);
     REQUIRE(FormatUtils::getMipSize(Format::R32G32B32A32_SFLOAT, 1, 1, 2) == 32);
+  }
+}
+
+TEST_CASE("chCore - UI geometry")
+{
+  SECTION("UIRect contains its edges")
+  {
+    const UIRect rect{{10.0f, 20.0f}, {100.0f, 50.0f}};
+    REQUIRE(rect.contains({10.0f, 20.0f}));
+    REQUIRE(rect.contains({110.0f, 70.0f}));
+    REQUIRE_FALSE(rect.contains({9.9f, 20.0f}));
+    REQUIRE_FALSE(rect.contains({10.0f, 70.1f}));
+  }
+
+  SECTION("UIRect overlap and center")
+  {
+    const UIRect a{{0.0f, 0.0f}, {10.0f, 10.0f}};
+    const UIRect b{{5.0f, 5.0f}, {10.0f, 10.0f}};
+    const UIRect touching{{10.0f, 0.0f}, {10.0f, 10.0f}};
+    REQUIRE(a.overlaps(b));
+    REQUIRE_FALSE(a.overlaps(touching));
+    REQUIRE(a.getCenter() == Vector2(5.0f, 5.0f));
+    REQUIRE(a.getMax() == Vector2(10.0f, 10.0f));
+  }
+
+  SECTION("UIMargin insets and clamps")
+  {
+    const UIRect rect{{10.0f, 20.0f}, {100.0f, 50.0f}};
+    const UIRect inset = rect.inset({5.0f, 4.0f, 3.0f, 2.0f});
+    REQUIRE(inset.position == Vector2(15.0f, 24.0f));
+    REQUIRE(inset.size == Vector2(92.0f, 44.0f));
+
+    const UIRect clamped = rect.inset({200.0f, 200.0f, 200.0f, 200.0f});
+    REQUIRE(clamped.size == Vector2::ZERO);
+  }
+
+  SECTION("UIGeometry keeps the arranged rect")
+  {
+    UIGeometry geometry;
+    geometry.position = {3.0f, 4.0f};
+    geometry.size = {10.0f, 20.0f};
+    REQUIRE(geometry.toRect().position == Vector2(3.0f, 4.0f));
+    REQUIRE(geometry.toRect().size == Vector2(10.0f, 20.0f));
+    REQUIRE(geometry.getCenter() == Vector2(8.0f, 14.0f));
+    REQUIRE_FALSE(geometry.bClipped);
+  }
+}
+
+TEST_CASE("chCore - UI enums and navigation")
+{
+  // Saved in UI documents, so the values are fixed.
+  STATIC_REQUIRE(static_cast<uint32>(UIVisibility::Visible) == 0);
+  STATIC_REQUIRE(static_cast<uint32>(UIVisibility::SelfHitTestInvisible) == 4);
+  STATIC_REQUIRE(static_cast<uint32>(UINavigation::Up) == 0);
+  STATIC_REQUIRE(static_cast<uint32>(UINavigation::Previous) == 5);
+  STATIC_REQUIRE(static_cast<uint32>(UINavigationRule::Escape) == 0);
+  STATIC_REQUIRE(static_cast<uint32>(UINavigationRule::Custom) == 4);
+
+  const UINavigationLink link;
+  REQUIRE(link.rule == UINavigationRule::Escape);
+  REQUIRE(link.target == nullptr);
+
+  const UIRenderTransform transform;
+  REQUIRE(transform.translation == Vector2::ZERO);
+  REQUIRE(transform.scale == Vector2(1.0f, 1.0f));
+  REQUIRE(transform.pivot == Vector2(0.5f, 0.5f));
+  REQUIRE(transform.angle == 0.0f);
+
+  REQUIRE(StringView(getUIVisibilityName(UIVisibility::Collapsed)) == "Collapsed");
+  REQUIRE(StringView(getUINavigationName(UINavigation::Left)) == "Left");
+  REQUIRE(StringView(getUINavigationRuleName(UINavigationRule::Wrap)) == "Wrap");
+}
+
+namespace {
+
+struct UIHookCounters
+{
+  int32 added = 0;
+  int32 removed = 0;
+  int32 constructed = 0;
+  int32 destructed = 0;
+  int32 ticks = 0;
+};
+
+class UIHookWidget final : public UIWidget
+{
+ public:
+  explicit UIHookWidget(UIHookCounters* counters) : m_counters(counters) {}
+
+  void
+  onAddedToTree() override
+  {
+    if (m_counters) ++m_counters->added;
+  }
+
+  void
+  onRemovedFromTree() override
+  {
+    if (m_counters) ++m_counters->removed;
+  }
+
+  void
+  onConstruct() override
+  {
+    if (m_counters) ++m_counters->constructed;
+  }
+
+  void
+  onDestruct() override
+  {
+    if (m_counters) ++m_counters->destructed;
+  }
+
+  void
+  onTick(float deltaTime) override
+  {
+    CH_PARAMETER_UNUSED(deltaTime);
+    if (m_counters) ++m_counters->ticks;
+  }
+
+ private:
+  UIHookCounters* m_counters = nullptr;
+};
+
+/**
+ * Places a child at an absolute rectangle. The real canvas slot arrives in point 4; this
+ * gives the widget-layer tests deterministic positions without it.
+ */
+class UIFixedSlot final : public UIPanelSlot
+{
+ public:
+  explicit UIFixedSlot(const UIRect& rect) : m_rect(rect) {}
+
+  void
+  arrange(const UIGeometry& parentGeometry, UIGeometry& outChildGeometry) const override
+  {
+    outChildGeometry = parentGeometry;
+    outChildGeometry.position = m_rect.position;
+    outChildGeometry.size = m_rect.size;
+  }
+
+ private:
+  UIRect m_rect;
+};
+
+class UITestUserWidget final : public UIUserWidget
+{
+ public:
+  explicit UITestUserWidget(UIHookCounters* counters) : m_counters(counters) {}
+
+  NODISCARD UIPanelWidget*
+  getPanel() const noexcept
+  {
+    return m_panel;
+  }
+
+  UIWidget*
+  addChildAt(StringView name, const UIRect& rect)
+  {
+    if (m_panel == nullptr) {
+      return nullptr;
+    }
+
+    UniquePtr<UIWidget> child = chMakeUnique<UIWidget>();
+    child->setName(name);
+    return m_panel->addChild(std::move(child), chMakeUnique<UIFixedSlot>(rect));
+  }
+
+  void
+  onInitialized() override
+  {
+    m_panel = getMutableWidgetTree().createRoot<UIPanelWidget>();
+    m_panel->setName("root");
+  }
+
+  void
+  onConstruct() override
+  {
+    if (m_counters) ++m_counters->constructed;
+  }
+
+  void
+  onTick(float deltaTime) override
+  {
+    CH_PARAMETER_UNUSED(deltaTime);
+    if (m_counters) ++m_counters->ticks;
+  }
+
+  void
+  onDestruct() override
+  {
+    if (m_counters) ++m_counters->destructed;
+  }
+
+ private:
+  UIHookCounters* m_counters = nullptr;
+  UIPanelWidget* m_panel = nullptr;
+};
+
+} // namespace
+
+TEST_CASE("chCore - UI widget tree ownership and lifecycle")
+{
+  UIHookCounters counters;
+  UIWidgetTree tree;
+
+  UIPanelWidget* root = tree.createRoot<UIPanelWidget>();
+  root->setName("root");
+
+  UIHookWidget* child =
+      static_cast<UIHookWidget*>(root->addChild(chMakeUnique<UIHookWidget>(&counters)));
+  child->setName("child");
+
+  REQUIRE(tree.getRoot() == root);
+  REQUIRE(tree.getWidgetCount() == 2);
+  REQUIRE(tree.findWidgetByName("root") == root);
+  REQUIRE(tree.findWidgetByName("child") == child);
+  REQUIRE(counters.added == 1);
+
+  UIGeometry geometry;
+  geometry.size = {800.0f, 600.0f};
+  tree.arrange(geometry);
+  REQUIRE(root->getGeometry().size == Vector2(800.0f, 600.0f));
+  REQUIRE(child->getGeometry().size == Vector2(800.0f, 600.0f));
+
+  tree.construct();
+  REQUIRE(tree.isConstructed());
+  REQUIRE(counters.constructed == 1);
+
+  tree.tick(0.016f);
+  REQUIRE(counters.ticks == 1);
+
+  tree.destruct();
+  REQUIRE_FALSE(tree.isConstructed());
+  REQUIRE(counters.destructed == 1);
+
+  REQUIRE(root->removeChild(child));
+  REQUIRE(counters.removed == 1);
+  REQUIRE(tree.getWidgetCount() == 1);
+  REQUIRE(root->getChildCount() == 0);
+
+  tree.clear();
+  REQUIRE(tree.getRoot() == nullptr);
+  REQUIRE(tree.getWidgetCount() == 0);
+}
+
+TEST_CASE("chCore - UI widget hit testing and visibility")
+{
+  UIPanelWidget root;
+  root.setName("root");
+
+  UIGeometry geometry;
+  geometry.size = {100.0f, 100.0f};
+  root.arrange(geometry);
+
+  UIWidget* a = root.addChild(chMakeUnique<UIWidget>());
+  UIWidget* b = root.addChild(chMakeUnique<UIWidget>());
+  a->setName("a");
+  b->setName("b");
+  root.arrange(geometry);
+
+  SECTION("The last child is on top")
+  {
+    REQUIRE(root.hitTest({50.0f, 50.0f}) == b);
+    REQUIRE(root.hitTest({150.0f, 50.0f}) == nullptr);
+  }
+
+  SECTION("Visibility decides what is hit")
+  {
+    b->setVisibility(UIVisibility::HitTestInvisible);
+    REQUIRE(root.hitTest({50.0f, 50.0f}) == a);
+
+    b->setVisibility(UIVisibility::SelfHitTestInvisible);
+    REQUIRE(root.hitTest({50.0f, 50.0f}) == a);
+
+    b->setVisibility(UIVisibility::Visible);
+    a->setVisibility(UIVisibility::Hidden);
+    b->setVisibility(UIVisibility::Hidden);
+    REQUIRE(root.hitTest({50.0f, 50.0f}) == &root);
+
+    a->setVisibility(UIVisibility::Visible);
+    b->setVisibility(UIVisibility::Visible);
+    root.setVisibility(UIVisibility::Collapsed);
+    REQUIRE(root.hitTest({50.0f, 50.0f}) == nullptr);
+  }
+
+  SECTION("The render transform moves the hit area")
+  {
+    UIRenderTransform transform;
+    transform.translation = {200.0f, 0.0f};
+    a->setRenderTransform(transform);
+    a->arrange(geometry);
+
+    REQUIRE(a->containsPoint({250.0f, 50.0f}));
+    REQUIRE_FALSE(a->containsPoint({50.0f, 50.0f}));
+  }
+}
+
+TEST_CASE("chCore - UI viewport focus and navigation")
+{
+  UIHookCounters counters;
+  UIViewport viewport;
+  viewport.setViewportSize({800.0f, 600.0f});
+
+  UniquePtr<UITestUserWidget> user = chMakeUnique<UITestUserWidget>(&counters);
+  UITestUserWidget* rawUser = user.get();
+  REQUIRE(viewport.addUserWidget(std::move(user)) == rawUser);
+  REQUIRE(viewport.getUserWidgetCount() == 1);
+
+  UIPanelWidget* panel = rawUser->getPanel();
+  UIWidget* topLeft = rawUser->addChildAt("topLeft", {{0.0f, 0.0f}, {100.0f, 100.0f}});
+  UIWidget* topRight = rawUser->addChildAt("topRight", {{200.0f, 0.0f}, {100.0f, 100.0f}});
+  UIWidget* bottomLeft = rawUser->addChildAt("bottomLeft", {{0.0f, 200.0f}, {100.0f, 100.0f}});
+  UIWidget* bottomRight = rawUser->addChildAt("bottomRight", {{200.0f, 200.0f}, {100.0f, 100.0f}});
+  rawUser->refreshLayout();
+
+  REQUIRE(panel != nullptr);
+  REQUIRE(viewport.findWidgetByName("topLeft") == topLeft);
+  REQUIRE_FALSE(viewport.setFocusedWidget(panel));
+
+  REQUIRE(viewport.focusFirst());
+  REQUIRE(viewport.getFocusedWidget() == topLeft);
+
+  REQUIRE(viewport.moveFocus(UINavigation::Right));
+  REQUIRE(viewport.getFocusedWidget() == topRight);
+
+  REQUIRE(viewport.moveFocus(UINavigation::Down));
+  REQUIRE(viewport.getFocusedWidget() == bottomRight);
+
+  REQUIRE(viewport.moveFocus(UINavigation::Left));
+  REQUIRE(viewport.getFocusedWidget() == bottomLeft);
+
+  REQUIRE(viewport.moveFocus(UINavigation::Up));
+  REQUIRE(viewport.getFocusedWidget() == topLeft);
+
+  SECTION("Next and Previous follow document order")
+  {
+    REQUIRE(viewport.moveFocus(UINavigation::Next));
+    REQUIRE(viewport.getFocusedWidget() == topRight);
+
+    REQUIRE(viewport.moveFocus(UINavigation::Previous));
+    REQUIRE(viewport.getFocusedWidget() == topLeft);
+  }
+
+  SECTION("Explicit and Stop links override the search")
+  {
+    UINavigationLink explicitLink;
+    explicitLink.rule = UINavigationRule::Explicit;
+    explicitLink.target = bottomRight;
+    topLeft->setNavigation(UINavigation::Down, explicitLink);
+
+    REQUIRE(viewport.moveFocus(UINavigation::Down));
+    REQUIRE(viewport.getFocusedWidget() == bottomRight);
+
+    UINavigationLink stopLink;
+    stopLink.rule = UINavigationRule::Stop;
+    bottomRight->setNavigation(UINavigation::Right, stopLink);
+
+    REQUIRE_FALSE(viewport.moveFocus(UINavigation::Right));
+    REQUIRE(viewport.getFocusedWidget() == bottomRight);
+  }
+
+  SECTION("Wrap falls back to the opposite edge")
+  {
+    UINavigationLink wrapLink;
+    wrapLink.rule = UINavigationRule::Wrap;
+    topLeft->setNavigation(UINavigation::Left, wrapLink);
+
+    REQUIRE(viewport.setFocusedWidget(topLeft));
+    REQUIRE(viewport.moveFocus(UINavigation::Left));
+    REQUIRE(viewport.getFocusedWidget() == topRight);
+  }
+
+  SECTION("Removing the document clears focus")
+  {
+    REQUIRE(viewport.getFocusedWidget() == topLeft);
+    REQUIRE(viewport.removeUserWidget(rawUser));
+    REQUIRE(viewport.getFocusedWidget() == nullptr);
+    REQUIRE(viewport.getUserWidgetCount() == 0);
+    REQUIRE(counters.destructed == 1);
+  }
+}
+
+TEST_CASE("chCore - UI user widget and viewport")
+{
+  UIHookCounters counters;
+  UIViewport viewport;
+  viewport.setViewportSize({640.0f, 480.0f});
+
+  UniquePtr<UITestUserWidget> user = chMakeUnique<UITestUserWidget>(&counters);
+  UITestUserWidget* rawUser = user.get();
+  REQUIRE(viewport.addUserWidget(std::move(user)) == rawUser);
+
+  REQUIRE(rawUser->isInitialized());
+  REQUIRE(rawUser->isConstructed());
+  REQUIRE(counters.constructed == 1);
+  REQUIRE(rawUser->getRootWidget()->getGeometry().size == Vector2(640.0f, 480.0f));
+
+  viewport.setViewportSize({800.0f, 600.0f});
+  REQUIRE(rawUser->getRootWidget()->getGeometry().size == Vector2(800.0f, 600.0f));
+
+  viewport.tick(0.016f);
+  REQUIRE(counters.ticks == 1);
+
+  REQUIRE(viewport.ownsWidget(rawUser->getRootWidget()));
+  REQUIRE_FALSE(viewport.ownsWidget(nullptr));
+
+  UIViewport other;
+  other.setViewportSize({100.0f, 100.0f});
+  UniquePtr<UITestUserWidget> otherUser = chMakeUnique<UITestUserWidget>(nullptr);
+  UITestUserWidget* rawOther =
+      static_cast<UITestUserWidget*>(other.addUserWidget(std::move(otherUser)));
+  UIWidget* otherWidget = rawOther->addChildAt("other", {{0.0f, 0.0f}, {10.0f, 10.0f}});
+  rawOther->refreshLayout();
+
+  REQUIRE_FALSE(viewport.ownsWidget(otherWidget));
+  REQUIRE_FALSE(viewport.setFocusedWidget(otherWidget));
+
+  REQUIRE(viewport.removeUserWidget(rawUser));
+  REQUIRE(counters.destructed == 1);
+  REQUIRE(viewport.getUserWidgetCount() == 0);
+}
+
+TEST_CASE("chCore - UI draw list")
+{
+  UIDrawList drawList({800.0f, 600.0f});
+
+  SECTION("UI points become the sprite plane")
+  {
+    REQUIRE(drawList.toWorldPosition({0.0f, 0.0f}) == Vector2(0.0f, 600.0f));
+    REQUIRE(drawList.toWorldPosition({10.0f, 20.0f}) == Vector2(10.0f, 580.0f));
+    REQUIRE(drawList.toUIPosition({10.0f, 580.0f}) == Vector2(10.0f, 20.0f));
+    REQUIRE(drawList.getViewportSize() == Vector2(800.0f, 600.0f));
+  }
+
+  SECTION("A rectangle is a sprite anchored at its top-left")
+  {
+    drawList.addRect({{10.0f, 20.0f}, {100.0f, 50.0f}}, LinearColor::WHITE);
+
+    REQUIRE(drawList.getSprites().size() == 1);
+    const SpriteItem& sprite = drawList.getSprites()[0];
+    REQUIRE(sprite.instance.center == Vector3(0.0f, 60.0f, 555.0f));
+    REQUIRE(sprite.instance.halfAxisU == Vector3(0.0f, 50.0f, 0.0f));
+    REQUIRE(sprite.instance.halfAxisV == Vector3(0.0f, 0.0f, 25.0f));
+    REQUIRE(sprite.instance.textureAndFlags == GpuSpriteInstance::NO_TEXTURE);
+    REQUIRE(sprite.radius == 75.0f);
+    REQUIRE(sprite.sortingLayer == 0);
+    REQUIRE(sprite.order == 0);
+    REQUIRE(sprite.bInUse);
+    REQUIRE_FALSE(drawList.isEmpty());
+  }
+
+  SECTION("Draw order follows the paint order")
+  {
+    drawList.addRect({{0.0f, 0.0f}, {10.0f, 10.0f}}, LinearColor::RED);
+    drawList.addRect({{0.0f, 0.0f}, {10.0f, 10.0f}}, LinearColor::GREEN);
+
+    REQUIRE(drawList.getSprites().size() == 2);
+    REQUIRE(drawList.getSprites()[0].sortingLayer == 0);
+    REQUIRE(drawList.getSprites()[1].sortingLayer == 0);
+    REQUIRE(drawList.getSprites()[0].order == 0);
+    REQUIRE(drawList.getSprites()[1].order == 1);
+  }
+
+  SECTION("A rotated rectangle turns around its pivot")
+  {
+    drawList.addRect({{0.0f, 0.0f}, {100.0f, 50.0f}},
+                     LinearColor::WHITE,
+                     Radian(Degree(90.0f)),
+                     {0.5f, 0.5f});
+
+    REQUIRE(drawList.getSprites().size() == 1);
+    const SpriteItem& sprite = drawList.getSprites()[0];
+    REQUIRE(sprite.instance.center.nearEqual(Vector3(0.0f, 50.0f, 575.0f), kTolerance));
+    REQUIRE(sprite.instance.halfAxisU.nearEqual(Vector3(0.0f, 0.0f, 50.0f), kTolerance));
+    REQUIRE(sprite.instance.halfAxisV.nearEqual(Vector3(0.0f, -25.0f, 0.0f), kTolerance));
+  }
+
+  SECTION("Empty rectangles are dropped")
+  {
+    drawList.addRect({{0.0f, 0.0f}, {0.0f, 10.0f}}, LinearColor::WHITE);
+    drawList.addRect({{0.0f, 0.0f}, {10.0f, -1.0f}}, LinearColor::WHITE);
+    REQUIRE(drawList.isEmpty());
+  }
+
+  SECTION("Images keep their texture flags and UV rectangle")
+  {
+    const float uvRect[4] = {0.25f, 0.5f, 0.125f, 0.25f};
+    drawList.addImage({{0.0f, 0.0f}, {10.0f, 10.0f}},
+                      GpuSpriteInstance::NO_TEXTURE,
+                      uvRect,
+                      LinearColor::WHITE);
+
+    REQUIRE(drawList.getSprites().size() == 1);
+    const GpuSpriteInstance& instance = drawList.getSprites()[0].instance;
+    REQUIRE(instance.uvRect[0] == 0.25f);
+    REQUIRE(instance.uvRect[1] == 0.5f);
+    REQUIRE(instance.uvRect[2] == 0.125f);
+    REQUIRE(instance.uvRect[3] == 0.25f);
+  }
+
+  SECTION("An image without a texture draws its tint alone")
+  {
+    drawList.addImage({{0.0f, 0.0f}, {10.0f, 10.0f}},
+                      nullptr,
+                      SpriteFilter::Point,
+                      LinearColor::RED);
+
+    REQUIRE(drawList.getSprites().size() == 1);
+    const GpuSpriteInstance& instance = drawList.getSprites()[0].instance;
+    // A null texture still carries the filter bit, but the index mask says "no texture".
+    REQUIRE((instance.textureAndFlags & GpuSpriteInstance::TEXTURE_INDEX_MASK) ==
+            GpuSpriteInstance::NO_TEXTURE);
+    REQUIRE((instance.textureAndFlags & GpuSpriteInstance::POINT_FILTER_BIT) != 0);
+    REQUIRE(instance.uvRect[0] == 0.0f);
+    REQUIRE(instance.uvRect[2] == 1.0f);
+  }
+
+  SECTION("Clear restarts the frame and its order")
+  {
+    drawList.addRect({{0.0f, 0.0f}, {10.0f, 10.0f}}, LinearColor::WHITE);
+    REQUIRE_FALSE(drawList.isEmpty());
+
+    drawList.clear();
+    REQUIRE(drawList.isEmpty());
+    REQUIRE(drawList.getSprites().empty());
+
+    drawList.addRect({{0.0f, 0.0f}, {10.0f, 10.0f}}, LinearColor::WHITE);
+    REQUIRE(drawList.getSprites()[0].order == 0);
   }
 }
 

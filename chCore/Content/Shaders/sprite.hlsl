@@ -1,6 +1,9 @@
 // Sprites as instanced quads. There is no vertex buffer: each vertex reads its sprite from a
 // storage buffer by the instance index and makes its corner from the vertex index.
+//
+// CH_VARIANT encode CH_UI_ENCODE
 
+#include "chColor.hlsli"
 #include "chSpriteShading.hlsli"
 
 // Must match GpuSpriteInstance in chSpriteItem.h.
@@ -56,9 +59,16 @@ VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 float4
 PSMain(VSOutput input) : SV_Target0
 {
-  return shadeSprite(input.color,
-                     input.texCoord,
-                     input.textureAndFlags,
-                     g_push.pointSamplerIndex,
-                     g_push.linearSamplerIndex);
+  const float4 color = shadeSprite(input.color,
+                                   input.texCoord,
+                                   input.textureAndFlags,
+                                   g_push.pointSamplerIndex,
+                                   g_push.linearSamplerIndex);
+#ifdef CH_UI_ENCODE
+  // The UI overlay writes the UNORM back buffer, which holds sRGB values, while sprites
+  // carry linear ones. The scene path blends into an HDR target and encodes in the tonemap.
+  return float4(linearToSrgb(saturate(color.rgb)), color.a);
+#else
+  return color;
+#endif
 }

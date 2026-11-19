@@ -39,8 +39,11 @@ class CH_CORE_EXPORT SpritePass
   ~SpritePass();
 
   /**
-   * Draws the sprites the camera sees into output, cleared first to clearColor. The sprites,
-   * the batches and the camera are read here, not when the graph runs.
+   * Draws the sprites the camera sees into output. loadOp Clear clears it to clearColor
+   * first; Load keeps what an earlier pass wrote, for overlays. bEncodeOutput writes sRGB
+   * values instead of linear ones, for a UNORM target the tonemap does not go through (the
+   * UI overlay on the back buffer); custom batches keep their own shaders and are not
+   * encoded. The sprites, the batches and the camera are read here, not when the graph runs.
    */
   void
   addPass(RenderGraph& graph,
@@ -50,7 +53,10 @@ class CH_CORE_EXPORT SpritePass
           Span<const GlyphRunBatch> glyphRunBatches,
           Span<const CustomSpriteBatch> customBatches,
           const LinearColor& clearColor,
-          RGTextureHandle output);
+          RGTextureHandle output,
+          LoadOp loadOp = LoadOp::Clear,
+          bool bEncodeOutput = false,
+          StringView passName = "Sprites");
 
   /**
    * Instances drawn by the last addPass, for the profiler.
@@ -72,17 +78,22 @@ class CH_CORE_EXPORT SpritePass
 
  private:
   NODISCARD const IPipeline&
-  getPipeline(SpriteBlendMode blendMode, bool bGlyphRuns, Format colorFormat);
+  getPipeline(SpriteBlendMode blendMode, bool bGlyphRuns, Format colorFormat, bool bEncodeOutput);
 
   SPtr<IShader> m_vertexShader;
   SPtr<IShader> m_fragmentShader;
+  SPtr<IShader> m_encodedVertexShader;
+  SPtr<IShader> m_encodedFragmentShader;
   SPtr<IShader> m_glyphVertexShader;
   SPtr<IShader> m_glyphFragmentShader;
+  SPtr<IShader> m_encodedGlyphVertexShader;
+  SPtr<IShader> m_encodedGlyphFragmentShader;
   SPtr<ISampler> m_pointSampler;
   SPtr<ISampler> m_linearSampler;
   PipelineCache m_pipelineCache;
-  // Sprites first, then glyph runs, per blend mode.
-  Array<const IPipeline*, static_cast<SIZE_T>(SpriteBlendMode::COUNT) * 2> m_pipelines{};
+  // Blend mode, glyph runs or sprites, linear or encoded output.
+  static constexpr SIZE_T kPipelineCount = static_cast<SIZE_T>(SpriteBlendMode::COUNT) * 4;
+  Array<const IPipeline*, kPipelineCount> m_pipelines{};
   Format m_pipelineFormat = Format::Unknown;
   struct CustomDraw
   {

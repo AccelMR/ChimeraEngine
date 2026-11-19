@@ -117,8 +117,12 @@ SpritePass::SpritePass()
   IGraphicsAPI& graphicsAPI = IGraphicsAPI::instance();
   m_vertexShader = graphicsAPI.loadShader(ShaderStage::Vertex, "sprite");
   m_fragmentShader = graphicsAPI.loadShader(ShaderStage::Fragment, "sprite");
+  m_encodedVertexShader = graphicsAPI.loadShader(ShaderStage::Vertex, "sprite_encode");
+  m_encodedFragmentShader = graphicsAPI.loadShader(ShaderStage::Fragment, "sprite_encode");
   m_glyphVertexShader = graphicsAPI.loadShader(ShaderStage::Vertex, "glyphrun");
   m_glyphFragmentShader = graphicsAPI.loadShader(ShaderStage::Fragment, "glyphrun");
+  m_encodedGlyphVertexShader = graphicsAPI.loadShader(ShaderStage::Vertex, "glyphrun_encode");
+  m_encodedGlyphFragmentShader = graphicsAPI.loadShader(ShaderStage::Fragment, "glyphrun_encode");
   m_pointSampler = createSampler(SamplerFilter::Nearest, SamplerMipmapMode::Nearest);
   m_linearSampler = createSampler(SamplerFilter::Linear, SamplerMipmapMode::Linear);
 }
@@ -137,7 +141,10 @@ SpritePass::addPass(RenderGraph& graph,
                     Span<const GlyphRunBatch> glyphRunBatches,
                     Span<const CustomSpriteBatch> customBatches,
                     const LinearColor& clearColor,
-                    RGTextureHandle output)
+                    RGTextureHandle output,
+                    LoadOp loadOp,
+                    bool bEncodeOutput,
+                    StringView passName)
 {
   m_batcher.build(sprites,
                   camera.getFrustum(),
@@ -158,11 +165,16 @@ SpritePass::addPass(RenderGraph& graph,
 
   const Format colorFormat = graph.getTextureDesc(output).format;
   constexpr uint32 kBlendModes = static_cast<uint32>(SpriteBlendMode::COUNT);
-  Array<const IPipeline*, kBlendModes * 2> pipelines{};
+  Array<const IPipeline*, kBlendModes * 4> pipelines{};
   for (uint32 mode = 0; mode < kBlendModes; ++mode) {
-    pipelines[mode] = &getPipeline(static_cast<SpriteBlendMode>(mode), false, colorFormat);
+    pipelines[mode] =
+        &getPipeline(static_cast<SpriteBlendMode>(mode), false, colorFormat, false);
     pipelines[mode + kBlendModes] =
-        &getPipeline(static_cast<SpriteBlendMode>(mode), true, colorFormat);
+        &getPipeline(static_cast<SpriteBlendMode>(mode), true, colorFormat, false);
+    pipelines[mode + kBlendModes * 2] =
+        &getPipeline(static_cast<SpriteBlendMode>(mode), false, colorFormat, true);
+    pipelines[mode + kBlendModes * 3] =
+        &getPipeline(static_cast<SpriteBlendMode>(mode), true, colorFormat, true);
   }
   const SpritePushConstants spriteConstants{
       .viewProjection = camera.getViewProjectionMatrix(),
@@ -171,6 +183,7 @@ SpritePass::addPass(RenderGraph& graph,
       .pointSamplerIndex = m_pointSampler->getBindlessIndex(),
       .linearSamplerIndex = m_linearSampler->getBindlessIndex()};
   const uint32 glyphRunBufferIndex = glyphRunBuffer ? glyphRunBuffer->getBindlessIndex() : 0;
+  const uint32 encodedOffset = bEncodeOutput ? kBlendModes * 2u : 0u;
 
   m_customDraws.clear();
   for (const SpriteRun& run : m_batcher.getRuns()) {
@@ -185,10 +198,10 @@ SpritePass::addPass(RenderGraph& graph,
                              .parameters = batch.parameters});
   }
 
-  graph.addPass("Sprites")
+  graph.addPass(passName)
       .setOptional()
-      .writeColor(output, LoadOp::Clear, clearColor)
-      .setExecute([this, pipelines, spriteConstants, glyphRunBufferIndex](
+      .writeColor(output, loadOp, clearColor)
+      .setExecute([this, pipelines, spriteConstants, glyphRunBufferIndex, encodedOffset](
                       RenderPassContext& context) {
         ICommandList& commandList = context.getCommandList();
         SpritePushConstants sprite = spriteConstants;
@@ -218,7 +231,7 @@ SpritePass::addPass(RenderGraph& graph,
           }
           if (run.kind == SpriteRunKind::Sprites) {
             sprite.firstInstance = run.firstInstance;
-            commandList.bindPipeline(*pipelines[blend]);
+            commandList.bindPipeline(*pipelines[blend + encodedOffset]);
             commandList.pushConstants(&sprite, sizeof(sprite));
             commandList.draw(kVerticesPerSprite, run.instanceCount);
             continue;
@@ -227,7 +240,7 @@ SpritePass::addPass(RenderGraph& graph,
           glyph.runBufferIndex = bBatch ? run.bufferIndex : glyphRunBufferIndex;
           glyph.bWritableBuffer = bBatch ? 1u : 0u;
           glyph.firstRun = run.firstInstance;
-          commandList.bindPipeline(*pipelines[blend + kBlendModes]);
+          commandList.bindPipeline(*pipelines[blend + kBlendModes + encodedOffset]);
           commandList.pushConstants(&glyph, sizeof(glyph));
           // Runs of the frame's own list may hold any count; batches say their most.
           const uint32 glyphs = bBatch ? run.maxGlyphs : GpuGlyphRun::MAX_GLYPHS;
@@ -239,24 +252,32 @@ SpritePass::addPass(RenderGraph& graph,
 /*
  */
 const IPipeline&
-SpritePass::getPipeline(SpriteBlendMode blendMode, bool bGlyphRuns, Format colorFormat)
+SpritePass::getPipeline(SpriteBlendMode blendMode, bool bGlyphRuns, Format colorFormat,
+                        bool bEncodeOutput)
 {
   if (colorFormat != m_pipelineFormat) {
     m_pipelines.fill(nullptr);
     m_pipelineFormat = colorFormat;
   }
+  const uint32 blendCount = static_cast<uint32>(SpriteBlendMode::COUNT);
   const uint32 slot = static_cast<uint32>(blendMode) +
-                      (bGlyphRuns ? static_cast<uint32>(SpriteBlendMode::COUNT) : 0u);
+                      (bGlyphRuns ? blendCount : 0u) +
+                      (bEncodeOutput ? blendCount * 2u : 0u);
   const IPipeline*& pipeline = m_pipelines[slot];
   if (pipeline != nullptr) {
     return *pipeline;
   }
 
+  const SPtr<IShader>& vertexShader =
+      bEncodeOutput
+          ? (bGlyphRuns ? m_encodedGlyphVertexShader : m_encodedVertexShader)
+          : (bGlyphRuns ? m_glyphVertexShader : m_vertexShader);
+  const SPtr<IShader>& fragmentShader =
+      bEncodeOutput
+          ? (bGlyphRuns ? m_encodedGlyphFragmentShader : m_encodedFragmentShader)
+          : (bGlyphRuns ? m_glyphFragmentShader : m_fragmentShader);
   const GraphicsPipelineDesc pipelineDesc = SpriteShader::makePipelineDesc(
-      bGlyphRuns ? m_glyphVertexShader : m_vertexShader,
-      bGlyphRuns ? m_glyphFragmentShader : m_fragmentShader,
-      blendMode,
-      colorFormat);
+      vertexShader, fragmentShader, blendMode, colorFormat);
   pipeline = m_pipelineCache.getOrCreate(pipelineDesc).get();
   return *pipeline;
 }

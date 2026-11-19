@@ -1,6 +1,9 @@
 // Glyph runs as they are: each instance is a short text, and every six vertices of the draw
 // make the quad of one of its glyphs (see chGlyphRun.hlsli).
+//
+// CH_VARIANT encode CH_UI_ENCODE
 
+#include "chColor.hlsli"
 #include "chGlyphRun.hlsli"
 
 // Must match GlyphRunPushConstants in chSpritePass.cpp.
@@ -43,9 +46,15 @@ VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 float4
 PSMain(GlyphVSOutput input) : SV_Target0
 {
-  return shadeSprite(input.color,
-                     input.texCoord,
-                     input.textureAndFlags,
-                     g_push.pointSamplerIndex,
-                     g_push.linearSamplerIndex);
+  const float4 color = shadeSprite(input.color,
+                                   input.texCoord,
+                                   input.textureAndFlags,
+                                   g_push.pointSamplerIndex,
+                                   g_push.linearSamplerIndex);
+#ifdef CH_UI_ENCODE
+  // The UI overlay writes the UNORM back buffer, which holds sRGB values.
+  return float4(linearToSrgb(saturate(color.rgb)), color.a);
+#else
+  return color;
+#endif
 }
