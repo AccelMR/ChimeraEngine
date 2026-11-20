@@ -22,6 +22,9 @@ namespace chEngineSDK {
  * The base panel stacks every child on its own rectangle (the default slot fills the
  * parent). UICanvasPanel, the boxes and UIScrollBox override arrangeChildren with their own
  * layout.
+ *
+ * Panels default to SelfHitTestInvisible: their children are hit-tested, but empty panel
+ * space does not block the widgets below. Set Visible explicitly for a blocking backdrop.
  */
 class CH_CORE_EXPORT UIPanelWidget : public UIWidget
 {

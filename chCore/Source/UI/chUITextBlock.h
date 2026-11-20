@@ -28,6 +28,9 @@ class Font;
  *
  * The text starts at the widget's top-left plus its margin. The render transform is not
  * applied to text yet.
+ *
+ * Labels default to SelfHitTestInvisible, so text used as button content does not take the
+ * pointer away from the button. Set Visible explicitly when a label should block input.
  */
 class CH_CORE_EXPORT UITextBlock : public UIWidget
 {

@@ -16,8 +16,10 @@ namespace chEngineSDK {
 
 UITextBlock::UITextBlock()
 {
-  // A label is not a control: navigation lands on the widgets that act.
+  // A label is not a control: navigation lands on the widgets that act. The default
+  // visibility also lets a label inside a button pass hover and clicks through to it.
   setFocusable(false);
+  setVisibility(UIVisibility::SelfHitTestInvisible);
 }
 
 UITextBlock::~UITextBlock() = default;

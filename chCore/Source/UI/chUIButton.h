@@ -20,8 +20,8 @@ namespace chEngineSDK {
  * is clicked or submitted. Its content is arranged by the base content widget, filling the
  * button unless its slot says otherwise.
  *
- * The pointer hooks are driven by UIViewport in point 5; until then a game or a test can
- * call them directly.
+ * UIViewport drives the pointer hooks. Display content such as UITextBlock and UIImage
+ * defaults to SelfHitTestInvisible, so the button behind it receives hover, press and click.
  */
 class CH_CORE_EXPORT UIButton : public UIContentWidget
 {

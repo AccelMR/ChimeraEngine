@@ -354,7 +354,12 @@ class CH_CORE_EXPORT UIWidget
   virtual void
   onPointerClick(const Vector2& localPosition);
 
-  virtual void
+  /**
+   * Routes one wheel step to this widget. The viewport starts at the widget under the
+   * pointer and walks up the parents; the first widget that returns true consumes the
+   * step and stops the walk. The base widget does not scroll.
+   */
+  NODISCARD virtual bool
   onScroll(float delta);
 
   virtual void

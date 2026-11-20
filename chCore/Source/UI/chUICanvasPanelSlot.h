@@ -23,11 +23,13 @@ namespace chEngineSDK {
  *   refMin = anchorMin * parentSize
  *   refMax = anchorMax * parentSize
  *   ref    = lerp(refMin, refMax, alignment)
- *   pos    = ref + position - alignment * size
+ *   pos    = parentPosition + ref + position - alignment * size
  *
  * alignment is UMG's name for the SFMX pivot: (0, 0) puts the widget's top-left at the
  * reference point, (0.5, 0.5) its center and (1, 1) its bottom-right. The size is always
  * the one stored here; anchors move the reference point, they do not stretch the widget.
+ * The panel origin is added because arranged geometry is absolute viewport space, while
+ * anchors and the offset are authored in the panel's space.
  */
 class CH_CORE_EXPORT UICanvasPanelSlot : public UIPanelSlot
 {

@@ -59,6 +59,35 @@ class CH_CORE_EXPORT UIViewport
     bool bPrevious = false;
   };
 
+  /**
+   * What one input call delivered to the UI. The game layer can use it to keep gameplay
+   * from reacting to input the UI already owns, for example a click that focused a button
+   * or a wheel step a scroll box consumed.
+   */
+  struct InputResult {
+    // The pointer is over a widget or a document this frame.
+    bool bPointerOverUI = false;
+    // A widget is holding the pointer after a press, even if the pointer has left it.
+    bool bPointerCaptureActive = false;
+    // A press and release landed on the same widget and fired onPointerClick.
+    bool bPointerClicked = false;
+    // A wheel step was consumed by the widget under the pointer or one of its ancestors.
+    bool bWheelHandled = false;
+    // Submit/cancel were delivered to the focused widget.
+    bool bSubmitDelivered = false;
+    bool bCancelDelivered = false;
+    // A navigation action actually moved focus.
+    bool bNavigationMoved = false;
+    // The focused widget edits text, so gameplay should not read the keyboard this frame.
+    bool bKeyboardCaptured = false;
+
+    NODISCARD FORCEINLINE bool
+    isPointerHandled() const noexcept
+    {
+      return bPointerOverUI || bPointerCaptureActive || bPointerClicked;
+    }
+  };
+
   UIViewport() = default;
   ~UIViewport();
 
@@ -141,23 +170,29 @@ class CH_CORE_EXPORT UIViewport
    * Reads the mouse position, the left button and the wheel from state and routes them:
    * hover enter/exit, press, release and click. Keyboard/gamepad actions are not read;
    * call the InputManager overload for those.
+   *
+   * @return What the pointer and focus did this frame.
    */
-  void
+  InputResult
   processInput(const InputState& state);
 
   /**
    * Processes the pointer as above and reads the configured actions from input, firing
    * submit, cancel and focus navigation. Call it once per frame after the input actions
    * are updated.
+   *
+   * @return The combined pointer, wheel and action result.
    */
-  void
+  InputResult
   processInput(const InputManager& input);
 
   /**
    * Routes one frame of pointer state directly, for tests and custom backends. The wheel
    * is in steps, y away from the user.
+   *
+   * @return What the pointer and wheel did this frame.
    */
-  void
+  InputResult
   processPointer(const Vector2& position,
                  bool bDown,
                  bool bPressed,
@@ -168,8 +203,10 @@ class CH_CORE_EXPORT UIViewport
    * Fires submit/cancel on the focused widget and moves focus for the navigation actions.
    * At most one direction moves focus per call, in Up, Down, Left, Right, Next, Previous
    * order.
+   *
+   * @return Which actions were delivered and whether focus moved.
    */
-  void
+  InputResult
   processActions(const ActionState& actions);
 
   FORCEINLINE void

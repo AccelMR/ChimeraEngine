@@ -222,10 +222,11 @@ UIWidget::onPointerClick(const Vector2& localPosition)
 
 /*
  */
-void
+bool
 UIWidget::onScroll(float delta)
 {
   CH_PARAMETER_UNUSED(delta);
+  return false;
 }
 
 /*

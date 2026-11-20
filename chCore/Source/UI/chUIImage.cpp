@@ -14,8 +14,10 @@ namespace chEngineSDK {
 
 UIImage::UIImage()
 {
-  // An image is not a control: navigation lands on the widgets that act.
+  // An image is not a control: navigation lands on the widgets that act. The default
+  // visibility also lets an image inside a button pass hover and clicks through to it.
   setFocusable(false);
+  setVisibility(UIVisibility::SelfHitTestInvisible);
 }
 
 UIImage::~UIImage() = default;

@@ -195,22 +195,22 @@ UIViewport::paint(UIDrawList& drawList) const
 
 /*
  */
-void
+UIViewport::InputResult
 UIViewport::processInput(const InputState& state)
 {
-  processPointer(state.getMousePosition(),
-                 state.isDown(InputKey::MouseLeft),
-                 state.wasPressed(InputKey::MouseLeft),
-                 state.wasReleased(InputKey::MouseLeft),
-                 state.getMouseWheel());
+  return processPointer(state.getMousePosition(),
+                        state.isDown(InputKey::MouseLeft),
+                        state.wasPressed(InputKey::MouseLeft),
+                        state.wasReleased(InputKey::MouseLeft),
+                        state.getMouseWheel());
 }
 
 /*
  */
-void
+UIViewport::InputResult
 UIViewport::processInput(const InputManager& input)
 {
-  processInput(input.getState());
+  InputResult result = processInput(input.getState());
 
   ActionState actions;
   actions.bSubmit = input.wasActionPressed(m_actionBindings.submit);
@@ -222,20 +222,27 @@ UIViewport::processInput(const InputManager& input)
   actions.bNext = input.wasActionPressed(m_actionBindings.next);
   actions.bPrevious = input.wasActionPressed(m_actionBindings.previous);
 
-  processActions(actions);
+  const InputResult actionResult = processActions(actions);
+  result.bSubmitDelivered = actionResult.bSubmitDelivered;
+  result.bCancelDelivered = actionResult.bCancelDelivered;
+  result.bNavigationMoved = actionResult.bNavigationMoved;
+  result.bKeyboardCaptured = actionResult.bKeyboardCaptured;
+  return result;
 }
 
 /*
  */
-void
+UIViewport::InputResult
 UIViewport::processPointer(const Vector2& position,
                            bool bDown,
                            bool bPressed,
                            bool bReleased,
                            const Vector2& wheel)
 {
+  InputResult result;
   m_pointerPosition = position;
   UIWidget* hit = hitTest(position);
+  result.bPointerOverUI = hit != nullptr;
 
   // Hover follows the topmost widget under the pointer; enter and exit only fire on a
   // change, so a widget does not get the same event every frame.
@@ -265,52 +272,67 @@ UIViewport::processPointer(const Vector2& position,
       // A release outside the widget cancels the click, as UMG does.
       if (captured->containsPoint(position)) {
         captured->onPointerClick(captured->toLocalPoint(position));
+        result.bPointerClicked = true;
       }
     }
   }
 
   if (hit != nullptr && wheel != Vector2::ZERO) {
-    // The wheel bubbles from the widget under the pointer to its ancestors, so a scroll
-    // box still sees it when a label or a button is on top.
+    // The wheel bubbles from the widget under the pointer to its ancestors until one
+    // consumes it, so a scroll box still sees it when a label or a button is on top.
     const float delta = wheel.y != 0.0f ? wheel.y : wheel.x;
     for (UIWidget* widget = hit; widget != nullptr; widget = widget->getParent()) {
-      widget->onScroll(delta);
+      if (widget->onScroll(delta)) {
+        result.bWheelHandled = true;
+        break;
+      }
     }
   }
+
+  result.bPointerCaptureActive = m_captured != nullptr;
+  result.bKeyboardCaptured = m_focused != nullptr && m_focused->isTextEditor();
+  return result;
 }
 
 /*
  */
-void
+UIViewport::InputResult
 UIViewport::processActions(const ActionState& actions)
 {
+  InputResult result;
+
   if (actions.bSubmit && m_focused != nullptr) {
     m_focused->onSubmit();
+    result.bSubmitDelivered = true;
   }
 
   if (actions.bCancel && m_focused != nullptr) {
     m_focused->onCancel();
+    result.bCancelDelivered = true;
   }
 
   // One navigation step per frame; a direction wins over Next/Previous.
   if (actions.bNavigateUp) {
-    moveFocus(UINavigation::Up);
+    result.bNavigationMoved = moveFocus(UINavigation::Up);
   }
   else if (actions.bNavigateDown) {
-    moveFocus(UINavigation::Down);
+    result.bNavigationMoved = moveFocus(UINavigation::Down);
   }
   else if (actions.bNavigateLeft) {
-    moveFocus(UINavigation::Left);
+    result.bNavigationMoved = moveFocus(UINavigation::Left);
   }
   else if (actions.bNavigateRight) {
-    moveFocus(UINavigation::Right);
+    result.bNavigationMoved = moveFocus(UINavigation::Right);
   }
   else if (actions.bNext) {
-    moveFocus(UINavigation::Next);
+    result.bNavigationMoved = moveFocus(UINavigation::Next);
   }
   else if (actions.bPrevious) {
-    moveFocus(UINavigation::Previous);
+    result.bNavigationMoved = moveFocus(UINavigation::Previous);
   }
+
+  result.bKeyboardCaptured = m_focused != nullptr && m_focused->isTextEditor();
+  return result;
 }
 
 /*

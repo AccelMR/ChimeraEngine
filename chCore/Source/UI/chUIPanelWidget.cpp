@@ -16,8 +16,11 @@ namespace chEngineSDK {
 
 UIPanelWidget::UIPanelWidget()
 {
-  // A panel is a layout construct, not a control: navigation lands on its children.
+  // A panel is a layout construct, not a control: navigation lands on its children and
+  // empty panel space falls through to whatever is below. A panel that must block input
+  // sets Visible explicitly.
   setFocusable(false);
+  setVisibility(UIVisibility::SelfHitTestInvisible);
 }
 
 UIPanelWidget::~UIPanelWidget()

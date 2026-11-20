@@ -24,9 +24,12 @@ UICanvasPanelSlot::arrange(const UIGeometry& parentGeometry,
   const Vector2 reference{refMin.x + (refMax.x - refMin.x) * m_alignment.x,
                           refMin.y + (refMax.y - refMin.y) * m_alignment.y};
 
+  // Geometry is absolute, but anchors and the offset are relative to the panel, so the
+  // panel's own origin has to be added back here.
   outChildGeometry = parentGeometry;
-  outChildGeometry.position = {reference.x + m_position.x - m_alignment.x * m_size.x,
-                               reference.y + m_position.y - m_alignment.y * m_size.y};
+  outChildGeometry.position = {
+      parentGeometry.position.x + reference.x + m_position.x - m_alignment.x * m_size.x,
+      parentGeometry.position.y + reference.y + m_position.y - m_alignment.y * m_size.y};
   outChildGeometry.size = m_size;
 }
 

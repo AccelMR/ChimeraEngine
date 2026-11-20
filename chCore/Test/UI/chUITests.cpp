@@ -206,7 +206,10 @@ struct UIPointerCounters {
 class UIPointerWidget final : public UIWidget
 {
  public:
-  explicit UIPointerWidget(UIPointerCounters* counters) : m_counters(counters) {}
+  explicit UIPointerWidget(UIPointerCounters* counters, bool consumesScroll = false)
+   : m_counters(counters), m_bConsumesScroll(consumesScroll)
+  {
+  }
 
   void
   onPointerEnter(const Vector2& localPosition) override
@@ -243,11 +246,12 @@ class UIPointerWidget final : public UIWidget
     ++m_counters->clicks;
   }
 
-  void
+  bool
   onScroll(float delta) override
   {
     ++m_counters->scrolls;
     m_counters->lastScroll = delta;
+    return m_bConsumesScroll;
   }
 
   void
@@ -276,6 +280,7 @@ class UIPointerWidget final : public UIWidget
 
  private:
   UIPointerCounters* m_counters = nullptr;
+  bool m_bConsumesScroll = false;
 };
 
 class UIScrollPanel final : public UIPanelWidget
@@ -283,11 +288,12 @@ class UIScrollPanel final : public UIPanelWidget
  public:
   explicit UIScrollPanel(UIPointerCounters* counters) : m_counters(counters) {}
 
-  void
+  bool
   onScroll(float delta) override
   {
     ++m_counters->scrolls;
     m_counters->lastScroll = delta;
+    return true;
   }
 
  private:
@@ -433,6 +439,8 @@ TEST_CASE("chCore - UI widget hit testing and visibility", "[UI]")
     b->setVisibility(UIVisibility::Visible);
     a->setVisibility(UIVisibility::Hidden);
     b->setVisibility(UIVisibility::Hidden);
+    // A panel does not block by default, so make this one a backdrop explicitly.
+    root.setVisibility(UIVisibility::Visible);
     REQUIRE(root.hitTest({50.0f, 50.0f}) == &root);
 
     a->setVisibility(UIVisibility::Visible);
@@ -715,6 +723,29 @@ TEST_CASE("chCore - UI canvas panel", "[UI]")
     REQUIRE(child.clipRect.size == Vector2(400.0f, 300.0f));
   }
 
+  SECTION("The slot adds the panel origin")
+  {
+    UIGeometry parent;
+    parent.position = {100.0f, 50.0f};
+    parent.size = {800.0f, 600.0f};
+
+    UICanvasPanelSlot slot;
+    slot.setPosition({10.0f, 20.0f});
+    slot.setSize({100.0f, 50.0f});
+
+    UIGeometry child;
+    slot.arrange(parent, child);
+    REQUIRE(child.position == Vector2(110.0f, 70.0f));
+    REQUIRE(child.size == Vector2(100.0f, 50.0f));
+
+    // Anchors and alignment are still relative to the panel, not to the viewport.
+    slot.setAnchors({0.5f, 0.5f}, {0.5f, 0.5f});
+    slot.setAlignment({0.5f, 0.5f});
+    slot.setPosition(Vector2::ZERO);
+    slot.arrange(parent, child);
+    REQUIRE(child.position == Vector2(450.0f, 325.0f));
+  }
+
   SECTION("The panel places its children")
   {
     UICanvasPanel panel;
@@ -737,6 +768,28 @@ TEST_CASE("chCore - UI canvas panel", "[UI]")
     panel.arrange(geometry);
     REQUIRE(defaultChild->getSize() == Vector2(100.0f, 100.0f));
   }
+
+  SECTION("Nested panels compose their origins")
+  {
+    UIGeometry outerGeometry;
+    outerGeometry.position = {100.0f, 50.0f};
+    outerGeometry.size = {400.0f, 300.0f};
+
+    UICanvasPanel outer;
+    outer.arrange(outerGeometry);
+
+    UICanvasPanel* inner = static_cast<UICanvasPanel*>(
+        outer.addChildAt(chMakeUnique<UICanvasPanel>(), {{20.0f, 10.0f}, {200.0f, 100.0f}}));
+    REQUIRE(inner != nullptr);
+
+    UIWidget* child =
+        inner->addChildAt(chMakeUnique<UIWidget>(), {{5.0f, 7.0f}, {30.0f, 20.0f}});
+    REQUIRE(child != nullptr);
+
+    outer.arrange(outerGeometry);
+    REQUIRE(inner->getPosition() == Vector2(120.0f, 60.0f));
+    REQUIRE(child->getPosition() == Vector2(125.0f, 67.0f));
+  }
 }
 
 TEST_CASE("chCore - UI text block", "[UI]")
@@ -750,6 +803,7 @@ TEST_CASE("chCore - UI text block", "[UI]")
 
   REQUIRE(StringView(block.getTypeName()) == "UITextBlock");
   REQUIRE_FALSE(block.isFocusable());
+  REQUIRE(block.getVisibility() == UIVisibility::SelfHitTestInvisible);
 
   UIGeometry blockGeometry;
   blockGeometry.size = {200.0f, 50.0f};
@@ -790,6 +844,7 @@ TEST_CASE("chCore - UI image", "[UI]")
   UIImage image;
   REQUIRE(StringView(image.getTypeName()) == "UIImage");
   REQUIRE_FALSE(image.isFocusable());
+  REQUIRE(image.getVisibility() == UIVisibility::SelfHitTestInvisible);
 
   UIGeometry imageGeometry;
   imageGeometry.position = {10.0f, 20.0f};
@@ -847,6 +902,47 @@ TEST_CASE("chCore - UI button", "[UI]")
   REQUIRE(button.isHovered());
   button.onPointerExit({10.0f, 10.0f});
   REQUIRE_FALSE(button.isHovered());
+}
+
+TEST_CASE("chCore - UI viewport routes the pointer through button content", "[UI]")
+{
+  UIViewport viewport;
+  viewport.setViewportSize({400.0f, 300.0f});
+
+  UniquePtr<UITestUserWidget> user = chMakeUnique<UITestUserWidget>(nullptr);
+  UITestUserWidget* rawUser = user.get();
+  REQUIRE(viewport.addUserWidget(std::move(user)) == rawUser);
+
+  UIPanelWidget* root = rawUser->getPanel();
+  REQUIRE(root != nullptr);
+
+  int32 clicks = 0;
+  UIButton* button = static_cast<UIButton*>(root->addChild(
+      chMakeUnique<UIButton>(), chMakeUnique<UIFixedSlot>(UIRect{{50.0f, 50.0f}, {120.0f, 40.0f}})));
+  REQUIRE(button != nullptr);
+  button->setOnClicked([&clicks]() { ++clicks; });
+
+  UITextBlock* label = static_cast<UITextBlock*>(button->setContent(chMakeUnique<UITextBlock>()));
+  REQUIRE(label != nullptr);
+  label->setText("Click");
+  rawUser->refreshLayout();
+
+  // The label is display content, so the hit belongs to the button behind it.
+  REQUIRE(viewport.hitTest({60.0f, 60.0f}) == button);
+
+  viewport.processPointer({60.0f, 60.0f}, false, false, false, Vector2::ZERO);
+  REQUIRE(viewport.getHoveredWidget() == button);
+  REQUIRE(button->isHovered());
+
+  viewport.processPointer({60.0f, 60.0f}, true, true, false, Vector2::ZERO);
+  REQUIRE(viewport.getCapturedWidget() == button);
+  REQUIRE(button->isPressed());
+  REQUIRE(viewport.getFocusedWidget() == button);
+
+  viewport.processPointer({60.0f, 60.0f}, false, false, true, Vector2::ZERO);
+  REQUIRE(viewport.getCapturedWidget() == nullptr);
+  REQUIRE_FALSE(button->isPressed());
+  REQUIRE(clicks == 1);
 }
 
 TEST_CASE("chCore - UI viewport pointer input", "[UI]")
@@ -908,7 +1004,11 @@ TEST_CASE("chCore - UI viewport pointer input", "[UI]")
 
   SECTION("A press captures the pointer and the release clicks")
   {
-    viewport.processPointer({50.0f, 50.0f}, true, true, false, Vector2::ZERO);
+    const UIViewport::InputResult press =
+        viewport.processPointer({50.0f, 50.0f}, true, true, false, Vector2::ZERO);
+    REQUIRE(press.bPointerOverUI);
+    REQUIRE(press.bPointerCaptureActive);
+    REQUIRE_FALSE(press.bPointerClicked);
     REQUIRE(viewport.getCapturedWidget() == left);
     REQUIRE(leftCounters.downs == 1);
     REQUIRE(viewport.getFocusedWidget() == left);
@@ -917,7 +1017,11 @@ TEST_CASE("chCore - UI viewport pointer input", "[UI]")
     viewport.processPointer({50.0f, 50.0f}, true, false, false, Vector2::ZERO);
     REQUIRE(leftCounters.downs == 1);
 
-    viewport.processPointer({50.0f, 50.0f}, false, false, true, Vector2::ZERO);
+    const UIViewport::InputResult release =
+        viewport.processPointer({50.0f, 50.0f}, false, false, true, Vector2::ZERO);
+    REQUIRE(release.bPointerOverUI);
+    REQUIRE_FALSE(release.bPointerCaptureActive);
+    REQUIRE(release.bPointerClicked);
     REQUIRE(viewport.getCapturedWidget() == nullptr);
     REQUIRE(leftCounters.ups == 1);
     REQUIRE(leftCounters.clicks == 1);
@@ -935,9 +1039,11 @@ TEST_CASE("chCore - UI viewport pointer input", "[UI]")
     REQUIRE(rightCounters.enters == 1);
   }
 
-  SECTION("The wheel bubbles from the hit widget to its ancestors")
+  SECTION("The wheel bubbles until a widget consumes it")
   {
-    viewport.processPointer({50.0f, 250.0f}, false, false, false, {0.0f, 1.0f});
+    const UIViewport::InputResult wheel =
+        viewport.processPointer({50.0f, 250.0f}, false, false, false, {0.0f, 1.0f});
+    REQUIRE(wheel.bWheelHandled);
     REQUIRE(scrollChildCounters.scrolls == 1);
     REQUIRE(scrollChildCounters.lastScroll == Approx(1.0f));
     REQUIRE(scrollPanelCounters.scrolls == 1);
@@ -949,22 +1055,42 @@ TEST_CASE("chCore - UI viewport pointer input", "[UI]")
     REQUIRE(scrollChildCounters.lastScroll == Approx(2.0f));
   }
 
+  SECTION("A scroll consumer stops the wheel before its ancestors")
+  {
+    UIPointerCounters consumerCounters;
+    UIPointerWidget* consumer = static_cast<UIPointerWidget*>(scrollPanel->addChild(
+        chMakeUnique<UIPointerWidget>(&consumerCounters, true),
+        chMakeUnique<UIFixedSlot>(UIRect{{0.0f, 200.0f}, {100.0f, 100.0f}})));
+    REQUIRE(consumer != nullptr);
+    rawUser->refreshLayout();
+
+    REQUIRE(viewport.hitTest({50.0f, 250.0f}) == consumer);
+    const UIViewport::InputResult wheel =
+        viewport.processPointer({50.0f, 250.0f}, false, false, false, {0.0f, 1.0f});
+    REQUIRE(wheel.bWheelHandled);
+    REQUIRE(consumerCounters.scrolls == 1);
+    REQUIRE(scrollPanelCounters.scrolls == 0);
+  }
+
   SECTION("InputState drives the pointer")
   {
     InputState state;
     state.beginFrame();
     state.addMouseMove(50.0f, 50.0f, 50.0f, 50.0f);
     state.setKey(InputKey::MouseLeft, true);
-    viewport.processInput(state);
+    const UIViewport::InputResult press = viewport.processInput(state);
 
+    REQUIRE(press.bPointerOverUI);
+    REQUIRE(press.bPointerCaptureActive);
     REQUIRE(viewport.getHoveredWidget() == left);
     REQUIRE(viewport.getCapturedWidget() == left);
     REQUIRE(leftCounters.downs == 1);
 
     state.beginFrame();
     state.setKey(InputKey::MouseLeft, false);
-    viewport.processInput(state);
+    const UIViewport::InputResult release = viewport.processInput(state);
 
+    REQUIRE(release.bPointerClicked);
     REQUIRE(viewport.getCapturedWidget() == nullptr);
     REQUIRE(leftCounters.ups == 1);
     REQUIRE(leftCounters.clicks == 1);
@@ -1012,13 +1138,15 @@ TEST_CASE("chCore - UI viewport actions", "[UI]")
   {
     UIViewport::ActionState actions;
     actions.bSubmit = true;
-    viewport.processActions(actions);
+    const UIViewport::InputResult submit = viewport.processActions(actions);
+    REQUIRE(submit.bSubmitDelivered);
     REQUIRE(leftCounters.submits == 1);
     REQUIRE(viewport.getFocusedWidget() == left);
 
     actions = UIViewport::ActionState();
     actions.bCancel = true;
-    viewport.processActions(actions);
+    const UIViewport::InputResult cancel = viewport.processActions(actions);
+    REQUIRE(cancel.bCancelDelivered);
     REQUIRE(leftCounters.cancels == 1);
     REQUIRE(viewport.getFocusedWidget() == left);
   }
@@ -1027,17 +1155,20 @@ TEST_CASE("chCore - UI viewport actions", "[UI]")
   {
     UIViewport::ActionState actions;
     actions.bNavigateRight = true;
-    viewport.processActions(actions);
+    const UIViewport::InputResult rightMove = viewport.processActions(actions);
+    REQUIRE(rightMove.bNavigationMoved);
     REQUIRE(viewport.getFocusedWidget() == right);
 
     actions = UIViewport::ActionState();
     actions.bNext = true;
-    viewport.processActions(actions);
+    const UIViewport::InputResult nextMove = viewport.processActions(actions);
+    REQUIRE(nextMove.bNavigationMoved);
     REQUIRE(viewport.getFocusedWidget() == left);
 
     actions = UIViewport::ActionState();
     actions.bPrevious = true;
-    viewport.processActions(actions);
+    const UIViewport::InputResult previousMove = viewport.processActions(actions);
+    REQUIRE(previousMove.bNavigationMoved);
     REQUIRE(viewport.getFocusedWidget() == right);
   }
 
@@ -1066,22 +1197,26 @@ TEST_CASE("chCore - UI viewport actions", "[UI]")
       input.beginFrame();
       input.processEvent(DisplayEvent(KeyEvent{.key = key, .bDown = bDown, .modifiers = {}}));
       input.updateActions();
-      viewport.processInput(input);
+      return viewport.processInput(input);
     };
 
-    frame(InputKey::Space, true);
+    const UIViewport::InputResult submit = frame(InputKey::Space, true);
+    REQUIRE(submit.bSubmitDelivered);
     REQUIRE(leftCounters.submits == 1);
 
     frame(InputKey::Space, false);
-    frame(InputKey::Escape, true);
+    const UIViewport::InputResult cancel = frame(InputKey::Escape, true);
+    REQUIRE(cancel.bCancelDelivered);
     REQUIRE(leftCounters.cancels == 1);
 
     frame(InputKey::Escape, false);
-    frame(InputKey::D, true);
+    const UIViewport::InputResult rightMove = frame(InputKey::D, true);
+    REQUIRE(rightMove.bNavigationMoved);
     REQUIRE(viewport.getFocusedWidget() == right);
 
     frame(InputKey::D, false);
-    frame(InputKey::Tab, true);
+    const UIViewport::InputResult nextMove = frame(InputKey::Tab, true);
+    REQUIRE(nextMove.bNavigationMoved);
     REQUIRE(viewport.getFocusedWidget() == left);
   }
 }

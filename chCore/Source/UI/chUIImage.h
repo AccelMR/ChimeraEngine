@@ -25,6 +25,9 @@ class TextureAsset;
  *
  * The texture is not owned: a document keeps its texture assets alive. The render
  * transform is not applied to images yet.
+ *
+ * Images default to SelfHitTestInvisible, so an image used as button content does not take
+ * the pointer away from the button. Set Visible explicitly when an image should block input.
  */
 class CH_CORE_EXPORT UIImage : public UIWidget
 {
