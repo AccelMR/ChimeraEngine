@@ -79,7 +79,6 @@ class CH_CORE_EXPORT TextureAsset : public IAsset
    */
   NODISCARD Span<const uint8>
   getRgba8Pixels() const;
-#endif // USING(CH_EDITOR)
 
   /**
    * Whether a pixel of the largest level has an alpha below alpha (0 to 1). Only 8-bit
@@ -88,6 +87,14 @@ class CH_CORE_EXPORT TextureAsset : public IAsset
    */
   NODISCARD bool
   hasAlphaBelow(float alpha) const;
+#endif // USING(CH_EDITOR)
+
+  /**
+   * Whether a texture of this format can have this size: block compressed formats need a
+   * largest level that is a whole number of blocks.
+   */
+  NODISCARD static bool
+  isValidSize(Format format, uint32 width, uint32 height) noexcept;
 
  protected:
   bool

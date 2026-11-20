@@ -33,23 +33,13 @@ getChainSize(Format format, uint32 width, uint32 height, uint32 mipLevels)
 /*
  */
 bool
-TextureAsset::hasAlphaBelow(float alpha) const
+TextureAsset::isValidSize(Format format, uint32 width, uint32 height) noexcept
 {
-  if (m_format != Format::R8G8B8A8_UNORM && m_format != Format::R8G8B8A8_SRGB &&
-      m_format != Format::B8G8R8A8_UNORM && m_format != Format::B8G8R8A8_SRGB) {
+  if (width == 0 || height == 0) {
     return false;
   }
-
-  // Alpha is linear in every one of these formats, sRGB included.
-  const float threshold = Math::clamp(alpha, 0.0f, 1.0f) * 255.0f;
-  const SIZE_T levelSize = Math::min(m_textureData.size(),
-                                     static_cast<SIZE_T>(m_width) * m_height * 4);
-  for (SIZE_T i = 3; i < levelSize; i += 4) {
-    if (static_cast<float>(m_textureData[i]) < threshold) {
-      return true;
-    }
-  }
-  return false;
+  const FormatInfo& info = FormatUtils::getInfo(format);
+  return width % info.blockWidth == 0 && height % info.blockHeight == 0;
 }
 
 /*
@@ -68,6 +58,7 @@ TextureAsset::TextureAsset(const AssetMetadata& metadata,
     m_mipLevels(mipLevels)
 {
   CH_ASSERT(m_textureData.size() == getChainSize(format, width, height, mipLevels));
+  CH_ASSERT(isValidSize(format, width, height));
   createTextureFromData();
 }
 
@@ -83,6 +74,28 @@ TextureAsset::getRgba8Pixels() const
     return {};
   }
   return Span<const uint8>(m_textureData.data(), size);
+}
+
+/*
+ */
+bool
+TextureAsset::hasAlphaBelow(float alpha) const
+{
+  if (m_format != Format::R8G8B8A8_UNORM && m_format != Format::R8G8B8A8_SRGB &&
+      m_format != Format::B8G8R8A8_UNORM && m_format != Format::B8G8R8A8_SRGB) {
+    return false;
+  }
+
+  // Alpha is linear in every one of these formats, sRGB included.
+  const float threshold = Math::clamp(alpha, 0.0f, 1.0f) * 255.0f;
+  const SIZE_T levelSize = Math::min(m_textureData.size(),
+                                     static_cast<SIZE_T>(m_width) * m_height * 4);
+  for (SIZE_T i = 3; i < levelSize; i += 4) {
+    if (static_cast<float>(m_textureData[i]) < threshold) {
+      return true;
+    }
+  }
+  return false;
 }
 #endif // USING(CH_EDITOR)
 
@@ -143,6 +156,13 @@ TextureAsset::deserialize(SPtr<DataStream> stream) {
                  getName(), header.format, header.mipLevels);
     return false;
   }
+  if (!isValidSize(header.format, header.width, header.height)) {
+    CH_LOG_ERROR(TextureAssetLog,
+                 "Failed to deserialize texture asset {0}: {1}x{2} is not a size its format "
+                 "{3} allows",
+                 getName(), header.width, header.height, header.format);
+    return false;
+  }
   m_width = header.width;
   m_height = header.height;
   m_format = header.format;
@@ -177,25 +197,28 @@ TextureAsset::createTextureFromData() {
     CH_LOG_ERROR(TextureAssetLog, "Cannot create texture: texture data is empty");
     return;
   }
-  if (m_texture) {
-    CH_LOG_DEBUG(TextureAssetLog, "Texture already created, skipping creation");
-    return;
+  if (!m_texture) {
+    IGraphicsAPI& graphicsAPI = IGraphicsAPI::instance();
+    const TextureCreateInfo textureCreateInfo{.type = TextureType::Texture2D,
+                                              .format = m_format,
+                                              .width = m_width,
+                                              .height = m_height,
+                                              .depth = 1,
+                                              .mipLevels = m_mipLevels,
+                                              .arrayLayers = 1,
+                                              .samples = SampleCount::Count1,
+                                              .usage = TextureUsage::Sampled |
+                                                       TextureUsage::TransferDst,
+                                              .initialData = m_textureData.data(),
+                                              .initialDataSize = m_textureData.size()};
+    m_texture = graphicsAPI.createTexture(textureCreateInfo);
   }
 
-  IGraphicsAPI& graphicsAPI = IGraphicsAPI::instance();
-  TextureCreateInfo textureCreateInfo{.type = TextureType::Texture2D,
-                                      .format = m_format,
-                                      .width = m_width,
-                                      .height = m_height,
-                                      .depth = 1,
-                                      .mipLevels = m_mipLevels,
-                                      .arrayLayers = 1,
-                                      .samples = SampleCount::Count1,
-                                      .usage = TextureUsage::Sampled |
-                                               TextureUsage::TransferDst,
-                                      .initialData = m_textureData.data(),
-                                      .initialDataSize = m_textureData.size()};
-  m_texture = graphicsAPI.createTexture(textureCreateInfo);
+#if !USING(CH_EDITOR)
+  // The upload copied the pixels into staging memory, and only editor tools read them after
+  // that (saving, alpha scans), so the game gives the memory back.
+  Vector<uint8>().swap(m_textureData);
+#endif
 }
 
 } // namespace chEngineSDK

@@ -87,6 +87,12 @@ chFormatToVkFormat(Format format)
       VK_FORMAT_R32G32B32A32_SFLOAT,      // R32G32B32A32_SFLOAT
       VK_FORMAT_R32_UINT,                 // R32_UINT
       VK_FORMAT_D32_SFLOAT_S8_UINT,       // D32_SFLOAT_S8_UINT
+      VK_FORMAT_BC1_RGBA_UNORM_BLOCK,     // BC1_RGBA_UNORM
+      VK_FORMAT_BC1_RGBA_SRGB_BLOCK,      // BC1_RGBA_SRGB
+      VK_FORMAT_BC4_UNORM_BLOCK,          // BC4_UNORM
+      VK_FORMAT_BC5_UNORM_BLOCK,          // BC5_UNORM
+      VK_FORMAT_BC7_UNORM_BLOCK,          // BC7_UNORM
+      VK_FORMAT_BC7_SRGB_BLOCK,           // BC7_SRGB
   };
   static_assert(std::size(VULKAN_FORMATS) == static_cast<SIZE_T>(Format::COUNT),
                 "Every Format needs its Vulkan format.");

@@ -101,13 +101,21 @@ enum class Format : uint32
   R32G32B32A32_SFLOAT = 15,
   R32_UINT = 16,
   D32_SFLOAT_S8_UINT = 17,
+  // Block compressed, 4x4 pixels per block. Only sampled textures use them, and the largest
+  // level must be a multiple of 4 wide and high (Direct3D refuses anything else).
+  BC1_RGBA_UNORM = 18,
+  BC1_RGBA_SRGB = 19,
+  BC4_UNORM = 20,
+  BC5_UNORM = 21,
+  BC7_UNORM = 22,
+  BC7_SRGB = 23,
 
   COUNT
 };
 
 /**
- * What the engine needs to know about a format to size, copy and bind it. Block sizes are
- * there for compressed formats; every format today is one pixel per block.
+ * What the engine needs to know about a format to size, copy and bind it. Uncompressed
+ * formats are one pixel per block.
  */
 struct FormatInfo
 {
@@ -142,6 +150,12 @@ inline constexpr FormatInfo kFormatInfos[] = {
     {.bytesPerBlock = 16},                               // R32G32B32A32_SFLOAT
     {.bytesPerBlock = 4},                                // R32_UINT
     {.bytesPerBlock = 8, .isDepth = true, .hasStencil = true}, // D32_SFLOAT_S8_UINT
+    {.bytesPerBlock = 8, .blockWidth = 4, .blockHeight = 4},                 // BC1_RGBA_UNORM
+    {.bytesPerBlock = 8, .blockWidth = 4, .blockHeight = 4, .isSrgb = true}, // BC1_RGBA_SRGB
+    {.bytesPerBlock = 8, .blockWidth = 4, .blockHeight = 4},                 // BC4_UNORM
+    {.bytesPerBlock = 16, .blockWidth = 4, .blockHeight = 4},                // BC5_UNORM
+    {.bytesPerBlock = 16, .blockWidth = 4, .blockHeight = 4},                // BC7_UNORM
+    {.bytesPerBlock = 16, .blockWidth = 4, .blockHeight = 4, .isSrgb = true}, // BC7_SRGB
 };
 static_assert(std::size(kFormatInfos) == static_cast<SIZE_T>(Format::COUNT),
               "Every Format needs its FormatInfo.");
@@ -163,6 +177,13 @@ class FormatUtils
   isDepth(Format format)
   {
     return getInfo(format).isDepth;
+  }
+
+  NODISCARD static constexpr bool
+  isCompressed(Format format)
+  {
+    const FormatInfo& info = getInfo(format);
+    return info.blockWidth > 1 || info.blockHeight > 1;
   }
 
   /**

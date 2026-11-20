@@ -86,6 +86,12 @@ chFormatToDxgiFormat(Format format)
       DXGI_FORMAT_R32G32B32A32_FLOAT,   // R32G32B32A32_SFLOAT
       DXGI_FORMAT_R32_UINT,             // R32_UINT
       DXGI_FORMAT_D32_FLOAT_S8X24_UINT, // D32_SFLOAT_S8_UINT
+      DXGI_FORMAT_BC1_UNORM,            // BC1_RGBA_UNORM
+      DXGI_FORMAT_BC1_UNORM_SRGB,       // BC1_RGBA_SRGB
+      DXGI_FORMAT_BC4_UNORM,            // BC4_UNORM
+      DXGI_FORMAT_BC5_UNORM,            // BC5_UNORM
+      DXGI_FORMAT_BC7_UNORM,            // BC7_UNORM
+      DXGI_FORMAT_BC7_UNORM_SRGB,       // BC7_SRGB
   };
   static_assert(std::size(DXGI_FORMATS) == static_cast<SIZE_T>(Format::COUNT),
                 "Every Format needs its DXGI format.");
