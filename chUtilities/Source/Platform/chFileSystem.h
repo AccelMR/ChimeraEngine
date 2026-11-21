@@ -55,6 +55,13 @@ class CH_UTILITY_EXPORT FileSystem
   static bool
   unmount(const String& name, const Path& directory);
 
+  /**
+   *   Fills outDirectories with the real folders mounted as "/name", highest priority
+   *   first: the order in which a read looks for a file.
+   **/
+  static void
+  getMountDirectories(StringView name, Vector<Path>& outDirectories);
+
   NODISCARD static bool
   isVirtual(const Path& path);
 

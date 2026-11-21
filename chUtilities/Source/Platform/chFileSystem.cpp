@@ -469,6 +469,17 @@ FileSystem::mount(const String& name,
   return true;
 }
 
+void
+FileSystem::getMountDirectories(StringView name, Vector<Path>& outDirectories)
+{
+  outDirectories.clear();
+  for (const Mount& mount : mounts()) {
+    if (mount.name == name) {
+      outDirectories.emplace_back(mount.root);
+    }
+  }
+}
+
 bool
 FileSystem::unmount(const String& name, const Path& directory)
 {

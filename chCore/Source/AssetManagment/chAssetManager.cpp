@@ -222,6 +222,9 @@ AssetManager::lazyLoadAssetsFromDirectory(const Path& directory) {
     CH_LOG_ERROR(AssetSystem, "Directory does not exist: {0}", directory.toString());
     return;
   }
+  if (lazyLoadFromManifests(directory)) {
+    return;
+  }
 
   FileSystem::forEachFileChildRecursive(directory, [&](const Path& file) {
     const String extension = file.getExtension();
@@ -243,6 +246,118 @@ AssetManager::lazyLoadAssetsFromDirectory(const Path& directory) {
     m_assets[asset->getUUID()] = asset;
     CH_LOG_DEBUG(AssetSystem, "Lazy loaded asset: {0}", asset->getUUID().toString());
   });
+}
+
+/*
+ */
+bool
+AssetManager::lazyLoadFromManifests(const Path& directory)
+{
+  // Only a mount root ("/Game") has layers.
+  const String& text = directory.toString();
+  if (text.size() < 2 || text[0] != '/' || text.find('/', 1) != String::npos) {
+    return false;
+  }
+  Vector<Path> layers;
+  FileSystem::getMountDirectories(StringView(text).substr(1), layers);
+  if (layers.empty()) {
+    return false;
+  }
+
+  // All or nothing: a layer without a manifest (the project in development) is scanned, and
+  // mixing both would register its files twice.
+  Vector<AssetManifest> manifests(layers.size());
+  for (SIZE_T i = 0; i < layers.size(); ++i) {
+    const Path file = layers[i].join(Path(String(AssetManifest::FILE_NAME)));
+    if (!FileSystem::isFile(file)) {
+      if (i > 0 || layers.size() > 1) {
+        CH_LOG_INFO(AssetSystem, "{0} has no asset manifest; scanning {1} instead.",
+                    layers[i], directory);
+      }
+      return false;
+    }
+    String error;
+    if (!manifests[i].read(file, error)) {
+      CH_LOG_WARNING(AssetSystem, "{0} Scanning {1} instead.", error, directory);
+      return false;
+    }
+  }
+
+  // Highest priority first, so the first entry of a UUID or a path is the one that stays.
+  UnorderedSet<String> paths;
+  uint32 registered = 0;
+  for (SIZE_T i = 0; i < manifests.size(); ++i) {
+    for (const AssetManifestEntry& entry : manifests[i].entries) {
+      const auto it = m_assets.find(entry.uuid);
+      if (it != m_assets.end()) {
+        CH_LOG_INFO(AssetSystem, "{0} of {1} is replaced by {2} of a layer mounted over it.",
+                    entry.path, layers[i], it->second->getFilePath());
+        continue;
+      }
+      if (!paths.emplace(entry.path).second) {
+        // Reads of that path find the file of the layer above, which is another asset.
+        CH_LOG_WARNING(AssetSystem,
+                       "{0} of {1} is hidden by another asset at the same path in a layer "
+                       "mounted over it; it is skipped.",
+                       entry.path, layers[i]);
+        continue;
+      }
+      if (SPtr<IAsset> asset = createFromManifestEntry(entry, text)) {
+        m_assets[asset->getUUID()] = std::move(asset);
+        ++registered;
+      }
+    }
+  }
+  CH_LOG_INFO(AssetSystem, "Registered {0} assets from {1} manifests of {2}.", registered,
+              manifests.size(), directory);
+  return true;
+}
+
+/*
+ */
+SPtr<IAsset>
+AssetManager::createFromManifestEntry(const AssetManifestEntry& entry, StringView mountRoot)
+{
+  String virtualText(mountRoot);
+  virtualText += '/';
+  virtualText += entry.path;
+  const Path file(std::move(virtualText));
+  const String extension = file.getExtension();
+  const bool bScript = extension == ScriptAsset::EXTENSION;
+  if (!bScript && extension != EnginePaths::getEngineAssetExtension()) {
+    CH_LOG_ERROR(AssetSystem, "The manifest lists {0}, which is not an asset file.", file);
+    return nullptr;
+  }
+
+  AssetMetadata metadata;
+  metadata.uuid = entry.uuid;
+  metadata.assetType = entry.assetType;
+  if (!StringUtils::copyToBuffer(metadata.name, file.getFileName(false)) ||
+      !StringUtils::copyToBuffer(metadata.assetPath, file.getDirectory().toString())) {
+    CH_LOG_ERROR(AssetSystem, "Asset file name or folder is too long: {0}", file);
+    return nullptr;
+  }
+  if (!IAsset::validateMetadata(metadata)) {
+    CH_LOG_ERROR(AssetSystem, "Invalid asset metadata: {0}", file);
+    return nullptr;
+  }
+
+  SPtr<IAsset> asset;
+  if (bScript) {
+    asset = chMakeShared<ScriptAsset>(metadata);
+  }
+  else {
+    CH_ASSERT(m_assetRegister);
+    const AssetCreatorFunc creator = m_assetRegister->getAssetCreator(metadata.assetType);
+    if (!creator) {
+      CH_LOG_ERROR(AssetSystem, "No asset creator found for {0} (type {1}).", file,
+                   metadata.assetType.toString());
+      return nullptr;
+    }
+    asset = creator(metadata);
+  }
+  asset->m_referencedAssets = entry.references;
+  return asset;
 }
 
 /*

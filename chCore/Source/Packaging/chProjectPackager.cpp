@@ -11,6 +11,8 @@
 
 #if USING(CH_EDITOR)
 #include "chAssetFile.h"
+#include "chAssetManifest.h"
+#include "chScriptAsset.h"
 #include "chConfigFile.h"
 #include "chDynamicLibrary.h"
 #include "chEnginePaths.h"
@@ -240,6 +242,28 @@ addAssets(const PackageDesc& desc, Vector<FileCopy>& outCopies, String& outError
   return true;
 }
 
+/*
+ * A script is a plain file: its UUID is its first line and it references nothing.
+ */
+bool
+readScriptEntry(const Path& file, AssetManifestEntry& outEntry)
+{
+  const SPtr<DataStream> stream = FileSystem::openFile(file);
+  if (!stream) {
+    return false;
+  }
+  const String source = stream->getAsString();
+  stream->close();
+  UUID uuid = UUID::null();
+  if (!ScriptAsset::readUUIDLine(source, uuid) || uuid.isNull()) {
+    return false;
+  }
+  outEntry.uuid = uuid;
+  outEntry.assetType = TypeTraits<ScriptAsset>::getTypeId();
+  outEntry.references.clear();
+  return true;
+}
+
 bool
 writeGameConfig(const PackageDesc& desc, String& outError)
 {
@@ -334,6 +358,13 @@ ProjectPackager::package(const PackageDesc& desc, PackageProgress* progress)
                                 "plugin); textures are packaged uncompressed.");
   }
 
+  const Path sourceAssets = desc.projectDirectory.join(Path("Assets"));
+  const Path packageAssets = desc.outputDirectory.join(Path("Assets"));
+  AssetManifest manifest;
+  manifest.gameName = desc.gameName;
+  manifest.engineVersion = CH_ENGINE_VERSION_STRING;
+  manifest.entries.reserve(desc.assetFiles.size());
+
   for (const FileCopy& copy : copies) {
     if (progress && progress->bCancelRequested.load(std::memory_order_relaxed)) {
       // The folder was empty or a previous package, so nothing of the user's is lost.
@@ -346,9 +377,10 @@ ProjectPackager::package(const PackageDesc& desc, PackageProgress* progress)
     // types with a cooker are written in the form a game loads best.
     const bool bCook = copy.kind == CopyKind::Asset &&
                        copy.source.getExtension() == EnginePaths::getEngineAssetExtension();
+    AssetManifestEntry entry;
     if (bCook) {
       if (!AssetCooker::cookFile(copy.source, copy.destination, cookSettings,
-                                 result.cookStats, result.error)) {
+                                 result.cookStats, result.error, &entry)) {
         if (progress && progress->bCancelRequested.load(std::memory_order_relaxed)) {
           FileSystem::removeAll(desc.outputDirectory);
           result.bCancelled = true;
@@ -362,6 +394,15 @@ ProjectPackager::package(const PackageDesc& desc, PackageProgress* progress)
                      copy.destination.toString() + ".";
       return result;
     }
+    else if (copy.kind == CopyKind::Asset && !readScriptEntry(copy.source, entry)) {
+      result.error = "The script " + copy.source.toString() +
+                     " has no UUID line; open the project in the editor, which writes one.";
+      return result;
+    }
+    if (copy.kind == CopyKind::Asset) {
+      entry.path = FileSystem::relativePath(sourceAssets, copy.source).toString();
+      manifest.entries.push_back(std::move(entry));
+    }
     if (copy.kind == CopyKind::Binary) {
       ++result.binaryFileCount;
     }
@@ -371,6 +412,12 @@ ProjectPackager::package(const PackageDesc& desc, PackageProgress* progress)
     if (progress) {
       progress->copiedFiles.fetch_add(1, std::memory_order_relaxed);
     }
+  }
+
+  const Path manifestFile = packageAssets.join(Path(String(AssetManifest::FILE_NAME)));
+  if (!manifest.write(manifestFile)) {
+    result.error = "Could not write " + manifestFile.toString() + ".";
+    return result;
   }
 
   if (!writeGameConfig(desc, result.error)) {

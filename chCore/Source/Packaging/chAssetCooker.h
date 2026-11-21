@@ -14,6 +14,7 @@
 #if USING(CH_EDITOR)
 
 #include "chAssetFile.h"
+#include "chAssetManifest.h"
 #include "chPath.h"
 #include "chSTDThreading.h"
 #include "chTextureCooker.h"
@@ -99,14 +100,16 @@ class CH_CORE_EXPORT AssetCooker
   findCooker(const UUID& assetType);
 
   /**
-   * Reads source, cooks it and writes destination without editor data.
+   * Reads source, cooks it and writes destination without editor data. outEntry, when
+   * given, receives the asset's UUID, type and references (not its path).
    */
   NODISCARD static bool
   cookFile(const Path& source,
            const Path& destination,
            const AssetCookSettings& settings,
            AssetCookStats& stats,
-           String& outError);
+           String& outError,
+           AssetManifestEntry* outEntry = nullptr);
 
   /**
    * Adds to outTextures every texture the material files among assetFiles use as their

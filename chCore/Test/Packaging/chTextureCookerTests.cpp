@@ -11,6 +11,7 @@
 #if USING(CH_EDITOR)
 
 #include "chAssetCooker.h"
+#include "chAssetManifest.h"
 #include "chFileStream.h"
 #include "chFileSystem.h"
 #include "chMaterial.h"
@@ -507,6 +508,18 @@ TEST_CASE("chCore - Packaged textures", "[Packaging]")
             Format::R8G8B8A8_SRGB);
     REQUIRE(readPackagedTextureHeader(packaged.join(Path("T_Odd.chAss"))).format ==
             Format::R8G8B8A8_SRGB);
+
+    // The manifest lists every packaged asset with its path, identity and references.
+    AssetManifest manifest;
+    String error;
+    REQUIRE(manifest.read(packaged.join(Path(String(AssetManifest::FILE_NAME))), error));
+    REQUIRE(manifest.gameName == "MyGame");
+    REQUIRE(manifest.entries.size() == 6);
+    REQUIRE(manifest.entries[1].path == "T_Normal.chAss");
+    REQUIRE(manifest.entries[1].uuid == normalId);
+    REQUIRE(manifest.entries[1].assetType == TypeTraits<TextureAsset>::getTypeId());
+    REQUIRE(manifest.entries[5].path == "M_Test.chAss");
+    REQUIRE(manifest.entries[5].references == Vector<chEngineSDK::UUID>{normalId});
 
     // A second package reads both compressed textures back from the cache.
     const uint32 calls = compressor.calls.load();

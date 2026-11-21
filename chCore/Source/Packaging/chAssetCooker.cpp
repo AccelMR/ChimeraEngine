@@ -107,7 +107,8 @@ AssetCooker::cookFile(const Path& source,
                       const Path& destination,
                       const AssetCookSettings& settings,
                       AssetCookStats& stats,
-                      String& outError)
+                      String& outError,
+                      AssetManifestEntry* outEntry)
 {
   const Vector<uint8> bytes = FileSystem::fastRead(source);
   MemoryDataStream input(const_cast<uint8*>(bytes.data()), bytes.size(), false);
@@ -141,8 +142,14 @@ AssetCooker::cookFile(const Path& source,
   output->close();
   if (!bWritten) {
     outError = "Could not write " + destination.toString() + ".";
+    return false;
   }
-  return bWritten;
+  if (outEntry) {
+    outEntry->uuid = cookSource.info.uuid;
+    outEntry->assetType = cookSource.info.assetType;
+    outEntry->references = std::move(cookSource.references);
+  }
+  return true;
 }
 
 /*
