@@ -99,7 +99,11 @@ getSurfaceNormal(MaterialData material,
   }
 
   Texture2D normalTexture = ResourceDescriptorHeap[material.normalTexture];
-  float3 tangentNormal = normalTexture.Sample(textureSampler, texCoord).xyz * 2.0f - 1.0f;
+  // Only red and green are read: packaged games store normal maps as BC5, which has no blue,
+  // so the third axis always comes from the other two.
+  float3 tangentNormal;
+  tangentNormal.xy = normalTexture.Sample(textureSampler, texCoord).xy * 2.0f - 1.0f;
+  tangentNormal.z = sqrt(saturate(1.0f - dot(tangentNormal.xy, tangentNormal.xy)));
   tangentNormal.xy *= material.normalScale;
 
   // Interpolation shortens the vectors and tilts them apart, so the tangent is made unit and

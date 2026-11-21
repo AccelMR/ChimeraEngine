@@ -14,10 +14,20 @@
 #include "chMath.h"
 #include "chTextureMips.h"
 
+#if USING(CH_EDITOR)
+#include "chConfigFile.h"
+#include "chTextureCooker.h"
+#endif // USING(CH_EDITOR)
+
 namespace chEngineSDK {
 CH_LOG_DECLARE_STATIC(TextureAssetLog, All);
 
 namespace {
+#if USING(CH_EDITOR)
+constexpr StringView kTextureSection = "Texture";
+constexpr StringView kCompressionKey = "Compression";
+#endif // USING(CH_EDITOR)
+
 SIZE_T
 getChainSize(Format format, uint32 width, uint32 height, uint32 mipLevels)
 {
@@ -96,6 +106,30 @@ TextureAsset::hasAlphaBelow(float alpha) const
     }
   }
   return false;
+}
+
+/*
+ */
+void
+TextureAsset::writeEditorValues(ConfigFile& file) const
+{
+  if (m_compression != TextureCompression::Auto) {
+    file.setValue(kTextureSection, kCompressionKey,
+                  TextureCooker::getCompressionName(m_compression));
+  }
+}
+
+/*
+ */
+void
+TextureAsset::readEditorValues(const ConfigFile& file)
+{
+  const String* value = file.getValue(kTextureSection, kCompressionKey);
+  if (value && !TextureCooker::parseCompression(*value, m_compression)) {
+    CH_LOG_WARNING(TextureAssetLog, "Texture {0}: unknown compression '{1}', using Auto.",
+                   getName(), *value);
+    m_compression = TextureCompression::Auto;
+  }
 }
 #endif // USING(CH_EDITOR)
 

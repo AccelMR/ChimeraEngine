@@ -31,6 +31,29 @@ struct TextureAssetHeader
 };
 static_assert(sizeof(TextureAssetHeader) == 20, "TextureAssetHeader must have no padding");
 
+#if USING(CH_EDITOR)
+/**
+ * How Package Project compresses a texture. Kept by name in the asset's editor data.
+ */
+enum class TextureCompression : uint32
+{
+  // BC7 for color, BC5 for normal maps, BC4 for gray linear images; textures without mips
+  // (sprites, UI), floats and sizes that are not a multiple of 4 stay as they are.
+  Auto = 0,
+  // BC7, keeping alpha.
+  Color = 1,
+  // BC1, half the size of BC7, alpha dropped.
+  ColorNoAlpha = 2,
+  // BC5 from red and green; shaders rebuild the third axis.
+  NormalMap = 3,
+  // BC4 from red.
+  Grayscale = 4,
+  Uncompressed = 5,
+
+  COUNT
+};
+#endif // USING(CH_EDITOR)
+
 /**
  * @class TextureAsset
  * @brief Represents a texture asset in the engine.
@@ -87,6 +110,24 @@ class CH_CORE_EXPORT TextureAsset : public IAsset
    */
   NODISCARD bool
   hasAlphaBelow(float alpha) const;
+
+  /**
+   * Every mip level one after the other, largest first; empty until the texture is loaded.
+   */
+  NODISCARD FORCEINLINE Span<const uint8>
+  getTextureData() const noexcept { return m_textureData; }
+
+  NODISCARD FORCEINLINE uint32
+  getMipLevels() const noexcept { return m_mipLevels; }
+
+  NODISCARD FORCEINLINE TextureCompression
+  getCompression() const noexcept { return m_compression; }
+
+  /**
+   * Takes effect in the next package; save the asset to keep it.
+   */
+  FORCEINLINE void
+  setCompression(TextureCompression compression) noexcept { m_compression = compression; }
 #endif // USING(CH_EDITOR)
 
   /**
@@ -109,6 +150,14 @@ class CH_CORE_EXPORT TextureAsset : public IAsset
   void
   createTextureFromData();
 
+#if USING(CH_EDITOR)
+  void
+  writeEditorValues(ConfigFile& file) const override;
+
+  void
+  readEditorValues(const ConfigFile& file) override;
+#endif // USING(CH_EDITOR)
+
  private:
   SPtr<ITexture> m_texture;
   Vector<uint8> m_textureData; ///< Compressed texture data for serialization
@@ -116,6 +165,9 @@ class CH_CORE_EXPORT TextureAsset : public IAsset
   uint32 m_height = 0; ///< Height of the texture
   Format m_format = Format::Unknown;
   uint32 m_mipLevels = 1;
+#if USING(CH_EDITOR)
+  TextureCompression m_compression = TextureCompression::Auto;
+#endif // USING(CH_EDITOR)
 };
 DECLARE_ASSET_TYPE(TextureAsset);
 

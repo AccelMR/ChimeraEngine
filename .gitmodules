@@ -29,3 +29,6 @@
 [submodule "chCodecs/chImageCodec/Externals/libwebp"]
 	path = chCodecs/chImageCodec/Externals/libwebp
 	url = https://github.com/webmproject/libwebp.git
+[submodule "chCodecs/chTextureCompressor/Externals/bc7enc_rdo"]
+	path = chCodecs/chTextureCompressor/Externals/bc7enc_rdo
+	url = https://github.com/richgel999/bc7enc_rdo
