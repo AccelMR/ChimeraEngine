@@ -14,10 +14,20 @@
 #include "chMath.h"
 #include "chTextureMips.h"
 
+#if USING(CH_EDITOR)
+#include "chConfigFile.h"
+#include "chTextureCooker.h"
+#endif // USING(CH_EDITOR)
+
 namespace chEngineSDK {
 CH_LOG_DECLARE_STATIC(TextureAssetLog, All);
 
 namespace {
+#if USING(CH_EDITOR)
+constexpr StringView kTextureSection = "Texture";
+constexpr StringView kCompressionKey = "Compression";
+#endif // USING(CH_EDITOR)
+
 SIZE_T
 getChainSize(Format format, uint32 width, uint32 height, uint32 mipLevels)
 {
@@ -29,6 +39,52 @@ getChainSize(Format format, uint32 width, uint32 height, uint32 mipLevels)
   return size;
 }
 } // namespace
+
+/*
+ */
+bool
+TextureAsset::isValidSize(Format format, uint32 width, uint32 height) noexcept
+{
+  if (width == 0 || height == 0) {
+    return false;
+  }
+  const FormatInfo& info = FormatUtils::getInfo(format);
+  return width % info.blockWidth == 0 && height % info.blockHeight == 0;
+}
+
+/*
+ */
+TextureAsset::TextureAsset(const AssetMetadata& metadata,
+                           Vector<uint8> textureData,
+                           uint32 width,
+                           uint32 height,
+                           Format format,
+                           uint32 mipLevels)
+  : IAsset(metadata),
+    m_textureData(std::move(textureData)),
+    m_width(width),
+    m_height(height),
+    m_format(format),
+    m_mipLevels(mipLevels)
+{
+  CH_ASSERT(m_textureData.size() == getChainSize(format, width, height, mipLevels));
+  CH_ASSERT(isValidSize(format, width, height));
+  createTextureFromData();
+}
+
+#if USING(CH_EDITOR)
+/*
+ */
+Span<const uint8>
+TextureAsset::getRgba8Pixels() const
+{
+  const bool bRgba8 = m_format == Format::R8G8B8A8_UNORM || m_format == Format::R8G8B8A8_SRGB;
+  const SIZE_T size = static_cast<SIZE_T>(m_width) * m_height * 4;
+  if (!bRgba8 || m_textureData.size() < size) {
+    return {};
+  }
+  return Span<const uint8>(m_textureData.data(), size);
+}
 
 /*
  */
@@ -54,35 +110,26 @@ TextureAsset::hasAlphaBelow(float alpha) const
 
 /*
  */
-TextureAsset::TextureAsset(const AssetMetadata& metadata,
-                           Vector<uint8> textureData,
-                           uint32 width,
-                           uint32 height,
-                           Format format,
-                           uint32 mipLevels)
-  : IAsset(metadata),
-    m_textureData(std::move(textureData)),
-    m_width(width),
-    m_height(height),
-    m_format(format),
-    m_mipLevels(mipLevels)
+void
+TextureAsset::writeEditorValues(ConfigFile& file) const
 {
-  CH_ASSERT(m_textureData.size() == getChainSize(format, width, height, mipLevels));
-  createTextureFromData();
+  if (m_compression != TextureCompression::Auto) {
+    file.setValue(kTextureSection, kCompressionKey,
+                  TextureCooker::getCompressionName(m_compression));
+  }
 }
 
-#if USING(CH_EDITOR)
 /*
  */
-Span<const uint8>
-TextureAsset::getRgba8Pixels() const
+void
+TextureAsset::readEditorValues(const ConfigFile& file)
 {
-  const bool bRgba8 = m_format == Format::R8G8B8A8_UNORM || m_format == Format::R8G8B8A8_SRGB;
-  const SIZE_T size = static_cast<SIZE_T>(m_width) * m_height * 4;
-  if (!bRgba8 || m_textureData.size() < size) {
-    return {};
+  const String* value = file.getValue(kTextureSection, kCompressionKey);
+  if (value && !TextureCooker::parseCompression(*value, m_compression)) {
+    CH_LOG_WARNING(TextureAssetLog, "Texture {0}: unknown compression '{1}', using Auto.",
+                   getName(), *value);
+    m_compression = TextureCompression::Auto;
   }
-  return Span<const uint8>(m_textureData.data(), size);
 }
 #endif // USING(CH_EDITOR)
 
@@ -143,6 +190,13 @@ TextureAsset::deserialize(SPtr<DataStream> stream) {
                  getName(), header.format, header.mipLevels);
     return false;
   }
+  if (!isValidSize(header.format, header.width, header.height)) {
+    CH_LOG_ERROR(TextureAssetLog,
+                 "Failed to deserialize texture asset {0}: {1}x{2} is not a size its format "
+                 "{3} allows",
+                 getName(), header.width, header.height, header.format);
+    return false;
+  }
   m_width = header.width;
   m_height = header.height;
   m_format = header.format;
@@ -177,25 +231,28 @@ TextureAsset::createTextureFromData() {
     CH_LOG_ERROR(TextureAssetLog, "Cannot create texture: texture data is empty");
     return;
   }
-  if (m_texture) {
-    CH_LOG_DEBUG(TextureAssetLog, "Texture already created, skipping creation");
-    return;
+  if (!m_texture) {
+    IGraphicsAPI& graphicsAPI = IGraphicsAPI::instance();
+    const TextureCreateInfo textureCreateInfo{.type = TextureType::Texture2D,
+                                              .format = m_format,
+                                              .width = m_width,
+                                              .height = m_height,
+                                              .depth = 1,
+                                              .mipLevels = m_mipLevels,
+                                              .arrayLayers = 1,
+                                              .samples = SampleCount::Count1,
+                                              .usage = TextureUsage::Sampled |
+                                                       TextureUsage::TransferDst,
+                                              .initialData = m_textureData.data(),
+                                              .initialDataSize = m_textureData.size()};
+    m_texture = graphicsAPI.createTexture(textureCreateInfo);
   }
 
-  IGraphicsAPI& graphicsAPI = IGraphicsAPI::instance();
-  TextureCreateInfo textureCreateInfo{.type = TextureType::Texture2D,
-                                      .format = m_format,
-                                      .width = m_width,
-                                      .height = m_height,
-                                      .depth = 1,
-                                      .mipLevels = m_mipLevels,
-                                      .arrayLayers = 1,
-                                      .samples = SampleCount::Count1,
-                                      .usage = TextureUsage::Sampled |
-                                               TextureUsage::TransferDst,
-                                      .initialData = m_textureData.data(),
-                                      .initialDataSize = m_textureData.size()};
-  m_texture = graphicsAPI.createTexture(textureCreateInfo);
+#if !USING(CH_EDITOR)
+  // The upload copied the pixels into staging memory, and only editor tools read them after
+  // that (saving, alpha scans), so the game gives the memory back.
+  Vector<uint8>().swap(m_textureData);
+#endif
 }
 
 } // namespace chEngineSDK

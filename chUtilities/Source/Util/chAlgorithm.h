@@ -136,6 +136,29 @@ class Algorithm
   }
 
   /**
+   * Whether a sorted container holds value, in logarithmic time.
+   */
+  template<typename Container, typename T>
+  NODISCARD static FORCEINLINE bool
+  containsSorted(const Container& container, const T& value)
+  {
+    return std::binary_search(container.begin(), container.end(), value);
+  }
+
+  /**
+   * Keeps one of each run of equal elements of a sorted container. Returns how many went.
+   */
+  template<typename Container>
+  static FORCEINLINE SIZE_T
+  removeSortedDuplicates(Container& container)
+  {
+    const auto newEnd = std::unique(container.begin(), container.end());
+    const SIZE_T removed = static_cast<SIZE_T>(container.end() - newEnd);
+    container.erase(newEnd, container.end());
+    return removed;
+  }
+
+  /**
    * Moves the element at firstIndex to the front, keeping the order of the rest. Puts a
    * ring buffer back in order when firstIndex is its oldest element.
    */

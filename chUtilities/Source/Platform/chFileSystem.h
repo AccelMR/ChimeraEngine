@@ -37,6 +37,18 @@ namespace chEngineSDK{
  * Mounts and the base directory are meant to be set at startup, before other
  * threads use FileSystem; changing them is not thread safe.
  */
+class PakArchive;
+
+/**
+ * One folder or archive mounted under a name, as FileSystem::getMountLayers gives it.
+ */
+struct MountLayer
+{
+  Path root{};
+  // Null for a folder.
+  SPtr<PakArchive> archive{};
+};
+
 class CH_UTILITY_EXPORT FileSystem
 {
  public:
@@ -54,6 +66,27 @@ class CH_UTILITY_EXPORT FileSystem
 
   static bool
   unmount(const String& name, const Path& directory);
+
+  /**
+   *   Mounts a pak archive as a read-only layer of "/name", like a folder: reads and
+   *   listings see the files inside it. False and logged when the archive cannot be opened.
+   **/
+  static bool
+  mountArchive(const String& name, const Path& archiveFile, int32 priority = 0);
+
+  /**
+   *   Fills outLayers with what is mounted as "/name", highest priority first: the order in
+   *   which a read looks for a file. root is the real folder or archive file.
+   **/
+  static void
+  getMountLayers(StringView name, Vector<MountLayer>& outLayers);
+
+  /**
+   *   The layer a read of the virtual path uses: the highest one that has it. False for a
+   *   real path or a path no layer has.
+   **/
+  NODISCARD static bool
+  findReadLayer(const Path& path, MountLayer& outLayer);
 
   NODISCARD static bool
   isVirtual(const Path& path);

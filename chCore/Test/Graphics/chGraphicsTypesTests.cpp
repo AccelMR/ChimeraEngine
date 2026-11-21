@@ -10,6 +10,8 @@
 
 #include "chGraphicsTypes.h"
 #include "chIShader.h"
+#include "chMath.h"
+#include "chTextureAsset.h"
 #include "chUUID.h"
 #include "chVertexLayout.h"
 
@@ -164,5 +166,40 @@ TEST_CASE("chCore - FormatUtils", "[Graphics]")
     REQUIRE(FormatUtils::getMipSize(Format::R8G8B8A8_UNORM, 4, 2) == 32);
     REQUIRE(FormatUtils::getMipSize(Format::R8_UNORM, 3, 3) == 9);
     REQUIRE(FormatUtils::getMipSize(Format::R32G32B32A32_SFLOAT, 1, 1, 2) == 32);
+  }
+
+  SECTION("Block compressed formats")
+  {
+    STATIC_REQUIRE(static_cast<uint32>(Format::BC1_RGBA_UNORM) == 18);
+    STATIC_REQUIRE(static_cast<uint32>(Format::BC7_SRGB) == 23);
+    REQUIRE(FormatUtils::isCompressed(Format::BC7_UNORM));
+    REQUIRE_FALSE(FormatUtils::isCompressed(Format::R8G8B8A8_UNORM));
+    REQUIRE(FormatUtils::getInfo(Format::BC1_RGBA_SRGB).isSrgb);
+    REQUIRE(FormatUtils::getInfo(Format::BC7_SRGB).isSrgb);
+    REQUIRE_FALSE(FormatUtils::getInfo(Format::BC5_UNORM).isSrgb);
+
+    // A level smaller than a block or not a whole number of blocks still takes whole blocks.
+    REQUIRE(FormatUtils::getMipSize(Format::BC1_RGBA_UNORM, 4, 4) == 8);
+    REQUIRE(FormatUtils::getMipSize(Format::BC4_UNORM, 8, 4) == 16);
+    REQUIRE(FormatUtils::getMipSize(Format::BC7_UNORM, 5, 5) == 64);
+    REQUIRE(FormatUtils::getMipSize(Format::BC5_UNORM, 1, 1) == 16);
+    REQUIRE(FormatUtils::getMipSize(Format::BC7_SRGB, 2, 1) == 16);
+
+    // A whole chain of 16x8: 16x8, 8x4, 4x2, 2x1, 1x1 is 8 + 2 + 1 + 1 + 1 blocks.
+    SIZE_T chainSize = 0;
+    for (uint32 mip = 0; mip < 5; ++mip) {
+      chainSize += FormatUtils::getMipSize(Format::BC7_UNORM, Math::max(16u >> mip, 1u),
+                                           Math::max(8u >> mip, 1u));
+    }
+    REQUIRE(chainSize == 13 * 16);
+  }
+
+  SECTION("Texture sizes a format allows")
+  {
+    REQUIRE(TextureAsset::isValidSize(Format::R8G8B8A8_UNORM, 3, 5));
+    REQUIRE(TextureAsset::isValidSize(Format::BC7_UNORM, 8, 12));
+    REQUIRE_FALSE(TextureAsset::isValidSize(Format::BC7_UNORM, 6, 8));
+    REQUIRE_FALSE(TextureAsset::isValidSize(Format::BC1_RGBA_UNORM, 4, 2));
+    REQUIRE_FALSE(TextureAsset::isValidSize(Format::R8G8B8A8_UNORM, 0, 4));
   }
 }

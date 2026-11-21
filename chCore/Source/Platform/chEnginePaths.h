@@ -178,6 +178,19 @@ class CH_CORE_EXPORT EnginePaths
   static constexpr StringView PACKAGE_ENGINE_FOLDER = "Engine";
 
   /**
+   * Archive next to a packaged executable that holds the game's assets; when it is there it
+   * is mounted as /Game instead of the Assets folder.
+   */
+  static constexpr StringView PACKAGE_ASSETS_ARCHIVE = "Assets.chpak";
+
+  /**
+   * The real folder or archive mounted as the game's own /Game layer; layers mounted over it
+   * later (mods) have other roots. Empty without a project.
+   */
+  NODISCARD static const Path&
+  getGameContentRoot();
+
+  /**
    * Folder next to the executable that holds the engine plugins.
    */
   static constexpr StringView ENGINE_PLUGIN_FOLDER = "Plugins";

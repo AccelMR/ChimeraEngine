@@ -9,7 +9,9 @@
 /************************************************************************/
 #include "chScriptAsset.h"
 
+#include "chEnginePaths.h"
 #include "chFileStream.h"
+#include "chFileSystem.h"
 #include "chLogger.h"
 #include "chStringUtils.h"
 
@@ -69,9 +71,36 @@ ScriptAsset::deserialize(SPtr<DataStream> stream)
     CH_LOG_ERROR(ScriptAssetLog, "Script {0} could not be read", m_metadata.name);
     return false;
   }
-  // Read as text, so a file saved as UTF-16 or with a byte order mark still compiles.
-  m_source = stream->getAsString();
+  // Compiled Lua is kept byte for byte; text is read as text, so a file saved as UTF-16 or
+  // with a byte order mark still compiles.
+  ANSICHAR start[BYTECODE_SIGNATURE.size()] = {};
+  const SIZE_T startSize = stream->read(start, sizeof(start));
+  if (isBytecode(StringView(start, startSize))) {
+    m_source.assign(start, startSize);
+    const SIZE_T rest = stream->size() - startSize;
+    m_source.resize(startSize + rest);
+    if (rest > 0 && stream->read(m_source.data() + startSize, rest) != rest) {
+      CH_LOG_ERROR(ScriptAssetLog, "Script {0} could not be read", m_metadata.name);
+      return false;
+    }
+  }
+  else {
+    stream->seek(0);
+    m_source = stream->getAsString();
+  }
+
+  MountLayer layer;
+  m_bFromGameLayer = FileSystem::findReadLayer(getFilePath(), layer) &&
+                     layer.root == EnginePaths::getGameContentRoot();
   return true;
+}
+
+/*
+ */
+bool
+ScriptAsset::isBytecode(StringView source) noexcept
+{
+  return source.substr(0, BYTECODE_SIGNATURE.size()) == BYTECODE_SIGNATURE;
 }
 
 /*

@@ -39,6 +39,7 @@
 #include "chSpriteMaterialAsset.h"
 #include "chStringUtils.h"
 #include "chTextureAsset.h"
+#include "chTextureCooker.h"
 #include "chUIHelpers.h"
 
 #include "imgui.h"
@@ -68,6 +69,11 @@ struct InspectorState
   Vector<SPtr<IAsset>> modelClips;
   uint32 modelVertices = 0;
   uint32 modelTriangles = 0;
+  // What Package Project makes of the shown texture, worked out again when its compression
+  // changes: the gray check reads every pixel.
+  TextureCookFormat textureCook;
+  SIZE_T textureSize = 0;
+  SIZE_T textureCookSize = 0;
 };
 
 InspectorState&
@@ -240,6 +246,97 @@ renderModel(const Model& model)
 }
 
 /*
+ * The format a texture asset is packaged in and both sizes, read once per open and per
+ * compression change.
+ */
+void
+prepareTextureCook(InspectorState& state, const TextureAsset& texture)
+{
+  const TextureCookSource source{.format = texture.getFormat(),
+                                 .width = texture.getWidth(),
+                                 .height = texture.getHeight(),
+                                 .mipLevels = texture.getMipLevels(),
+                                 .data = texture.getTextureData()};
+  state.textureCook = TextureCooker::resolveFormat(texture.getCompression(), source, false);
+  state.textureSize = source.data.size();
+  state.textureCookSize = 0;
+  if (state.textureCook.format != Format::Unknown) {
+    for (uint32 mip = 0; mip < source.mipLevels; ++mip) {
+      state.textureCookSize +=
+          FormatUtils::getMipSize(state.textureCook.format, Math::max(source.width >> mip, 1u),
+                                  Math::max(source.height >> mip, 1u));
+    }
+  }
+}
+
+const ANSICHAR*
+getCookFormatName(Format format)
+{
+  switch (format) {
+  case Format::BC1_RGBA_UNORM:
+    return "BC1";
+  case Format::BC1_RGBA_SRGB:
+    return "BC1 sRGB";
+  case Format::BC4_UNORM:
+    return "BC4";
+  case Format::BC5_UNORM:
+    return "BC5";
+  case Format::BC7_UNORM:
+    return "BC7";
+  case Format::BC7_SRGB:
+    return "BC7 sRGB";
+  default:
+    return "uncompressed";
+  }
+}
+
+/*
+ * The compression combo of a texture and what it gives in packages. A change is saved at
+ * once, like the other asset settings of this window.
+ */
+void
+renderTextureCompression(InspectorState& state, const SPtr<TextureAsset>& texture)
+{
+  const TextureCompression current = texture->getCompression();
+  const String currentName(TextureCooker::getCompressionName(current));
+  if (ImGui::BeginCombo("Compression", currentName.c_str())) {
+    for (uint32 i = 0; i < static_cast<uint32>(TextureCompression::COUNT); ++i) {
+      const auto value = static_cast<TextureCompression>(i);
+      const String name(TextureCooker::getCompressionName(value));
+      if (ImGui::Selectable(name.c_str(), value == current) && value != current) {
+        texture->setCompression(value);
+        if (!AssetManager::instance().saveAsset(texture)) {
+          CH_LOG_ERROR(AssetInspectorLog, "Could not save {0}.", texture->getName());
+        }
+        prepareTextureCook(state, *texture);
+      }
+    }
+    ImGui::EndCombo();
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("%s",
+                      "How Package Project compresses this texture. Auto: BC7 for color, BC5 "
+                      "for normal maps, BC4 for gray linear images; textures without mips "
+                      "(sprites, UI) stay as they are. The editor always shows it "
+                      "uncompressed.");
+  }
+
+  constexpr float kMegabyte = 1024.0f * 1024.0f;
+  const float sizeNow = static_cast<float>(state.textureSize) / kMegabyte;
+  if (state.textureCook.format == Format::Unknown) {
+    const String reason(state.textureCook.reason);
+    ImGui::TextDisabled("In packages: as it is, %.2f MB (%s)", sizeNow, reason.c_str());
+    return;
+  }
+  ImGui::TextDisabled("In packages: %s, %.2f MB (now %.2f MB)",
+                      getCookFormatName(state.textureCook.format),
+                      static_cast<float>(state.textureCookSize) / kMegabyte, sizeNow);
+  if (current == TextureCompression::Auto) {
+    ImGui::TextDisabled("BC5 instead when a packaged material uses it as its normal map.");
+  }
+}
+
+/*
  * Builds what drawing the asset needs, once per open.
  */
 void
@@ -249,6 +346,11 @@ prepare(InspectorState& state)
   state.modelClips.clear();
   state.modelVertices = 0;
   state.modelTriangles = 0;
+  state.textureCook = {};
+
+  if (const SPtr<TextureAsset> texture = state.asset->as<TextureAsset>()) {
+    prepareTextureCook(state, *texture);
+  }
 
   if (const SPtr<SkeletonAsset> skeletonAsset = state.asset->as<SkeletonAsset>()) {
     if (const SPtr<Skeleton>& skeleton = skeletonAsset->getSkeleton()) {
@@ -783,6 +885,7 @@ renderAsset(const SPtr<IAsset>& asset)
     }
   }
   else if (const SPtr<TextureAsset> texture = asset->as<TextureAsset>()) {
+    renderTextureCompression(getState(), texture);
     if (texture->getTexture()) {
       renderTexture(*texture->getTexture());
     }

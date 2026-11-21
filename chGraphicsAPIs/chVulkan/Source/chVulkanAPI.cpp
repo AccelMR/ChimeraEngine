@@ -74,6 +74,8 @@ visitRequiredFeatures(DeviceFeatureChain& chain, Visitor&& visit)
   visit(chain.core.features.depthClamp, "depthClamp");
   // TextureCubeArray views (point light shadow maps).
   visit(chain.core.features.imageCubeArray, "imageCubeArray");
+  // Packaged games ship their textures in BC formats.
+  visit(chain.core.features.textureCompressionBC, "textureCompressionBC");
   // Vertex shaders read GpuOnly storage buffers (glyph runs), which DXC declares writable.
   visit(chain.core.features.vertexPipelineStoresAndAtomics, "vertexPipelineStoresAndAtomics");
   // Shaders declare storage images without a format (-fspv-use-unknown-image-format), so

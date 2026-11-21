@@ -10,6 +10,7 @@ CH_LOG_DECLARE_EXTERN(CH_CORE_EXPORT, AssetCodecSystem);
 #include "chAssetCodecRegistry.h"
 #include "chEventSystem.h"
 #include "chModule.h"
+#include "chTextureCooker.h"
 
 namespace chEngineSDK {
 
@@ -112,8 +113,27 @@ class CH_CORE_EXPORT AssetCodecManager : public Module<AssetCodecManager>
     m_codecRegistry->registerCodec<AssetCodecType>();
   }
 
+  /**
+   * Kept until this manager shuts down, before the plugins unload, so a plugin may give it.
+   */
+  FORCEINLINE void
+  setTextureCompressor(UniquePtr<ITextureCompressor> compressor) noexcept
+  {
+    m_textureCompressor = std::move(compressor);
+  }
+
+  /**
+   * Null when no plugin gave one: packages then keep their textures uncompressed.
+   */
+  NODISCARD FORCEINLINE const ITextureCompressor*
+  getTextureCompressor() const noexcept
+  {
+    return m_textureCompressor.get();
+  }
+
  private:
   UniquePtr<AssetCodecRegistry> m_codecRegistry;
+  UniquePtr<ITextureCompressor> m_textureCompressor;
 }; // class AssetCodecManager
 } // namespace chEngineSDK
 #endif  // USING(CH_EDITOR)

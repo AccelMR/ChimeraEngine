@@ -13,6 +13,7 @@
 
 #include "chPrerequisitesCore.h"
 
+#include "chAssetManifest.h"
 #include "chAssetRegister.h"
 #include "chEnginePaths.h"
 #include "chEventSystem.h"
@@ -63,6 +64,11 @@ class CH_CORE_EXPORT AssetManager : public Module<AssetManager>
   NODISCARD SPtr<IAsset>
   getAsset(const UUID& assetUUID) const;
 
+  /**
+   * Registers every asset under directory without loading it. For a mount root ("/Game")
+   * whose every layer has an AssetManifest (packaged games), the manifests are read instead
+   * of the files: layers mounted over others replace assets with the same UUID.
+   */
   void
   lazyLoadAssetsFromDirectory(const Path& directory);
 
@@ -191,6 +197,20 @@ class CH_CORE_EXPORT AssetManager : public Module<AssetManager>
    */
   SPtr<IAsset>
   lazyLoadScriptFile(const Path& file);
+
+  /**
+   * False, having registered nothing, when directory is not a mount root or one of its
+   * layers has no readable manifest.
+   */
+  bool
+  lazyLoadFromManifests(const Path& directory);
+
+  /**
+   * An asset of a manifest entry, its file at mountRoot/entry.path; null when the entry
+   * names no known type.
+   */
+  SPtr<IAsset>
+  createFromManifestEntry(const AssetManifestEntry& entry, StringView mountRoot);
 
  private:
   Map<UUID, SPtr<IAsset>> m_assets; ///< Map of all assets by UUID, both loaded and unloaded

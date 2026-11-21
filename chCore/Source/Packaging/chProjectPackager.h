@@ -12,6 +12,7 @@
 #include "chPrerequisitesCore.h"
 
 #if USING(CH_EDITOR)
+#include "chAssetCooker.h"
 #include "chPackageRules.h"
 #include "chPath.h"
 #include "chSTDThreading.h"
@@ -39,6 +40,17 @@ struct PackageDesc
   Vector<Path> assetFiles{};
   // Written as Game.StartupScene in the package's Config/Game.ini.
   String startupScene{};
+  // Null packages the textures as they are.
+  const ITextureCompressor* textureCompressor = nullptr;
+  TextureCompressionQuality textureQuality = TextureCompressionQuality::Normal;
+  // Compressed textures kept between packages; usually <Project>/Saved/Cooked/Textures.
+  Path textureCacheDirectory{};
+  // Writes the assets into one archive (EnginePaths::PACKAGE_ASSETS_ARCHIVE) instead of an
+  // Assets folder.
+  bool bPackAssets = false;
+  // Scripts are always compiled; this drops their line numbers (errors then lose their file
+  // and line).
+  bool bStripScriptDebugInfo = false;
 };
 
 struct PackageResult
@@ -49,6 +61,7 @@ struct PackageResult
   String error;
   uint32 binaryFileCount = 0;
   uint32 assetFileCount = 0;
+  AssetCookStats cookStats{};
 };
 
 /**

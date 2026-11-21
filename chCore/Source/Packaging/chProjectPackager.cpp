@@ -11,6 +11,10 @@
 
 #if USING(CH_EDITOR)
 #include "chAssetFile.h"
+#include "chAssetManifest.h"
+#include "chPakArchive.h"
+#include "chScriptAsset.h"
+#include "chScriptCompiler.h"
 #include "chConfigFile.h"
 #include "chDynamicLibrary.h"
 #include "chEnginePaths.h"
@@ -240,6 +244,29 @@ addAssets(const PackageDesc& desc, Vector<FileCopy>& outCopies, String& outError
   return true;
 }
 
+/*
+ * A script is a plain file: its UUID is its first line and it references nothing.
+ */
+bool
+readScriptEntry(const Path& file, AssetManifestEntry& outEntry, String& outSource)
+{
+  const SPtr<DataStream> stream = FileSystem::openFile(file);
+  if (!stream) {
+    return false;
+  }
+  outSource = stream->getAsString();
+  const String& source = outSource;
+  stream->close();
+  UUID uuid = UUID::null();
+  if (!ScriptAsset::readUUIDLine(source, uuid) || uuid.isNull()) {
+    return false;
+  }
+  outEntry.uuid = uuid;
+  outEntry.assetType = TypeTraits<ScriptAsset>::getTypeId();
+  outEntry.references.clear();
+  return true;
+}
+
 bool
 writeGameConfig(const PackageDesc& desc, String& outError)
 {
@@ -323,6 +350,34 @@ ProjectPackager::package(const PackageDesc& desc, PackageProgress* progress)
     return result;
   }
 
+  AssetCookSettings cookSettings{.textureCompressor = desc.textureCompressor,
+                                 .textureQuality = desc.textureQuality,
+                                 .textureCacheDirectory = desc.textureCacheDirectory,
+                                 .cancel = progress ? &progress->bCancelRequested : nullptr};
+  // Read before any texture is cooked: Auto gives these BC5.
+  AssetCooker::collectNormalMapTextures(desc.assetFiles, cookSettings.normalMapTextures);
+  if (!desc.textureCompressor) {
+    CH_LOG_WARNING(PackagerLog, "No texture compressor is loaded (the chTextureCompressor "
+                                "plugin); textures are packaged uncompressed.");
+  }
+
+  const Path sourceAssets = desc.projectDirectory.join(Path("Assets"));
+  const Path packageAssets = desc.outputDirectory.join(Path("Assets"));
+  AssetManifest manifest;
+  manifest.gameName = desc.gameName;
+  manifest.engineVersion = CH_ENGINE_VERSION_STRING;
+  manifest.entries.reserve(desc.assetFiles.size());
+
+  PakWriter pak;
+  const Path pakFile =
+      desc.outputDirectory.join(Path(String(EnginePaths::PACKAGE_ASSETS_ARCHIVE)));
+  if (desc.bPackAssets && !pak.begin(pakFile)) {
+    result.error = "Could not write " + pakFile.toString() + ".";
+    return result;
+  }
+  Vector<uint8> assetBytes;
+  String scriptSource;
+
   for (const FileCopy& copy : copies) {
     if (progress && progress->bCancelRequested.load(std::memory_order_relaxed)) {
       // The folder was empty or a previous package, so nothing of the user's is lost.
@@ -331,18 +386,69 @@ ProjectPackager::package(const PackageDesc& desc, PackageProgress* progress)
       result.error = "Cancelled.";
       return result;
     }
-    // The editor data of an asset holds paths of this machine and means nothing to a game.
-    const bool bStripEditorData =
-        copy.kind == CopyKind::Asset &&
-        copy.source.getExtension() == EnginePaths::getEngineAssetExtension();
-    const bool bCopied =
-        bStripEditorData
-            ? AssetFile::rewriteWithEditorData(copy.source, copy.destination, StringView())
-            : FileSystem::copyFile(copy.source, copy.destination);
-    if (!bCopied) {
-      result.error = "Could not copy " + copy.source.toString() + " to " +
-                     copy.destination.toString() + ".";
+    // Asset files are cooked: their editor data (paths of this machine) is left out and
+    // types with a cooker are written in the form a game loads best.
+    const bool bAsset = copy.kind == CopyKind::Asset;
+    const bool bCook =
+        bAsset && copy.source.getExtension() == EnginePaths::getEngineAssetExtension();
+    const bool bIntoPak = bAsset && desc.bPackAssets;
+    AssetManifestEntry entry;
+    bool bDone = false;
+    if (bCook) {
+      bDone = bIntoPak ? AssetCooker::cookToMemory(copy.source, cookSettings, result.cookStats,
+                                                   assetBytes, result.error, &entry)
+                       : AssetCooker::cookFile(copy.source, copy.destination, cookSettings,
+                                               result.cookStats, result.error, &entry);
+      if (!bDone && progress && progress->bCancelRequested.load(std::memory_order_relaxed)) {
+        FileSystem::removeAll(desc.outputDirectory);
+        result.bCancelled = true;
+        result.error = "Cancelled.";
+      }
+    }
+    else if (bAsset && !readScriptEntry(copy.source, entry, scriptSource)) {
+      result.error = "The script " + copy.source.toString() +
+                     " has no UUID line; open the project in the editor, which writes one.";
+    }
+    else if (bAsset) {
+      // Scripts go compiled, under the name the game gives them, so errors name the file.
+      const String chunkName =
+          "@/Game/" + FileSystem::relativePath(sourceAssets, copy.source).toString();
+      String compileError;
+      bDone = ScriptCompiler::compile(scriptSource, chunkName, desc.bStripScriptDebugInfo,
+                                      assetBytes, compileError);
+      if (!bDone) {
+        result.error = "Could not compile " + copy.source.toString() + ": " + compileError;
+      }
+      else if (!bIntoPak) {
+        const SPtr<DataStream> output = FileSystem::createAndOpenFile(copy.destination);
+        bDone = output && output->write(assetBytes.data(), assetBytes.size()) ==
+                              assetBytes.size();
+        if (output) {
+          output->close();
+        }
+        if (!bDone) {
+          result.error = "Could not write " + copy.destination.toString() + ".";
+        }
+      }
+    }
+    else {
+      bDone = FileSystem::copyFile(copy.source, copy.destination);
+      if (!bDone) {
+        result.error = "Could not copy " + copy.source.toString() + " to " +
+                       copy.destination.toString() + ".";
+      }
+    }
+    if (!bDone) {
       return result;
+    }
+
+    if (bAsset) {
+      entry.path = FileSystem::relativePath(sourceAssets, copy.source).toString();
+      if (bIntoPak && !pak.addEntry(entry.path, assetBytes)) {
+        result.error = "Could not add " + entry.path + " to " + pakFile.toString() + ".";
+        return result;
+      }
+      manifest.entries.push_back(std::move(entry));
     }
     if (copy.kind == CopyKind::Binary) {
       ++result.binaryFileCount;
@@ -355,13 +461,33 @@ ProjectPackager::package(const PackageDesc& desc, PackageProgress* progress)
     }
   }
 
+  if (desc.bPackAssets) {
+    manifest.writeToMemory(assetBytes);
+    if (!pak.addEntry(AssetManifest::FILE_NAME, assetBytes) || !pak.finish()) {
+      result.error = "Could not write " + pakFile.toString() + ".";
+      return result;
+    }
+  }
+  else {
+    const Path manifestFile = packageAssets.join(Path(String(AssetManifest::FILE_NAME)));
+    if (!manifest.write(manifestFile)) {
+      result.error = "Could not write " + manifestFile.toString() + ".";
+      return result;
+    }
+  }
+
   if (!writeGameConfig(desc, result.error)) {
     return result;
   }
 
-  CH_LOG_INFO(PackagerLog, "Packaged {0} into {1}: {2} binary files, {3} assets.",
+  const AssetCookStats& stats = result.cookStats;
+  CH_LOG_INFO(PackagerLog,
+              "Packaged {0} into {1}: {2} binary files, {3} assets. Textures: {4} compressed, "
+              "{5} from the cache, {6} kept, {7:.1f} MB to {8:.1f} MB.",
               desc.gameName, desc.outputDirectory, result.binaryFileCount,
-              result.assetFileCount);
+              result.assetFileCount, stats.compressedTextures, stats.cachedTextures,
+              stats.keptTextures, static_cast<double>(stats.textureBytesBefore) / 1048576.0,
+              static_cast<double>(stats.textureBytesAfter) / 1048576.0);
   result.bSucceeded = true;
   return result;
 }

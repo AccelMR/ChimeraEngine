@@ -10,7 +10,9 @@
 #include "chPackageDialog.h"
 
 #include "chAlgorithm.h"
+#include "chAssetCodecManager.h"
 #include "chAssetManager.h"
+#include "chConsoleVariable.h"
 #include "chEditorScene.h"
 #include "chEngineConfig.h"
 #include "chEnginePaths.h"
@@ -47,6 +49,13 @@ constexpr ImVec4 kWarningColor(1.0f, 0.75f, 0.3f, 1.0f);
 constexpr ImVec4 kErrorColor(1.0f, 0.4f, 0.4f, 1.0f);
 constexpr ImVec4 kSuccessColor(0.5f, 0.9f, 0.5f, 1.0f);
 
+ConsoleVariable<String> g_cvarTextureQuality(
+    "Cook.TextureQuality",
+    "Normal",
+    "How hard Package Project compresses textures: Fast, Normal or High. Results are kept in "
+    "the project's Saved/Cooked, so only changed textures are compressed again.",
+    "TextureQuality");
+
 enum class PackageConfiguration : uint8
 {
   Release,
@@ -81,6 +90,10 @@ constexpr const ANSICHAR* kRememberedSection = "Package";
 constexpr const ANSICHAR* kOutputDirectoryKey = "OutputDirectory";
 constexpr const ANSICHAR* kBuildDirectoryKeys[] = {"ReleaseBuildDirectory",
                                                    "DebugBuildDirectory"};
+// Release packs by default; Debug keeps loose files to look into.
+constexpr const ANSICHAR* kPackAssetsKeys[] = {"PackAssetsRelease", "PackAssetsDebug"};
+constexpr bool kPackAssetsDefaults[] = {true, false};
+constexpr const ANSICHAR* kKeepScriptLinesKey = "KeepScriptLines";
 
 // A finished package stays on screen this long, unless the mouse is over it.
 constexpr double kResultSeconds = 8.0;
@@ -112,6 +125,9 @@ struct DialogState
   // Release unless changed while the dialog is open, so a player never gets a debug build
   // by accident.
   PackageConfiguration configuration = PackageConfiguration::Release;
+  // Follows the configuration until the user changes it, then remembers that choice.
+  bool bPackAssets = true;
+  bool bKeepScriptLines = true;
   // A build of that configuration; empty when none was found.
   Path gameBuild;
   // Why the folder chosen by hand was not taken.
@@ -165,6 +181,29 @@ remember(StringView key, StringView value)
   if (getRemembered(key) != value) {
     EngineConfig::setUserValue("Editor", kRememberedSection, key, value);
   }
+}
+
+const ITextureCompressor*
+getTextureCompressor()
+{
+#if USING(CH_CODECS)
+  return AssetCodecManager::isStarted() ? AssetCodecManager::instance().getTextureCompressor()
+                                        : nullptr;
+#else
+  return nullptr;
+#endif // USING(CH_CODECS)
+}
+
+TextureCompressionQuality
+getTextureQuality()
+{
+  TextureCompressionQuality quality = TextureCompressionQuality::Normal;
+  if (!TextureCooker::parseQuality(g_cvarTextureQuality.get(), quality)) {
+    CH_LOG_WARNING(PackageDialogLog, "Cook.TextureQuality '{0}' is not Fast, Normal or High; "
+                                     "using Normal.",
+                   g_cvarTextureQuality.get());
+  }
+  return quality;
 }
 
 Path
@@ -474,7 +513,13 @@ startPackage(DialogState& state, const Path& binaryDirectory, bool bDevelopment)
                    .binaryDirectory = binaryDirectory,
                    .engineContentDirectory = EnginePaths::getEngineContentDirectory(),
                    .projectDirectory = EnginePaths::getProjectDirectory(),
-                   .startupScene = state.startupScene};
+                   .startupScene = state.startupScene,
+                   .textureCompressor = getTextureCompressor(),
+                   .textureQuality = getTextureQuality(),
+                   .textureCacheDirectory = EnginePaths::getProjectDirectory().join(
+                       Path("Saved/Cooked/Textures")),
+                   .bPackAssets = state.bPackAssets,
+                   .bStripScriptDebugInfo = !state.bKeepScriptLines};
   desc.assetFiles.reserve(assets.size());
   for (const UUID& uuid : assets) {
     const SPtr<IAsset> asset = assetManager.getAsset(uuid);
@@ -582,6 +627,16 @@ renderJobWindow(DialogState& state)
         ImGui::TextWrapped(ICON_FA_CHECK_CIRCLE "  Done: %u assets and %u binary files.",
                            result.assetFileCount, result.binaryFileCount);
         ImGui::PopStyleColor();
+        const AssetCookStats& stats = result.cookStats;
+        if (stats.textureBytesBefore > 0) {
+          constexpr double kMegabyte = 1024.0 * 1024.0;
+          ImGui::TextWrapped("Textures: %u compressed, %u from the cache, %u kept; %.1f MB "
+                             "became %.1f MB.",
+                             stats.compressedTextures, stats.cachedTextures,
+                             stats.keptTextures,
+                             static_cast<double>(stats.textureBytesBefore) / kMegabyte,
+                             static_cast<double>(stats.textureBytesAfter) / kMegabyte);
+        }
         ImGui::TextWrapped("%s", state.jobDirectory.toString().c_str());
         if (state.missingAssetCount > 0) {
           ImGui::PushStyleColor(ImGuiCol_Text, kWarningColor);
@@ -726,6 +781,57 @@ renderBuildCommands(SIZE_T configurationIndex)
   }
 }
 
+bool
+getPackAssetsChoice(PackageConfiguration configuration)
+{
+  const SIZE_T index = static_cast<SIZE_T>(configuration);
+  const String value = getRemembered(kPackAssetsKeys[index]);
+  return value.empty() ? kPackAssetsDefaults[index] : value == "true";
+}
+
+void
+renderAssetSection(DialogState& state)
+{
+  ImGui::SeparatorText("Assets");
+  if (ImGui::Checkbox("Pack assets into one file", &state.bPackAssets)) {
+    remember(kPackAssetsKeys[static_cast<SIZE_T>(state.configuration)],
+             state.bPackAssets ? "true" : "false");
+  }
+  ImGui::SetItemTooltip("Writes the assets into %s, which the game maps into memory, instead "
+                        "of an Assets folder of loose files. Loose files are easier to look "
+                        "into while testing.",
+                        String(EnginePaths::PACKAGE_ASSETS_ARCHIVE).c_str());
+  if (ImGui::Checkbox("Keep script line numbers", &state.bKeepScriptLines)) {
+    remember(kKeepScriptLinesKey, state.bKeepScriptLines ? "true" : "false");
+  }
+  ImGui::SetItemTooltip("Scripts are packaged compiled. With their line numbers, script "
+                        "errors in the game still say file:line; without them the scripts "
+                        "are smaller and harder to read back, and errors lose their file "
+                        "and line.");
+  const TextureCompressionQuality current = getTextureQuality();
+  const String currentName(TextureCooker::getQualityName(current));
+  if (ImGui::BeginCombo("Compression quality", currentName.c_str())) {
+    for (uint32 i = 0; i < static_cast<uint32>(TextureCompressionQuality::COUNT); ++i) {
+      const auto quality = static_cast<TextureCompressionQuality>(i);
+      const String name(TextureCooker::getQualityName(quality));
+      if (ImGui::Selectable(name.c_str(), quality == current) && quality != current) {
+        g_cvarTextureQuality.set(name, ConsoleVariableSource::Console);
+        EngineConfig::setUserValue("Editor", "Cook", "TextureQuality", name);
+      }
+    }
+    ImGui::EndCombo();
+  }
+  ImGui::SetItemTooltip("Fast for quick tests, High for releases. Each texture's own setting "
+                        "(Asset Inspector) decides its format; compressed textures are kept "
+                        "in Saved/Cooked, so packaging again only compresses what changed.");
+  if (!getTextureCompressor()) {
+    ImGui::PushStyleColor(ImGuiCol_Text, kWarningColor);
+    ImGui::TextWrapped(ICON_FA_EXCLAMATION_TRIANGLE "  The chTextureCompressor plugin is not "
+                                                    "loaded: textures go uncompressed.");
+    ImGui::PopStyleColor();
+  }
+}
+
 void
 renderBuildSection(DialogState& state)
 {
@@ -735,6 +841,7 @@ renderBuildSection(DialogState& state)
     for (SIZE_T i = 0; i < std::size(kConfigurationNames); ++i) {
       if (ImGui::Selectable(kConfigurationNames[i], i == configurationIndex)) {
         state.configuration = static_cast<PackageConfiguration>(i);
+        state.bPackAssets = getPackAssetsChoice(state.configuration);
         state.gameBuild = findGameBuild(state.configuration);
         state.buildMessage.clear();
       }
@@ -813,6 +920,8 @@ PackageDialog::open()
   state.startupScene = getDefaultStartupScene();
   loadScenes(state);
   state.configuration = PackageConfiguration::Release;
+  state.bPackAssets = getPackAssetsChoice(state.configuration);
+  state.bKeepScriptLines = getRemembered(kKeepScriptLinesKey) != "false";
   state.gameBuild = findGameBuild(state.configuration);
   state.buildMessage.clear();
   const Path& editorFolder = EnginePaths::getPluginDirectory();
@@ -864,6 +973,7 @@ PackageDialog::render()
   ImGui::TextDisabled("The package goes into a subfolder named after the game.");
 
   renderSceneList(state);
+  renderAssetSection(state);
   renderBuildSection(state);
 
   if (EditorScene::isDirty()) {

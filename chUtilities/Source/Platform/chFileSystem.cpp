@@ -19,6 +19,7 @@
 #include <system_error>
 
 #include "chLogger.h"
+#include "chPakArchive.h"
 #include "chPath.h"
 #include "chStringUtils.h"
 
@@ -46,6 +47,16 @@ struct Mount
   String root;
   int32 priority;
   bool writable;
+  // Set when the layer is an archive; root is then its file.
+  SPtr<PakArchive> archive;
+};
+
+// What a listing tells about each entry, for folders and archives alike.
+struct ListedEntry
+{
+  bool bDirectory = false;
+  // Folders, files and other entries a user would see; never broken links.
+  bool bListable = true;
 };
 
 // name and rest point into the original path text, or into storage when the text
@@ -270,7 +281,8 @@ resolveVirtualPath(const VirtualPath& virtualPath, Access access)
   const Mount* topMount = nullptr;
 
   for (const Mount& mount : mounts()) {
-    if (mount.name != virtualPath.name) {
+    // Archives have no path on disk; reads into them go through findReadMount.
+    if (mount.name != virtualPath.name || mount.archive) {
       continue;
     }
 
@@ -381,20 +393,101 @@ isListable(const fs::directory_entry& entry)
   return entry.is_directory(error) || entry.is_regular_file(error) || entry.is_other(error);
 }
 
+ListedEntry
+toListedEntry(const fs::directory_entry& entry)
+{
+  std::error_code error;
+  return {.bDirectory = entry.is_directory(error), .bListable = isListable(entry)};
+}
+
+// The highest layer of the mount that has the path (file or folder), or null. With a
+// single folder layer the disk is not checked, as in resolveVirtualPath.
+const Mount*
+findReadMount(const VirtualPath& virtualPath)
+{
+  const bool checkDisk = countLayers(virtualPath.name) > 1;
+  for (const Mount& mount : mounts()) {
+    if (mount.name != virtualPath.name) {
+      continue;
+    }
+    if (mount.archive) {
+      if (mount.archive->isFile(virtualPath.rest) ||
+          mount.archive->isDirectory(virtualPath.rest)) {
+        return &mount;
+      }
+      continue;
+    }
+    if (!checkDisk) {
+      return &mount;
+    }
+    std::error_code error;
+    if (fs::exists(toFsPath(joinText(mount.root, virtualPath.rest)), error)) {
+      return &mount;
+    }
+  }
+  return nullptr;
+}
+
+// The archive and the path inside it when the highest layer that has path is an archive.
+const Mount*
+findArchiveMount(const Path& path, VirtualPath& outVirtualPath)
+{
+  if (!splitVirtualPath(path, outVirtualPath)) {
+    return nullptr;
+  }
+  const Mount* mount = findReadMount(outVirtualPath);
+  return mount && mount->archive ? mount : nullptr;
+}
+
+void
+insertMount(Mount&& newMount)
+{
+  // Inserted before mounts of the same priority, so a later mount (a mod) wins.
+  Vector<Mount>& mountList = mounts();
+  auto it = mountList.begin();
+  while (it != mountList.end() && it->priority > newMount.priority) {
+    ++it;
+  }
+  mountList.insert(it, std::move(newMount));
+}
+
 // Calls func with the virtual path of every entry, taking each name only from the
 // highest layer that has it.
 void
 forEachVirtualEntry(const VirtualPath& virtualPath,
                     bool recursive,
-                    const Function<void(const Path&, const fs::directory_entry&)>& func)
+                    const Function<void(const Path&, const ListedEntry&)>& func)
 {
   const String prefix = toVirtualText(virtualPath.name, virtualPath.rest);
   const bool mergeLayers = countLayers(virtualPath.name) > 1;
   UnorderedSet<String> seen;
   bool listedAny = false;
 
+  auto emit = [&](StringView relative, const ListedEntry& entry) {
+    if (mergeLayers && !seen.emplace(relative).second) {
+      return;
+    }
+    String childText;
+    childText.reserve(prefix.size() + relative.size() + 1);
+    childText.append(prefix);
+    childText.push_back('/');
+    childText.append(relative);
+    func(Path(std::move(childText)), entry);
+  };
+
   for (const Mount& mount : mounts()) {
     if (mount.name != virtualPath.name) {
+      continue;
+    }
+
+    if (mount.archive) {
+      if (mount.archive->isDirectory(virtualPath.rest)) {
+        listedAny = true;
+        mount.archive->forEachEntry(virtualPath.rest, recursive,
+                                    [&](StringView relative, bool bDirectory) {
+                                      emit(relative, {.bDirectory = bDirectory});
+                                    });
+      }
       continue;
     }
 
@@ -407,17 +500,7 @@ forEachVirtualEntry(const VirtualPath& virtualPath,
       if (!relative.empty() && relative[0] == '/') {
         relative.remove_prefix(1);
       }
-
-      if (mergeLayers && !seen.emplace(relative).second) {
-        return;
-      }
-
-      String childText;
-      childText.reserve(prefix.size() + relative.size() + 1);
-      childText.append(prefix);
-      childText.push_back('/');
-      childText.append(relative);
-      func(Path(std::move(childText)), entry);
+      emit(relative, toListedEntry(entry));
     });
   }
 
@@ -429,7 +512,7 @@ forEachVirtualEntry(const VirtualPath& virtualPath,
 void
 forEachChild(const Path& path,
              bool recursive,
-             const Function<void(const Path&, const fs::directory_entry&)>& func)
+             const Function<void(const Path&, const ListedEntry&)>& func)
 {
   VirtualPath virtualPath;
   if (splitVirtualPath(path, virtualPath)) {
@@ -439,7 +522,7 @@ forEachChild(const Path& path,
 
   const String directory = toDiskPath(path);
   if (!forEachEntry(toFsPath(directory), recursive, [&](const fs::directory_entry& entry) {
-        func(Path(fromFsPath(entry.path())), entry);
+        func(Path(fromFsPath(entry.path())), toListedEntry(entry));
       })) {
     logError("FileSystem: '" + path.toString() + "' is not a directory");
   }
@@ -457,15 +540,57 @@ FileSystem::mount(const String& name,
     return false;
   }
 
-  Mount newMount{name, toRealPath(directory, Access::Read), priority, writable};
+  insertMount({name, toRealPath(directory, Access::Read), priority, writable, nullptr});
+  return true;
+}
 
-  // Inserted before mounts of the same priority, so a later mount (a mod) wins.
-  Vector<Mount>& mountList = mounts();
-  auto it = mountList.begin();
-  while (it != mountList.end() && it->priority > priority) {
-    ++it;
+bool
+FileSystem::mountArchive(const String& name, const Path& archiveFile, int32 priority)
+{
+  if (name.empty() || name.find('/') != String::npos) {
+    logError("FileSystem: invalid mount name '" + name + "'");
+    return false;
   }
-  mountList.insert(it, std::move(newMount));
+  const String root = toRealPath(archiveFile, Access::Read);
+  String error;
+  SPtr<PakArchive> archive = PakArchive::open(Path(root), error);
+  if (!archive) {
+    logError("FileSystem: " + error);
+    return false;
+  }
+  insertMount({name, root, priority, false, std::move(archive)});
+  return true;
+}
+
+void
+FileSystem::getMountLayers(StringView name, Vector<MountLayer>& outLayers)
+{
+  outLayers.clear();
+  for (const Mount& mount : mounts()) {
+    if (mount.name == name) {
+      outLayers.push_back({.root = Path(mount.root), .archive = mount.archive});
+    }
+  }
+}
+
+bool
+FileSystem::findReadLayer(const Path& path, MountLayer& outLayer)
+{
+  VirtualPath virtualPath;
+  if (!splitVirtualPath(path, virtualPath)) {
+    return false;
+  }
+  const Mount* mount = findReadMount(virtualPath);
+  if (!mount) {
+    return false;
+  }
+  // A single folder layer is returned without checking the disk.
+  std::error_code error;
+  if (!mount->archive &&
+      !fs::exists(toFsPath(joinText(mount->root, virtualPath.rest)), error)) {
+    return false;
+  }
+  outLayer = {.root = Path(mount->root), .archive = mount->archive};
   return true;
 }
 
@@ -676,6 +801,10 @@ FileSystem::relativePath(const Path& basePath, const Path& path)
 bool
 FileSystem::isFile(const Path& path)
 {
+  VirtualPath virtualPath;
+  if (const Mount* mount = findArchiveMount(path, virtualPath)) {
+    return mount->archive->isFile(virtualPath.rest);
+  }
   std::error_code error;
   return fs::is_regular_file(toFsPath(toRealPath(path, Access::Read)), error);
 }
@@ -683,6 +812,10 @@ FileSystem::isFile(const Path& path)
 bool
 FileSystem::isDirectory(const Path& path)
 {
+  VirtualPath virtualPath;
+  if (const Mount* mount = findArchiveMount(path, virtualPath)) {
+    return mount->archive->isDirectory(virtualPath.rest);
+  }
   std::error_code error;
   return fs::is_directory(toFsPath(toRealPath(path, Access::Read)), error);
 }
@@ -690,9 +823,12 @@ FileSystem::isDirectory(const Path& path)
 int64
 FileSystem::getLastWriteTime(const Path& path)
 {
+  // A file inside an archive changes only with the whole archive.
+  VirtualPath virtualPath;
+  const Mount* mount = findArchiveMount(path, virtualPath);
   std::error_code error;
-  const fs::file_time_type time =
-      fs::last_write_time(toFsPath(toRealPath(path, Access::Read)), error);
+  const fs::file_time_type time = fs::last_write_time(
+      toFsPath(mount ? mount->root : toRealPath(path, Access::Read)), error);
   return error ? 0 : static_cast<int64>(time.time_since_epoch().count());
 }
 
@@ -739,6 +875,10 @@ FileSystem::createDirectories(const Path& path)
 bool
 FileSystem::exists(const Path& path)
 {
+  VirtualPath virtualPath;
+  if (findArchiveMount(path, virtualPath)) {
+    return true;
+  }
   std::error_code error;
   return fs::exists(toFsPath(toRealPath(path, Access::Read)), error);
 }
@@ -746,6 +886,16 @@ FileSystem::exists(const Path& path)
 SPtr<DataStream>
 FileSystem::openFile(const Path& path, bool readOnly /*= true*/)
 {
+  if (readOnly) {
+    VirtualPath virtualPath;
+    if (const Mount* mount = findArchiveMount(path, virtualPath)) {
+      SPtr<DataStream> stream = mount->archive->openEntry(virtualPath.rest);
+      if (!stream) {
+        logError("FileSystem: failed to open '" + path.toString() + "'");
+      }
+      return stream;
+    }
+  }
   String realPath = toRealPath(path, readOnly ? Access::Read : Access::Write);
   if (realPath.empty()) {
     return nullptr;
@@ -856,12 +1006,11 @@ FileSystem::fastRead(const Path& path)
 void
 FileSystem::getChildren(const Path& path, Vector<Path>& files, Vector<Path>& directories)
 {
-  forEachChild(path, false, [&](const Path& child, const fs::directory_entry& entry) {
-    std::error_code error;
-    if (entry.is_directory(error)) {
+  forEachChild(path, false, [&](const Path& child, const ListedEntry& entry) {
+    if (entry.bDirectory) {
       directories.push_back(child);
     }
-    else if (isListable(entry)) {
+    else if (entry.bListable) {
       files.push_back(child);
     }
   });
@@ -871,8 +1020,8 @@ void
 FileSystem::forEachFileChildRecursive(const Path& path,
                                       const Function<void(const Path&)>& func)
 {
-  forEachChild(path, true, [&](const Path& child, const fs::directory_entry& entry) {
-    if (isListable(entry)) {
+  forEachChild(path, true, [&](const Path& child, const ListedEntry& entry) {
+    if (entry.bListable) {
       func(child);
     }
   });
