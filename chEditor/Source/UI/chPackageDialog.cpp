@@ -90,6 +90,9 @@ constexpr const ANSICHAR* kRememberedSection = "Package";
 constexpr const ANSICHAR* kOutputDirectoryKey = "OutputDirectory";
 constexpr const ANSICHAR* kBuildDirectoryKeys[] = {"ReleaseBuildDirectory",
                                                    "DebugBuildDirectory"};
+// Release packs by default; Debug keeps loose files to look into.
+constexpr const ANSICHAR* kPackAssetsKeys[] = {"PackAssetsRelease", "PackAssetsDebug"};
+constexpr bool kPackAssetsDefaults[] = {true, false};
 
 // A finished package stays on screen this long, unless the mouse is over it.
 constexpr double kResultSeconds = 8.0;
@@ -121,6 +124,8 @@ struct DialogState
   // Release unless changed while the dialog is open, so a player never gets a debug build
   // by accident.
   PackageConfiguration configuration = PackageConfiguration::Release;
+  // Follows the configuration until the user changes it, then remembers that choice.
+  bool bPackAssets = true;
   // A build of that configuration; empty when none was found.
   Path gameBuild;
   // Why the folder chosen by hand was not taken.
@@ -510,7 +515,8 @@ startPackage(DialogState& state, const Path& binaryDirectory, bool bDevelopment)
                    .textureCompressor = getTextureCompressor(),
                    .textureQuality = getTextureQuality(),
                    .textureCacheDirectory = EnginePaths::getProjectDirectory().join(
-                       Path("Saved/Cooked/Textures"))};
+                       Path("Saved/Cooked/Textures")),
+                   .bPackAssets = state.bPackAssets};
   desc.assetFiles.reserve(assets.size());
   for (const UUID& uuid : assets) {
     const SPtr<IAsset> asset = assetManager.getAsset(uuid);
@@ -772,10 +778,26 @@ renderBuildCommands(SIZE_T configurationIndex)
   }
 }
 
-void
-renderTextureSection()
+bool
+getPackAssetsChoice(PackageConfiguration configuration)
 {
-  ImGui::SeparatorText("Textures");
+  const SIZE_T index = static_cast<SIZE_T>(configuration);
+  const String value = getRemembered(kPackAssetsKeys[index]);
+  return value.empty() ? kPackAssetsDefaults[index] : value == "true";
+}
+
+void
+renderAssetSection(DialogState& state)
+{
+  ImGui::SeparatorText("Assets");
+  if (ImGui::Checkbox("Pack assets into one file", &state.bPackAssets)) {
+    remember(kPackAssetsKeys[static_cast<SIZE_T>(state.configuration)],
+             state.bPackAssets ? "true" : "false");
+  }
+  ImGui::SetItemTooltip("Writes the assets into %s, which the game maps into memory, instead "
+                        "of an Assets folder of loose files. Loose files are easier to look "
+                        "into while testing.",
+                        String(EnginePaths::PACKAGE_ASSETS_ARCHIVE).c_str());
   const TextureCompressionQuality current = getTextureQuality();
   const String currentName(TextureCooker::getQualityName(current));
   if (ImGui::BeginCombo("Compression quality", currentName.c_str())) {
@@ -809,6 +831,7 @@ renderBuildSection(DialogState& state)
     for (SIZE_T i = 0; i < std::size(kConfigurationNames); ++i) {
       if (ImGui::Selectable(kConfigurationNames[i], i == configurationIndex)) {
         state.configuration = static_cast<PackageConfiguration>(i);
+        state.bPackAssets = getPackAssetsChoice(state.configuration);
         state.gameBuild = findGameBuild(state.configuration);
         state.buildMessage.clear();
       }
@@ -887,6 +910,7 @@ PackageDialog::open()
   state.startupScene = getDefaultStartupScene();
   loadScenes(state);
   state.configuration = PackageConfiguration::Release;
+  state.bPackAssets = getPackAssetsChoice(state.configuration);
   state.gameBuild = findGameBuild(state.configuration);
   state.buildMessage.clear();
   const Path& editorFolder = EnginePaths::getPluginDirectory();
@@ -938,7 +962,7 @@ PackageDialog::render()
   ImGui::TextDisabled("The package goes into a subfolder named after the game.");
 
   renderSceneList(state);
-  renderTextureSection();
+  renderAssetSection(state);
   renderBuildSection(state);
 
   if (EditorScene::isDirty()) {

@@ -110,6 +110,32 @@ AssetCooker::cookFile(const Path& source,
                       String& outError,
                       AssetManifestEntry* outEntry)
 {
+  Vector<uint8> cooked;
+  if (!cookToMemory(source, settings, stats, cooked, outError, outEntry)) {
+    return false;
+  }
+  const SPtr<DataStream> output = FileSystem::createAndOpenFile(destination);
+  const bool bWritten =
+      output && (cooked.empty() || output->write(cooked.data(), cooked.size()) == cooked.size());
+  if (output) {
+    output->close();
+  }
+  if (!bWritten) {
+    outError = "Could not write " + destination.toString() + ".";
+  }
+  return bWritten;
+}
+
+/*
+ */
+bool
+AssetCooker::cookToMemory(const Path& source,
+                          const AssetCookSettings& settings,
+                          AssetCookStats& stats,
+                          Vector<uint8>& outBytes,
+                          String& outError,
+                          AssetManifestEntry* outEntry)
+{
   const Vector<uint8> bytes = FileSystem::fastRead(source);
   MemoryDataStream input(const_cast<uint8*>(bytes.data()), bytes.size(), false);
   AssetCookSource cookSource{.file = source};
@@ -131,19 +157,13 @@ AssetCooker::cookFile(const Path& source,
     data = cooked;
   }
 
-  const SPtr<DataStream> output = FileSystem::createAndOpenFile(destination);
-  if (!output) {
-    outError = "Could not write " + destination.toString() + ".";
-    return false;
-  }
-  AssetFile::writeStart(*output, cookSource.info.uuid, cookSource.info.assetType,
+  MemoryDataStream output;
+  AssetFile::writeStart(output, cookSource.info.uuid, cookSource.info.assetType,
                         cookSource.references);
-  const bool bWritten = data.empty() || output->write(data.data(), data.size()) == data.size();
-  output->close();
-  if (!bWritten) {
-    outError = "Could not write " + destination.toString() + ".";
-    return false;
+  if (!data.empty()) {
+    output.write(data.data(), data.size());
   }
+  outBytes.assign(output.getStartPtr(), output.getStartPtr() + output.size());
   if (outEntry) {
     outEntry->uuid = cookSource.info.uuid;
     outEntry->assetType = cookSource.info.assetType;

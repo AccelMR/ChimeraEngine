@@ -14,6 +14,7 @@
 
 
 #include "chAssetFile.h"
+#include "chPakArchive.h"
 #include "chConfigFile.h"
 #include "chTypeTraits.h"
 #include "chEnginePaths.h"
@@ -258,8 +259,8 @@ AssetManager::lazyLoadFromManifests(const Path& directory)
   if (text.size() < 2 || text[0] != '/' || text.find('/', 1) != String::npos) {
     return false;
   }
-  Vector<Path> layers;
-  FileSystem::getMountDirectories(StringView(text).substr(1), layers);
+  Vector<MountLayer> layers;
+  FileSystem::getMountLayers(StringView(text).substr(1), layers);
   if (layers.empty()) {
     return false;
   }
@@ -268,17 +269,26 @@ AssetManager::lazyLoadFromManifests(const Path& directory)
   // mixing both would register its files twice.
   Vector<AssetManifest> manifests(layers.size());
   for (SIZE_T i = 0; i < layers.size(); ++i) {
-    const Path file = layers[i].join(Path(String(AssetManifest::FILE_NAME)));
-    if (!FileSystem::isFile(file)) {
-      if (i > 0 || layers.size() > 1) {
-        CH_LOG_INFO(AssetSystem, "{0} has no asset manifest; scanning {1} instead.",
-                    layers[i], directory);
-      }
-      return false;
-    }
+    const MountLayer& layer = layers[i];
     String error;
-    if (!manifests[i].read(file, error)) {
-      CH_LOG_WARNING(AssetSystem, "{0} Scanning {1} instead.", error, directory);
+    bool bRead = false;
+    if (layer.archive) {
+      const Span<const uint8> bytes = layer.archive->getData(AssetManifest::FILE_NAME);
+      bRead = !bytes.empty() &&
+              manifests[i].readFromMemory(bytes, layer.root.toString(), error);
+    }
+    else {
+      const Path file = layer.root.join(Path(String(AssetManifest::FILE_NAME)));
+      bRead = FileSystem::isFile(file) && manifests[i].read(file, error);
+    }
+    if (!bRead) {
+      if (!error.empty()) {
+        CH_LOG_WARNING(AssetSystem, "{0} Scanning {1} instead.", error, directory);
+      }
+      else if (layers.size() > 1 || layer.archive) {
+        CH_LOG_INFO(AssetSystem, "{0} has no asset manifest; scanning {1} instead.",
+                    layer.root, directory);
+      }
       return false;
     }
   }
@@ -291,7 +301,7 @@ AssetManager::lazyLoadFromManifests(const Path& directory)
       const auto it = m_assets.find(entry.uuid);
       if (it != m_assets.end()) {
         CH_LOG_INFO(AssetSystem, "{0} of {1} is replaced by {2} of a layer mounted over it.",
-                    entry.path, layers[i], it->second->getFilePath());
+                    entry.path, layers[i].root, it->second->getFilePath());
         continue;
       }
       if (!paths.emplace(entry.path).second) {
@@ -299,7 +309,7 @@ AssetManager::lazyLoadFromManifests(const Path& directory)
         CH_LOG_WARNING(AssetSystem,
                        "{0} of {1} is hidden by another asset at the same path in a layer "
                        "mounted over it; it is skipped.",
-                       entry.path, layers[i]);
+                       entry.path, layers[i].root);
         continue;
       }
       if (SPtr<IAsset> asset = createFromManifestEntry(entry, text)) {

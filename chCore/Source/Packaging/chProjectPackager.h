@@ -45,6 +45,9 @@ struct PackageDesc
   TextureCompressionQuality textureQuality = TextureCompressionQuality::Normal;
   // Compressed textures kept between packages; usually <Project>/Saved/Cooked/Textures.
   Path textureCacheDirectory{};
+  // Writes the assets into one archive (EnginePaths::PACKAGE_ASSETS_ARCHIVE) instead of an
+  // Assets folder.
+  bool bPackAssets = false;
 };
 
 struct PackageResult

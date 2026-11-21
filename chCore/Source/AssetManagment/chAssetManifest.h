@@ -43,9 +43,18 @@ class CH_CORE_EXPORT AssetManifest
   NODISCARD bool
   read(const Path& file, String& outError);
 
+  /**
+   * Like read, from bytes already in memory (an archive's); sourceName names them in errors.
+   */
+  NODISCARD bool
+  readFromMemory(Span<const uint8> bytes, StringView sourceName, String& outError);
+
 #if USING(CH_EDITOR)
   NODISCARD bool
   write(const Path& file) const;
+
+  void
+  writeToMemory(Vector<uint8>& outBytes) const;
 #endif // USING(CH_EDITOR)
 
   // Written by Package Project: the game's name and the engine version that packaged it.

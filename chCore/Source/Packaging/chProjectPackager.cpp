@@ -12,6 +12,7 @@
 #if USING(CH_EDITOR)
 #include "chAssetFile.h"
 #include "chAssetManifest.h"
+#include "chPakArchive.h"
 #include "chScriptAsset.h"
 #include "chConfigFile.h"
 #include "chDynamicLibrary.h"
@@ -365,6 +366,15 @@ ProjectPackager::package(const PackageDesc& desc, PackageProgress* progress)
   manifest.engineVersion = CH_ENGINE_VERSION_STRING;
   manifest.entries.reserve(desc.assetFiles.size());
 
+  PakWriter pak;
+  const Path pakFile =
+      desc.outputDirectory.join(Path(String(EnginePaths::PACKAGE_ASSETS_ARCHIVE)));
+  if (desc.bPackAssets && !pak.begin(pakFile)) {
+    result.error = "Could not write " + pakFile.toString() + ".";
+    return result;
+  }
+  Vector<uint8> assetBytes;
+
   for (const FileCopy& copy : copies) {
     if (progress && progress->bCancelRequested.load(std::memory_order_relaxed)) {
       // The folder was empty or a previous package, so nothing of the user's is lost.
@@ -375,32 +385,48 @@ ProjectPackager::package(const PackageDesc& desc, PackageProgress* progress)
     }
     // Asset files are cooked: their editor data (paths of this machine) is left out and
     // types with a cooker are written in the form a game loads best.
-    const bool bCook = copy.kind == CopyKind::Asset &&
-                       copy.source.getExtension() == EnginePaths::getEngineAssetExtension();
+    const bool bAsset = copy.kind == CopyKind::Asset;
+    const bool bCook =
+        bAsset && copy.source.getExtension() == EnginePaths::getEngineAssetExtension();
+    const bool bIntoPak = bAsset && desc.bPackAssets;
     AssetManifestEntry entry;
+    bool bDone = false;
     if (bCook) {
-      if (!AssetCooker::cookFile(copy.source, copy.destination, cookSettings,
-                                 result.cookStats, result.error, &entry)) {
-        if (progress && progress->bCancelRequested.load(std::memory_order_relaxed)) {
-          FileSystem::removeAll(desc.outputDirectory);
-          result.bCancelled = true;
-          result.error = "Cancelled.";
-        }
-        return result;
+      bDone = bIntoPak ? AssetCooker::cookToMemory(copy.source, cookSettings, result.cookStats,
+                                                   assetBytes, result.error, &entry)
+                       : AssetCooker::cookFile(copy.source, copy.destination, cookSettings,
+                                               result.cookStats, result.error, &entry);
+      if (!bDone && progress && progress->bCancelRequested.load(std::memory_order_relaxed)) {
+        FileSystem::removeAll(desc.outputDirectory);
+        result.bCancelled = true;
+        result.error = "Cancelled.";
       }
     }
-    else if (!FileSystem::copyFile(copy.source, copy.destination)) {
-      result.error = "Could not copy " + copy.source.toString() + " to " +
-                     copy.destination.toString() + ".";
-      return result;
-    }
-    else if (copy.kind == CopyKind::Asset && !readScriptEntry(copy.source, entry)) {
+    else if (bAsset && !readScriptEntry(copy.source, entry)) {
       result.error = "The script " + copy.source.toString() +
                      " has no UUID line; open the project in the editor, which writes one.";
+    }
+    else if (bIntoPak) {
+      assetBytes = FileSystem::fastRead(copy.source);
+      bDone = true;
+    }
+    else {
+      bDone = FileSystem::copyFile(copy.source, copy.destination);
+      if (!bDone) {
+        result.error = "Could not copy " + copy.source.toString() + " to " +
+                       copy.destination.toString() + ".";
+      }
+    }
+    if (!bDone) {
       return result;
     }
-    if (copy.kind == CopyKind::Asset) {
+
+    if (bAsset) {
       entry.path = FileSystem::relativePath(sourceAssets, copy.source).toString();
+      if (bIntoPak && !pak.addEntry(entry.path, assetBytes)) {
+        result.error = "Could not add " + entry.path + " to " + pakFile.toString() + ".";
+        return result;
+      }
       manifest.entries.push_back(std::move(entry));
     }
     if (copy.kind == CopyKind::Binary) {
@@ -414,10 +440,19 @@ ProjectPackager::package(const PackageDesc& desc, PackageProgress* progress)
     }
   }
 
-  const Path manifestFile = packageAssets.join(Path(String(AssetManifest::FILE_NAME)));
-  if (!manifest.write(manifestFile)) {
-    result.error = "Could not write " + manifestFile.toString() + ".";
-    return result;
+  if (desc.bPackAssets) {
+    manifest.writeToMemory(assetBytes);
+    if (!pak.addEntry(AssetManifest::FILE_NAME, assetBytes) || !pak.finish()) {
+      result.error = "Could not write " + pakFile.toString() + ".";
+      return result;
+    }
+  }
+  else {
+    const Path manifestFile = packageAssets.join(Path(String(AssetManifest::FILE_NAME)));
+    if (!manifest.write(manifestFile)) {
+      result.error = "Could not write " + manifestFile.toString() + ".";
+      return result;
+    }
   }
 
   if (!writeGameConfig(desc, result.error)) {

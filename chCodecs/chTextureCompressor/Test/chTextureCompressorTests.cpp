@@ -34,9 +34,12 @@ makeImage()
       uint8* pixel = pixels.data() + (y * kSize + x) * 4;
       for (uint32 channel = 0; channel < 4; ++channel) {
         noise = noise * 1664525u + 1013904223u;
-        const float wave = 0.5f + 0.5f * std::sin(static_cast<float>(x * (channel + 1)) * 0.05f +
-                                                  static_cast<float>(y) * 0.07f);
-        const int32 value = static_cast<int32>(wave * 230.0f) + static_cast<int32>(noise >> 29);
+        const float wave = 0.5f
+                           + 0.5f
+                                 * std::sin(static_cast<float>(x * (channel + 1)) * 0.05f
+                                            + static_cast<float>(y) * 0.07f);
+        const int32 value =
+            static_cast<int32>(wave * 230.0f) + static_cast<int32>(noise >> 29);
         pixel[channel] = static_cast<uint8>(Math::clamp(value, 0, 255));
       }
     }
@@ -71,8 +74,8 @@ decode(Format format, const Vector<uint8>& blocks)
     const uint32 blockX = block % blocksWide;
     const uint32 blockY = block / blocksWide;
     for (uint32 row = 0; row < 4; ++row) {
-      memcpy(pixels.data() + ((blockY * 4 + row) * kSize + blockX * 4) * 4,
-             decoded + row * 16, 16);
+      memcpy(pixels.data() + ((blockY * 4 + row) * kSize + blockX * 4) * 4, decoded + row * 16,
+             16);
     }
   }
   return pixels;
@@ -95,11 +98,8 @@ measurePsnr(const Vector<uint8>& source, const Vector<uint8>& decoded, uint32 ch
 }
 
 double
-compressAndMeasure(const BcTextureCompressor& compressor,
-                   const Vector<uint8>& image,
-                   Format format,
-                   TextureCompressionQuality quality,
-                   uint32 channelCount)
+compressAndMeasure(const BcTextureCompressor& compressor, const Vector<uint8>& image,
+                   Format format, TextureCompressionQuality quality, uint32 channelCount)
 {
   const TextureCookSource source{.format = Format::R8G8B8A8_UNORM,
                                  .width = kSize,
@@ -129,8 +129,7 @@ TEST_CASE("chTextureCompressor - Quality", "[TextureCompression]")
 
   // Lower bounds well under what each format gives on this image, so a broken encoder or
   // block order fails while a better encoder version still passes.
-  struct Expectation
-  {
+  struct Expectation {
     Format format;
     uint32 channels;
     double minimumPsnr;
@@ -145,8 +144,8 @@ TEST_CASE("chTextureCompressor - Quality", "[TextureCompression]")
       const double psnr =
           compressAndMeasure(compressor, image, expectation.format,
                              static_cast<TextureCompressionQuality>(q), expectation.channels);
-      INFO("format " << static_cast<uint32>(expectation.format) << ", quality " << q
-                     << ": " << psnr << " dB");
+      INFO("format " << static_cast<uint32>(expectation.format) << ", quality " << q << ": "
+                     << psnr << " dB");
       REQUIRE(psnr >= expectation.minimumPsnr);
       // A slower setting never looks clearly worse.
       REQUIRE(psnr >= previous - 0.25);
@@ -167,11 +166,14 @@ TEST_CASE("chTextureCompressor - Solid blocks", "[TextureCompression]")
   }
   // BC7 keeps its endpoints at 7 bits plus a shared bit, so pure red comes back a step off.
   REQUIRE(compressAndMeasure(compressor, image, Format::BC7_UNORM,
-                             TextureCompressionQuality::Fast, 4) >= 48.0);
+                             TextureCompressionQuality::Fast, 4)
+          >= 48.0);
   REQUIRE(compressAndMeasure(compressor, image, Format::BC1_RGBA_UNORM,
-                             TextureCompressionQuality::Fast, 3) >= 60.0);
+                             TextureCompressionQuality::Fast, 3)
+          >= 60.0);
   REQUIRE(compressAndMeasure(compressor, image, Format::BC5_UNORM,
-                             TextureCompressionQuality::Fast, 2) >= 60.0);
+                             TextureCompressionQuality::Fast, 2)
+          >= 60.0);
 }
 
 TEST_CASE("chTextureCompressor - Benchmark", "[TextureCompression][.benchmark]")
@@ -185,9 +187,11 @@ TEST_CASE("chTextureCompressor - Benchmark", "[TextureCompression][.benchmark]")
     for (uint32 y = 0; y < size; ++y) {
       for (uint32 x = 0; x < size; ++x) {
         noise = noise * 1664525u + 1013904223u;
-        const float wave = 0.5f + 0.5f * std::sin(static_cast<float>(x) * 0.013f +
-                                                  static_cast<float>(y) * 0.021f);
-        const uint8 value = static_cast<uint8>(wave * 220.0f) + static_cast<uint8>(noise >> 28);
+        const float wave =
+            0.5f
+            + 0.5f * std::sin(static_cast<float>(x) * 0.013f + static_cast<float>(y) * 0.021f);
+        const uint8 value =
+            static_cast<uint8>(wave * 220.0f) + static_cast<uint8>(noise >> 28);
         image.insert(image.end(), {value, static_cast<uint8>(255 - value),
                                    static_cast<uint8>(value / 2), 255});
       }

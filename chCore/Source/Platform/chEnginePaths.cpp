@@ -205,10 +205,20 @@ EnginePaths::initialize(StringView defaultProject, bool bProjectOptional)
   state.savedDirectory = Path("/Saved");
   state.logDirectory = state.savedDirectory.join(Path("Logs"));
   state.configDirectory = state.savedDirectory.join(Path("Config"));
+  // A package that packed its assets reads them from the archive alone.
+  Path assetsArchive;
+  if (state.bPackaged) {
+    const Path archive = state.projectRoot.join(Path(String(PACKAGE_ASSETS_ARCHIVE)));
+    if (FileSystem::isFile(archive)) {
+      assetsArchive = archive;
+    }
+  }
   if (state.bHasProject) {
     state.absoluteGameAssetDirectory = state.projectRoot.join(Path("Assets"));
     state.projectConfigDirectory = state.projectRoot.join(Path("Config"));
-    FileSystem::createDirectories(state.absoluteGameAssetDirectory);
+    if (assetsArchive.empty()) {
+      FileSystem::createDirectories(state.absoluteGameAssetDirectory);
+    }
   }
   FileSystem::createDirectories(savedDirectory.join(Path("Logs")));
   FileSystem::createDirectories(savedDirectory.join(Path("Config")));
@@ -219,7 +229,12 @@ EnginePaths::initialize(StringView defaultProject, bool bProjectOptional)
     FileSystem::mount("Editor", state.engineRoot.join(Path(kEditorContentFolder)));
   }
 #endif
-  if (state.bHasProject) {
+  if (!assetsArchive.empty()) {
+    if (!FileSystem::mountArchive("Game", assetsArchive)) {
+      CH_EXCEPT(InternalErrorException, "Could not open " + assetsArchive.toString());
+    }
+  }
+  else if (state.bHasProject) {
     FileSystem::mount("Game", state.absoluteGameAssetDirectory, 0, true);
   }
   FileSystem::mount("Saved", savedDirectory, 0, true);

@@ -112,6 +112,17 @@ class CH_CORE_EXPORT AssetCooker
            AssetManifestEntry* outEntry = nullptr);
 
   /**
+   * cookFile into memory: outBytes receives the whole packaged file.
+   */
+  NODISCARD static bool
+  cookToMemory(const Path& source,
+               const AssetCookSettings& settings,
+               AssetCookStats& stats,
+               Vector<uint8>& outBytes,
+               String& outError,
+               AssetManifestEntry* outEntry = nullptr);
+
+  /**
    * Adds to outTextures every texture the material files among assetFiles use as their
    * normal map, then sorts them and drops repeats. Files that are not materials are skipped
    * after their start.

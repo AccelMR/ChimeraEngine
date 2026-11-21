@@ -13,6 +13,7 @@
 #include "chAssetCooker.h"
 #include "chAssetManifest.h"
 #include "chFileStream.h"
+#include "chEnginePaths.h"
 #include "chFileSystem.h"
 #include "chMaterial.h"
 #include "chMaterialAsset.h"
@@ -40,11 +41,8 @@ class FakeCompressor : public ITextureCompressor
   }
 
   void
-  compressBlocks(Format format,
-                 const uint8* blocks,
-                 SIZE_T blockCount,
-                 TextureCompressionQuality quality,
-                 uint8* output) const override
+  compressBlocks(Format format, const uint8* blocks, SIZE_T blockCount,
+                 TextureCompressionQuality quality, uint8* output) const override
   {
     calls.fetch_add(1);
     const SIZE_T blockBytes = FormatUtils::getInfo(format).bytesPerBlock;
@@ -100,17 +98,14 @@ writeTestFile(const Path& path, StringView text)
 // A texture asset file of gray pixels with a full mip chain (or one level), as the editor
 // saves it.
 void
-writeTestTexture(const Path& path,
-                 const chEngineSDK::UUID& uuid,
-                 Format format,
-                 uint32 size,
-                 bool bMips,
-                 StringView editorData)
+writeTestTexture(const Path& path, const chEngineSDK::UUID& uuid, Format format, uint32 size,
+                 bool bMips, StringView editorData)
 {
   const TextureAssetHeader header{.width = size,
                                   .height = size,
                                   .format = format,
-                                  .mipLevels = bMips ? TextureMips::getMipCount(size, size) : 1};
+                                  .mipLevels =
+                                      bMips ? TextureMips::getMipCount(size, size) : 1};
   SIZE_T pixelBytes = 0;
   for (uint32 mip = 0; mip < header.mipLevels; ++mip) {
     pixelBytes += FormatUtils::getMipSize(format, Math::max(size >> mip, 1u),
@@ -165,20 +160,20 @@ TEST_CASE("chCore - Texture cook format", "[Packaging]")
 
   SECTION("Auto picks by use, color space and content")
   {
-    REQUIRE(TextureCooker::resolveFormat(TextureCompression::Auto, source, false).format ==
-            Format::BC7_SRGB);
-    REQUIRE(TextureCooker::resolveFormat(TextureCompression::Auto, source, true).format ==
-            Format::BC5_UNORM);
+    REQUIRE(TextureCooker::resolveFormat(TextureCompression::Auto, source, false).format
+            == Format::BC7_SRGB);
+    REQUIRE(TextureCooker::resolveFormat(TextureCompression::Auto, source, true).format
+            == Format::BC5_UNORM);
 
     // Gray and opaque: BC4 only when linear, since BC4 has no sRGB form.
     REQUIRE(TextureCooker::isOpaqueGrayscale(source));
     source.format = Format::R8G8B8A8_UNORM;
-    REQUIRE(TextureCooker::resolveFormat(TextureCompression::Auto, source, false).format ==
-            Format::BC4_UNORM);
+    REQUIRE(TextureCooker::resolveFormat(TextureCompression::Auto, source, false).format
+            == Format::BC4_UNORM);
     pixels[1] = 10;
     REQUIRE_FALSE(TextureCooker::isOpaqueGrayscale(source));
-    REQUIRE(TextureCooker::resolveFormat(TextureCompression::Auto, source, false).format ==
-            Format::BC7_UNORM);
+    REQUIRE(TextureCooker::resolveFormat(TextureCompression::Auto, source, false).format
+            == Format::BC7_UNORM);
   }
 
   SECTION("Auto keeps textures without mips, sizes off the blocks and floats")
@@ -189,30 +184,31 @@ TEST_CASE("chCore - Texture cook format", "[Packaging]")
     REQUIRE(noMips.format == Format::Unknown);
     REQUIRE_FALSE(noMips.reason.empty());
     // Chosen by hand, a texture without mips is compressed.
-    REQUIRE(TextureCooker::resolveFormat(TextureCompression::Color, source, false).format ==
-            Format::BC7_SRGB);
+    REQUIRE(TextureCooker::resolveFormat(TextureCompression::Color, source, false).format
+            == Format::BC7_SRGB);
 
     source.mipLevels = 5;
     source.width = 18;
-    REQUIRE(TextureCooker::resolveFormat(TextureCompression::Color, source, false).format ==
-            Format::Unknown);
+    REQUIRE(TextureCooker::resolveFormat(TextureCompression::Color, source, false).format
+            == Format::Unknown);
 
     source.width = 16;
     source.format = Format::R16G16B16A16_SFLOAT;
-    REQUIRE(TextureCooker::resolveFormat(TextureCompression::Color, source, false).format ==
-            Format::Unknown);
+    REQUIRE(TextureCooker::resolveFormat(TextureCompression::Color, source, false).format
+            == Format::Unknown);
   }
 
   SECTION("Explicit choices")
   {
-    REQUIRE(TextureCooker::resolveFormat(TextureCompression::ColorNoAlpha, source, false)
-                .format == Format::BC1_RGBA_SRGB);
-    REQUIRE(TextureCooker::resolveFormat(TextureCompression::NormalMap, source, false)
-                .format == Format::BC5_UNORM);
-    REQUIRE(TextureCooker::resolveFormat(TextureCompression::Grayscale, source, false)
-                .format == Format::BC4_UNORM);
-    REQUIRE(TextureCooker::resolveFormat(TextureCompression::Uncompressed, source, true)
-                .format == Format::Unknown);
+    REQUIRE(
+        TextureCooker::resolveFormat(TextureCompression::ColorNoAlpha, source, false).format
+        == Format::BC1_RGBA_SRGB);
+    REQUIRE(TextureCooker::resolveFormat(TextureCompression::NormalMap, source, false).format
+            == Format::BC5_UNORM);
+    REQUIRE(TextureCooker::resolveFormat(TextureCompression::Grayscale, source, false).format
+            == Format::BC4_UNORM);
+    REQUIRE(TextureCooker::resolveFormat(TextureCompression::Uncompressed, source, true).format
+            == Format::Unknown);
   }
 
   SECTION("Names")
@@ -322,8 +318,8 @@ TEST_CASE("chCore - Texture cook compress", "[Packaging]")
     REQUIRE(output.size() == 4096 * 8);
     bool bAllRight = true;
     for (uint32 block = 0; block < 4096; ++block) {
-      bAllRight = bAllRight && output[block * 8] == static_cast<uint8>(block) &&
-                  output[block * 8 + 3] == 0xAB;
+      bAllRight = bAllRight && output[block * 8] == static_cast<uint8>(block)
+                  && output[block * 8 + 3] == 0xAB;
     }
     REQUIRE(bAllRight);
   }
@@ -470,21 +466,19 @@ TEST_CASE("chCore - Packaged textures", "[Packaging]")
 
   const FakeCompressor compressor(true);
   const Path output = root.join(Path("Out/MyGame"));
-  PackageDesc desc{.gameName = "MyGame",
-                   .outputDirectory = output,
-                   .binaryDirectory = binaries,
-                   .engineContentDirectory = engine,
-                   .projectDirectory = project,
-                   .assetFiles = {assets.join(Path("T_Color.chAss")),
-                                  assets.join(Path("T_Normal.chAss")),
-                                  assets.join(Path("T_Sprite.chAss")),
-                                  assets.join(Path("T_Kept.chAss")),
-                                  assets.join(Path("T_Odd.chAss")),
-                                  assets.join(Path("M_Test.chAss"))},
-                   .startupScene = "/Game/Maps/Main",
-                   .textureCompressor = &compressor,
-                   .textureQuality = TextureCompressionQuality::Fast,
-                   .textureCacheDirectory = root.join(Path("Cache"))};
+  PackageDesc desc{
+      .gameName = "MyGame",
+      .outputDirectory = output,
+      .binaryDirectory = binaries,
+      .engineContentDirectory = engine,
+      .projectDirectory = project,
+      .assetFiles = {assets.join(Path("T_Color.chAss")), assets.join(Path("T_Normal.chAss")),
+                     assets.join(Path("T_Sprite.chAss")), assets.join(Path("T_Kept.chAss")),
+                     assets.join(Path("T_Odd.chAss")), assets.join(Path("M_Test.chAss"))},
+      .startupScene = "/Game/Maps/Main",
+      .textureCompressor = &compressor,
+      .textureQuality = TextureCompressionQuality::Fast,
+      .textureCacheDirectory = root.join(Path("Cache"))};
 
   SECTION("Each texture gets the format its use and setting ask for")
   {
@@ -500,14 +494,14 @@ TEST_CASE("chCore - Packaged textures", "[Packaging]")
         readPackagedTextureHeader(packaged.join(Path("T_Color.chAss")));
     REQUIRE(color.format == Format::BC7_SRGB);
     REQUIRE(color.mipLevels == 7);
-    REQUIRE(readPackagedTextureHeader(packaged.join(Path("T_Normal.chAss"))).format ==
-            Format::BC5_UNORM);
-    REQUIRE(readPackagedTextureHeader(packaged.join(Path("T_Sprite.chAss"))).format ==
-            Format::R8G8B8A8_SRGB);
-    REQUIRE(readPackagedTextureHeader(packaged.join(Path("T_Kept.chAss"))).format ==
-            Format::R8G8B8A8_SRGB);
-    REQUIRE(readPackagedTextureHeader(packaged.join(Path("T_Odd.chAss"))).format ==
-            Format::R8G8B8A8_SRGB);
+    REQUIRE(readPackagedTextureHeader(packaged.join(Path("T_Normal.chAss"))).format
+            == Format::BC5_UNORM);
+    REQUIRE(readPackagedTextureHeader(packaged.join(Path("T_Sprite.chAss"))).format
+            == Format::R8G8B8A8_SRGB);
+    REQUIRE(readPackagedTextureHeader(packaged.join(Path("T_Kept.chAss"))).format
+            == Format::R8G8B8A8_SRGB);
+    REQUIRE(readPackagedTextureHeader(packaged.join(Path("T_Odd.chAss"))).format
+            == Format::R8G8B8A8_SRGB);
 
     // The manifest lists every packaged asset with its path, identity and references.
     AssetManifest manifest;
@@ -530,14 +524,38 @@ TEST_CASE("chCore - Packaged textures", "[Packaging]")
     REQUIRE(compressor.calls.load() == calls);
   }
 
+  SECTION("Assets packed into one archive")
+  {
+    desc.bPackAssets = true;
+    const PackageResult result = ProjectPackager::package(desc);
+    REQUIRE(result.bSucceeded);
+    REQUIRE(result.assetFileCount == 6);
+    REQUIRE_FALSE(FileSystem::exists(output.join(Path("Assets"))));
+    const Path pakFile = output.join(Path(String(EnginePaths::PACKAGE_ASSETS_ARCHIVE)));
+    REQUIRE(FileSystem::isFile(pakFile));
+
+    // Mounted like the game mounts it, the archive holds the cooked files and the manifest.
+    REQUIRE(FileSystem::mountArchive("PackedTest", pakFile));
+    REQUIRE(readPackagedTextureHeader(Path("/PackedTest/T_Color.chAss")).format ==
+            Format::BC7_SRGB);
+    REQUIRE(readPackagedTextureHeader(Path("/PackedTest/T_Normal.chAss")).format ==
+            Format::BC5_UNORM);
+    AssetManifest manifest;
+    String error;
+    REQUIRE(manifest.read(Path("/PackedTest").join(Path(String(AssetManifest::FILE_NAME))),
+                          error));
+    REQUIRE(manifest.entries.size() == 6);
+    REQUIRE(FileSystem::unmount("PackedTest", pakFile));
+  }
+
   SECTION("Without a compressor every texture is kept")
   {
     desc.textureCompressor = nullptr;
     const PackageResult result = ProjectPackager::package(desc);
     REQUIRE(result.bSucceeded);
     REQUIRE(result.cookStats.keptTextures == 5);
-    REQUIRE(readPackagedTextureHeader(output.join(Path("Assets/T_Color.chAss"))).format ==
-            Format::R8G8B8A8_SRGB);
+    REQUIRE(readPackagedTextureHeader(output.join(Path("Assets/T_Color.chAss"))).format
+            == Format::R8G8B8A8_SRGB);
   }
 
   SECTION("Normal maps are found from the materials")

@@ -39,31 +39,44 @@ readUUID(DataStream& stream, UUID& outUUID)
 bool
 AssetManifest::read(const Path& file, String& outError)
 {
+  const Vector<uint8> bytes = FileSystem::fastRead(file);
+  if (bytes.empty()) {
+    entries.clear();
+    outError = "Could not read " + file.toString() + ".";
+    return false;
+  }
+  return readFromMemory(bytes, file.toString(), outError);
+}
+
+/*
+ */
+bool
+AssetManifest::readFromMemory(Span<const uint8> bytes, StringView sourceName, String& outError)
+{
   gameName.clear();
   engineVersion.clear();
   entries.clear();
-
-  const Vector<uint8> bytes = FileSystem::fastRead(file);
+  const String file(sourceName);
   if (bytes.empty()) {
-    outError = "Could not read " + file.toString() + ".";
+    outError = file + " is empty.";
     return false;
   }
   MemoryDataStream stream(const_cast<uint8*>(bytes.data()), bytes.size(), false);
 
   ManifestHeader header;
   if (!AssetFile::readValue(stream, header) || header.magic != MAGIC) {
-    outError = file.toString() + " is not an asset manifest.";
+    outError = file + " is not an asset manifest.";
     return false;
   }
   if (header.version != VERSION) {
-    outError = file.toString() + " is a manifest of another version; package the game again.";
+    outError = file + " is a manifest of another version; package the game again.";
     return false;
   }
   if (header.entryCount > MAX_ENTRIES ||
       header.entryCount > AssetFile::getBytesLeft(stream) / kMinEntrySize ||
       !AssetFile::readString(stream, gameName, MAX_TEXT_LENGTH) ||
       !AssetFile::readString(stream, engineVersion, MAX_TEXT_LENGTH)) {
-    outError = file.toString() + " is cut or broken.";
+    outError = file + " is cut or broken.";
     return false;
   }
 
@@ -75,7 +88,7 @@ AssetManifest::read(const Path& file, String& outError)
         !AssetFile::readValue(stream, referenceCount) ||
         referenceCount > AssetFile::MAX_REFERENCES ||
         referenceCount > AssetFile::getBytesLeft(stream) / sizeof(UUID)) {
-      outError = file.toString() + " is cut or broken.";
+      outError = file + " is cut or broken.";
       entries.clear();
       return false;
     }
@@ -83,7 +96,7 @@ AssetManifest::read(const Path& file, String& outError)
     if (referenceCount > 0 &&
         !AssetFile::readBytes(stream, entry.references.data(),
                               referenceCount * sizeof(UUID))) {
-      outError = file.toString() + " is cut or broken.";
+      outError = file + " is cut or broken.";
       entries.clear();
       return false;
     }
@@ -96,6 +109,22 @@ AssetManifest::read(const Path& file, String& outError)
  */
 bool
 AssetManifest::write(const Path& file) const
+{
+  Vector<uint8> bytes;
+  writeToMemory(bytes);
+  const SPtr<DataStream> output = FileSystem::createAndOpenFile(file);
+  if (!output) {
+    return false;
+  }
+  const bool bWritten = output->write(bytes.data(), bytes.size()) == bytes.size();
+  output->close();
+  return bWritten;
+}
+
+/*
+ */
+void
+AssetManifest::writeToMemory(Vector<uint8>& outBytes) const
 {
   MemoryDataStream stream;
   const ManifestHeader header{.entryCount = static_cast<uint32>(entries.size())};
@@ -113,14 +142,7 @@ AssetManifest::write(const Path& file) const
     }
   }
 
-  const SPtr<DataStream> output = FileSystem::createAndOpenFile(file);
-  if (!output) {
-    return false;
-  }
-  const SIZE_T size = stream.size();
-  const bool bWritten = output->write(stream.getStartPtr(), size) == size;
-  output->close();
-  return bWritten;
+  outBytes.assign(stream.getStartPtr(), stream.getStartPtr() + stream.size());
 }
 #endif // USING(CH_EDITOR)
 
