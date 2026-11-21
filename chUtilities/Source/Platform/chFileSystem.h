@@ -81,6 +81,13 @@ class CH_UTILITY_EXPORT FileSystem
   static void
   getMountLayers(StringView name, Vector<MountLayer>& outLayers);
 
+  /**
+   *   The layer a read of the virtual path uses: the highest one that has it. False for a
+   *   real path or a path no layer has.
+   **/
+  NODISCARD static bool
+  findReadLayer(const Path& path, MountLayer& outLayer);
+
   NODISCARD static bool
   isVirtual(const Path& path);
 

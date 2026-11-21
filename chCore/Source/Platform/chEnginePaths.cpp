@@ -46,6 +46,7 @@ struct PathState
   Path projectRoot;
   Path absoluteGameAssetDirectory;
   Path gameAssetDirectory;
+  Path gameContentRoot;
   Path engineAssetDirectory;
   Path shaderBinaryDirectory;
   Path editorContentDirectory;
@@ -237,6 +238,11 @@ EnginePaths::initialize(StringView defaultProject, bool bProjectOptional)
   else if (state.bHasProject) {
     FileSystem::mount("Game", state.absoluteGameAssetDirectory, 0, true);
   }
+  Vector<MountLayer> gameLayers;
+  FileSystem::getMountLayers("Game", gameLayers);
+  if (!gameLayers.empty()) {
+    state.gameContentRoot = gameLayers.front().root;
+  }
   FileSystem::mount("Saved", savedDirectory, 0, true);
 
   state.initialized = true;
@@ -352,6 +358,13 @@ EnginePaths::getGameAssetDirectory()
 {
   initialize();
   return pathState().gameAssetDirectory;
+}
+
+const Path&
+EnginePaths::getGameContentRoot()
+{
+  initialize();
+  return pathState().gameContentRoot;
 }
 
 const Path&

@@ -574,6 +574,27 @@ FileSystem::getMountLayers(StringView name, Vector<MountLayer>& outLayers)
 }
 
 bool
+FileSystem::findReadLayer(const Path& path, MountLayer& outLayer)
+{
+  VirtualPath virtualPath;
+  if (!splitVirtualPath(path, virtualPath)) {
+    return false;
+  }
+  const Mount* mount = findReadMount(virtualPath);
+  if (!mount) {
+    return false;
+  }
+  // A single folder layer is returned without checking the disk.
+  std::error_code error;
+  if (!mount->archive &&
+      !fs::exists(toFsPath(joinText(mount->root, virtualPath.rest)), error)) {
+    return false;
+  }
+  outLayer = {.root = Path(mount->root), .archive = mount->archive};
+  return true;
+}
+
+bool
 FileSystem::unmount(const String& name, const Path& directory)
 {
   const String root = toRealPath(directory, Access::Read);

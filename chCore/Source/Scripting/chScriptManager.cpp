@@ -895,10 +895,20 @@ ScriptManager::compileClass(const ScriptAsset& script, ScriptClassInfo& outInfo)
 {
   const String chunkName = script.getChunkName();
   const String& source = script.getSource();
+  // Lua does not check compiled code, so only the game's own scripts may bring it; a mod's
+  // is refused here, and Lua itself refuses it for "t" too.
+  if (script.isBytecode() && !script.isFromGameLayer()) {
+    CH_LOG_ERROR(ScriptLog,
+                 "Script {0} is compiled Lua outside the game's own content (a mod?); only "
+                 "text scripts run from there.",
+                 chunkName);
+    return false;
+  }
+  const ANSICHAR* mode = script.isFromGameLayer() ? "bt" : "t";
 
   const int32 base = lua_gettop(m_state);
   lua_pushcfunction(m_state, &traceback);
-  if (luaL_loadbufferx(m_state, source.data(), source.size(), chunkName.c_str(), "t") !=
+  if (luaL_loadbufferx(m_state, source.data(), source.size(), chunkName.c_str(), mode) !=
       LUA_OK) {
     CH_LOG_ERROR(ScriptLog, "{0}", getErrorText(m_state));
     lua_settop(m_state, base);

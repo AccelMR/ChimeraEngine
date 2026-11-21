@@ -12,13 +12,15 @@
 
 #include "chAssetCooker.h"
 #include "chAssetManifest.h"
-#include "chFileStream.h"
 #include "chEnginePaths.h"
+#include "chFileStream.h"
 #include "chFileSystem.h"
 #include "chMaterial.h"
 #include "chMaterialAsset.h"
 #include "chMath.h"
+#include "chPakArchive.h"
 #include "chProjectPackager.h"
+#include "chScriptAsset.h"
 #include "chTextureCooker.h"
 #include "chTextureMips.h"
 
@@ -536,10 +538,10 @@ TEST_CASE("chCore - Packaged textures", "[Packaging]")
 
     // Mounted like the game mounts it, the archive holds the cooked files and the manifest.
     REQUIRE(FileSystem::mountArchive("PackedTest", pakFile));
-    REQUIRE(readPackagedTextureHeader(Path("/PackedTest/T_Color.chAss")).format ==
-            Format::BC7_SRGB);
-    REQUIRE(readPackagedTextureHeader(Path("/PackedTest/T_Normal.chAss")).format ==
-            Format::BC5_UNORM);
+    REQUIRE(readPackagedTextureHeader(Path("/PackedTest/T_Color.chAss")).format
+            == Format::BC7_SRGB);
+    REQUIRE(readPackagedTextureHeader(Path("/PackedTest/T_Normal.chAss")).format
+            == Format::BC5_UNORM);
     AssetManifest manifest;
     String error;
     REQUIRE(manifest.read(Path("/PackedTest").join(Path(String(AssetManifest::FILE_NAME))),
@@ -563,6 +565,76 @@ TEST_CASE("chCore - Packaged textures", "[Packaging]")
     Vector<chEngineSDK::UUID> normals;
     AssetCooker::collectNormalMapTextures(desc.assetFiles, normals);
     REQUIRE(normals == Vector<chEngineSDK::UUID>{normalId});
+  }
+
+  FileSystem::removeAll(root);
+}
+
+TEST_CASE("chCore - Packaged scripts", "[Packaging]")
+{
+  const Path root = FileSystem::absolutePath(Path("PackagedScriptsTestDir"));
+  FileSystem::removeAll(root);
+  const Path binaries = root.join(Path("Build"));
+  String executable(ProjectPackager::GAME_EXECUTABLE_NAME);
+  executable += ProjectPackager::EXECUTABLE_EXTENSION;
+  writeTestFile(binaries.join(Path(executable)), "exe");
+  writeTestFile(binaries.join(Path("Shaders/SPIRV/forward.ps.spv")), "spirv");
+  const Path engine = root.join(Path("EngineContent"));
+  writeTestFile(engine.join(Path("Config/Engine.ini")), "");
+  const Path project = root.join(Path("Project"));
+  writeTestFile(project.join(Path("Project.chproject")), "");
+  const auto scriptId = chEngineSDK::UUID::createRandom();
+  const String source = String(ScriptAsset::UUID_LINE_PREFIX) + scriptId.toString()
+                        + "\nreturn { onStart = function(self) end }\n";
+  const Path script = project.join(Path("Assets/Scripts/Player.lua"));
+  writeTestFile(script, source);
+
+  const Path output = root.join(Path("Out/MyGame"));
+  PackageDesc desc{.gameName = "MyGame",
+                   .outputDirectory = output,
+                   .binaryDirectory = binaries,
+                   .engineContentDirectory = engine,
+                   .projectDirectory = project,
+                   .assetFiles = {script},
+                   .startupScene = "/Game/Maps/Main"};
+
+  SECTION("Loose scripts are compiled and listed with their UUID")
+  {
+    REQUIRE(ProjectPackager::package(desc).bSucceeded);
+    const Vector<uint8> packaged =
+        FileSystem::fastRead(output.join(Path("Assets/Scripts/Player.lua")));
+    REQUIRE(ScriptAsset::isBytecode(
+        StringView(reinterpret_cast<const ANSICHAR*>(packaged.data()), packaged.size())));
+    AssetManifest manifest;
+    String error;
+    REQUIRE(manifest.read(
+        output.join(Path("Assets")).join(Path(String(AssetManifest::FILE_NAME))), error));
+    REQUIRE(manifest.entries.size() == 1);
+    REQUIRE(manifest.entries[0].path == "Scripts/Player.lua");
+    REQUIRE(manifest.entries[0].uuid == scriptId);
+    REQUIRE(manifest.entries[0].assetType == TypeTraits<ScriptAsset>::getTypeId());
+  }
+
+  SECTION("Packed scripts are compiled too, and a broken one stops the package")
+  {
+    desc.bPackAssets = true;
+    desc.bStripScriptDebugInfo = true;
+    REQUIRE(ProjectPackager::package(desc).bSucceeded);
+    const Path pakFile = output.join(Path(String(EnginePaths::PACKAGE_ASSETS_ARCHIVE)));
+    String error;
+    SPtr<PakArchive> archive = PakArchive::open(pakFile, error);
+    REQUIRE(archive);
+    const Span<const uint8> packaged = archive->getData("Scripts/Player.lua");
+    REQUIRE(ScriptAsset::isBytecode(
+        StringView(reinterpret_cast<const ANSICHAR*>(packaged.data()), packaged.size())));
+
+    // A mapped archive cannot be deleted on Windows, and the next package replaces it.
+    archive.reset();
+    writeTestFile(script, String(ScriptAsset::UUID_LINE_PREFIX) + scriptId.toString()
+                              + "\nreturn {\n");
+    const PackageResult broken = ProjectPackager::package(desc);
+    REQUIRE_FALSE(broken.bSucceeded);
+    REQUIRE(broken.error.find("Player.lua") != String::npos);
   }
 
   FileSystem::removeAll(root);

@@ -93,6 +93,7 @@ constexpr const ANSICHAR* kBuildDirectoryKeys[] = {"ReleaseBuildDirectory",
 // Release packs by default; Debug keeps loose files to look into.
 constexpr const ANSICHAR* kPackAssetsKeys[] = {"PackAssetsRelease", "PackAssetsDebug"};
 constexpr bool kPackAssetsDefaults[] = {true, false};
+constexpr const ANSICHAR* kKeepScriptLinesKey = "KeepScriptLines";
 
 // A finished package stays on screen this long, unless the mouse is over it.
 constexpr double kResultSeconds = 8.0;
@@ -126,6 +127,7 @@ struct DialogState
   PackageConfiguration configuration = PackageConfiguration::Release;
   // Follows the configuration until the user changes it, then remembers that choice.
   bool bPackAssets = true;
+  bool bKeepScriptLines = true;
   // A build of that configuration; empty when none was found.
   Path gameBuild;
   // Why the folder chosen by hand was not taken.
@@ -516,7 +518,8 @@ startPackage(DialogState& state, const Path& binaryDirectory, bool bDevelopment)
                    .textureQuality = getTextureQuality(),
                    .textureCacheDirectory = EnginePaths::getProjectDirectory().join(
                        Path("Saved/Cooked/Textures")),
-                   .bPackAssets = state.bPackAssets};
+                   .bPackAssets = state.bPackAssets,
+                   .bStripScriptDebugInfo = !state.bKeepScriptLines};
   desc.assetFiles.reserve(assets.size());
   for (const UUID& uuid : assets) {
     const SPtr<IAsset> asset = assetManager.getAsset(uuid);
@@ -798,6 +801,13 @@ renderAssetSection(DialogState& state)
                         "of an Assets folder of loose files. Loose files are easier to look "
                         "into while testing.",
                         String(EnginePaths::PACKAGE_ASSETS_ARCHIVE).c_str());
+  if (ImGui::Checkbox("Keep script line numbers", &state.bKeepScriptLines)) {
+    remember(kKeepScriptLinesKey, state.bKeepScriptLines ? "true" : "false");
+  }
+  ImGui::SetItemTooltip("Scripts are packaged compiled. With their line numbers, script "
+                        "errors in the game still say file:line; without them the scripts "
+                        "are smaller and harder to read back, and errors lose their file "
+                        "and line.");
   const TextureCompressionQuality current = getTextureQuality();
   const String currentName(TextureCooker::getQualityName(current));
   if (ImGui::BeginCombo("Compression quality", currentName.c_str())) {
@@ -911,6 +921,7 @@ PackageDialog::open()
   loadScenes(state);
   state.configuration = PackageConfiguration::Release;
   state.bPackAssets = getPackAssetsChoice(state.configuration);
+  state.bKeepScriptLines = getRemembered(kKeepScriptLinesKey) != "false";
   state.gameBuild = findGameBuild(state.configuration);
   state.buildMessage.clear();
   const Path& editorFolder = EnginePaths::getPluginDirectory();

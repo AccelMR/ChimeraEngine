@@ -14,6 +14,7 @@
 #include "chAssetManifest.h"
 #include "chPakArchive.h"
 #include "chScriptAsset.h"
+#include "chScriptCompiler.h"
 #include "chConfigFile.h"
 #include "chDynamicLibrary.h"
 #include "chEnginePaths.h"
@@ -247,13 +248,14 @@ addAssets(const PackageDesc& desc, Vector<FileCopy>& outCopies, String& outError
  * A script is a plain file: its UUID is its first line and it references nothing.
  */
 bool
-readScriptEntry(const Path& file, AssetManifestEntry& outEntry)
+readScriptEntry(const Path& file, AssetManifestEntry& outEntry, String& outSource)
 {
   const SPtr<DataStream> stream = FileSystem::openFile(file);
   if (!stream) {
     return false;
   }
-  const String source = stream->getAsString();
+  outSource = stream->getAsString();
+  const String& source = outSource;
   stream->close();
   UUID uuid = UUID::null();
   if (!ScriptAsset::readUUIDLine(source, uuid) || uuid.isNull()) {
@@ -374,6 +376,7 @@ ProjectPackager::package(const PackageDesc& desc, PackageProgress* progress)
     return result;
   }
   Vector<uint8> assetBytes;
+  String scriptSource;
 
   for (const FileCopy& copy : copies) {
     if (progress && progress->bCancelRequested.load(std::memory_order_relaxed)) {
@@ -402,13 +405,31 @@ ProjectPackager::package(const PackageDesc& desc, PackageProgress* progress)
         result.error = "Cancelled.";
       }
     }
-    else if (bAsset && !readScriptEntry(copy.source, entry)) {
+    else if (bAsset && !readScriptEntry(copy.source, entry, scriptSource)) {
       result.error = "The script " + copy.source.toString() +
                      " has no UUID line; open the project in the editor, which writes one.";
     }
-    else if (bIntoPak) {
-      assetBytes = FileSystem::fastRead(copy.source);
-      bDone = true;
+    else if (bAsset) {
+      // Scripts go compiled, under the name the game gives them, so errors name the file.
+      const String chunkName =
+          "@/Game/" + FileSystem::relativePath(sourceAssets, copy.source).toString();
+      String compileError;
+      bDone = ScriptCompiler::compile(scriptSource, chunkName, desc.bStripScriptDebugInfo,
+                                      assetBytes, compileError);
+      if (!bDone) {
+        result.error = "Could not compile " + copy.source.toString() + ": " + compileError;
+      }
+      else if (!bIntoPak) {
+        const SPtr<DataStream> output = FileSystem::createAndOpenFile(copy.destination);
+        bDone = output && output->write(assetBytes.data(), assetBytes.size()) ==
+                              assetBytes.size();
+        if (output) {
+          output->close();
+        }
+        if (!bDone) {
+          result.error = "Could not write " + copy.destination.toString() + ".";
+        }
+      }
     }
     else {
       bDone = FileSystem::copyFile(copy.source, copy.destination);

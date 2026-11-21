@@ -48,6 +48,9 @@ struct PackageDesc
   // Writes the assets into one archive (EnginePaths::PACKAGE_ASSETS_ARCHIVE) instead of an
   // Assets folder.
   bool bPackAssets = false;
+  // Scripts are always compiled; this drops their line numbers (errors then lose their file
+  // and line).
+  bool bStripScriptDebugInfo = false;
 };
 
 struct PackageResult

@@ -34,10 +34,28 @@ class CH_CORE_EXPORT ScriptAsset : public IAsset
   ~ScriptAsset() = default;
 
   /**
-   * The text of the script; empty while it is not loaded.
+   * The text of the script, or its compiled Lua in packaged games; empty while it is not
+   * loaded.
    */
   NODISCARD FORCEINLINE const String&
   getSource() const noexcept { return m_source; }
+
+  /**
+   * Whether the source is compiled Lua (Package Project compiles scripts) instead of text.
+   */
+  NODISCARD FORCEINLINE bool
+  isBytecode() const noexcept { return isBytecode(m_source); }
+
+  /**
+   * Whether the file was read from the game's own content layer (EnginePaths), not from a
+   * layer mounted over it such as a mod. Only such scripts may be compiled Lua: Lua does not
+   * check compiled code, so code made by hand could break out of the sandbox.
+   */
+  NODISCARD FORCEINLINE bool
+  isFromGameLayer() const noexcept { return m_bFromGameLayer; }
+
+  NODISCARD static bool
+  isBytecode(StringView source) noexcept;
 
   void
   setSource(String source);
@@ -69,6 +87,8 @@ class CH_CORE_EXPORT ScriptAsset : public IAsset
 
   static constexpr StringView EXTENSION = ".lua";
   static constexpr StringView UUID_LINE_PREFIX = "-- chimera-uuid: ";
+  // How every compiled Lua chunk starts (LUA_SIGNATURE).
+  static constexpr StringView BYTECODE_SIGNATURE = "\x1bLua";
 
  protected:
   bool
@@ -82,6 +102,7 @@ class CH_CORE_EXPORT ScriptAsset : public IAsset
 
  private:
   String m_source;
+  bool m_bFromGameLayer = false;
 };
 DECLARE_ASSET_TYPE(ScriptAsset);
 
