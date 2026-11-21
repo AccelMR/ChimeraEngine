@@ -10,8 +10,15 @@
 
 #if USING(CH_EDITOR)
 
+#include "chAssetCooker.h"
+#include "chFileStream.h"
 #include "chFileSystem.h"
+#include "chMaterial.h"
+#include "chMaterialAsset.h"
+#include "chMath.h"
+#include "chProjectPackager.h"
 #include "chTextureCooker.h"
+#include "chTextureMips.h"
 
 #include "catch.hpp"
 
@@ -23,10 +30,12 @@ namespace {
 class FakeCompressor : public ITextureCompressor
 {
  public:
+  explicit FakeCompressor(bool bAllFormats = false) : m_bAllFormats(bAllFormats) {}
+
   bool
   supportsFormat(Format format) const override
   {
-    return format == Format::BC4_UNORM;
+    return format == Format::BC4_UNORM || (m_bAllFormats && FormatUtils::isCompressed(format));
   }
 
   void
@@ -36,21 +45,24 @@ class FakeCompressor : public ITextureCompressor
                  TextureCompressionQuality quality,
                  uint8* output) const override
   {
-    CH_PARAMETER_UNUSED(format);
     calls.fetch_add(1);
+    const SIZE_T blockBytes = FormatUtils::getInfo(format).bytesPerBlock;
     for (SIZE_T i = 0; i < blockCount; ++i) {
       const uint8* pixels = blocks + i * TextureCooker::BLOCK_PIXEL_BYTES;
-      uint8* block = output + i * 8;
+      uint8* block = output + i * blockBytes;
       block[0] = pixels[0];
       block[1] = pixels[15 * 4];
       block[2] = static_cast<uint8>(quality);
-      for (uint32 b = 3; b < 8; ++b) {
+      for (SIZE_T b = 3; b < blockBytes; ++b) {
         block[b] = 0xAB;
       }
     }
   }
 
   mutable Atomic<uint32> calls{0};
+
+ private:
+  bool m_bAllFormats = false;
 };
 
 // A chain of 8-bit RGBA levels whose red is 40 times the level plus the block index of the
@@ -74,6 +86,66 @@ makeChain(uint32 width, uint32 height, uint32 mipLevels)
     }
   }
   return data;
+}
+void
+writeTestFile(const Path& path, StringView text)
+{
+  SPtr<DataStream> stream = FileSystem::createAndOpenFile(path);
+  REQUIRE(stream);
+  stream->write(text.data(), text.size());
+  stream->close();
+}
+
+// A texture asset file of gray pixels with a full mip chain (or one level), as the editor
+// saves it.
+void
+writeTestTexture(const Path& path,
+                 const chEngineSDK::UUID& uuid,
+                 Format format,
+                 uint32 size,
+                 bool bMips,
+                 StringView editorData)
+{
+  const TextureAssetHeader header{.width = size,
+                                  .height = size,
+                                  .format = format,
+                                  .mipLevels = bMips ? TextureMips::getMipCount(size, size) : 1};
+  SIZE_T pixelBytes = 0;
+  for (uint32 mip = 0; mip < header.mipLevels; ++mip) {
+    pixelBytes += FormatUtils::getMipSize(format, Math::max(size >> mip, 1u),
+                                          Math::max(size >> mip, 1u));
+  }
+  const Vector<uint8> pixels(pixelBytes, 120);
+  SPtr<DataStream> stream = FileSystem::createAndOpenFile(path);
+  REQUIRE(stream);
+  AssetFile::writeStart(*stream, uuid, TypeTraits<TextureAsset>::getTypeId(), {}, editorData);
+  stream->write(&header, sizeof(header));
+  stream->write(pixels.data(), pixels.size());
+  stream->close();
+}
+
+TextureAssetHeader
+readPackagedTextureHeader(const Path& path)
+{
+  TextureAssetHeader header;
+  SPtr<DataStream> stream = FileSystem::openFile(path);
+  REQUIRE(stream);
+  AssetFileInfo info;
+  Vector<chEngineSDK::UUID> references;
+  String editorData;
+  REQUIRE(AssetFile::readInfo(*stream, info));
+  REQUIRE(AssetFile::readReferences(*stream, references));
+  REQUIRE(AssetFile::readEditorData(*stream, &editorData));
+  REQUIRE(editorData.empty());
+  REQUIRE(AssetFile::readValue(*stream, header));
+  // What follows is exactly the chain of the packaged format.
+  SIZE_T expected = 0;
+  for (uint32 mip = 0; mip < header.mipLevels; ++mip) {
+    expected += FormatUtils::getMipSize(header.format, Math::max(header.width >> mip, 1u),
+                                        Math::max(header.height >> mip, 1u));
+  }
+  REQUIRE(AssetFile::getBytesLeft(*stream) == expected);
+  return header;
 }
 } // namespace
 
@@ -351,6 +423,118 @@ TEST_CASE("chCore - Texture cook cache", "[Packaging]")
   }
 
   FileSystem::removeAll(cacheFolder);
+}
+
+TEST_CASE("chCore - Packaged textures", "[Packaging]")
+{
+  const Path root = FileSystem::absolutePath(Path("PackagedTexturesTestDir"));
+  FileSystem::removeAll(root);
+
+  const Path binaries = root.join(Path("Build"));
+  String executable(ProjectPackager::GAME_EXECUTABLE_NAME);
+  executable += ProjectPackager::EXECUTABLE_EXTENSION;
+  writeTestFile(binaries.join(Path(executable)), "exe");
+  writeTestFile(binaries.join(Path("Shaders/SPIRV/forward.ps.spv")), "spirv");
+  const Path engine = root.join(Path("EngineContent"));
+  writeTestFile(engine.join(Path("Config/Engine.ini")), "[Window]\nWidth=640\n");
+  const Path project = root.join(Path("Project"));
+  writeTestFile(project.join(Path("Project.chproject")), "");
+  const Path assets = project.join(Path("Assets"));
+
+  const auto colorId = chEngineSDK::UUID::createRandom();
+  const auto normalId = chEngineSDK::UUID::createRandom();
+  writeTestTexture(assets.join(Path("T_Color.chAss")), colorId, Format::R8G8B8A8_SRGB, 64,
+                   true, "[Import]\nSource=C:/Art/Color.png\n");
+  writeTestTexture(assets.join(Path("T_Normal.chAss")), normalId, Format::R8G8B8A8_UNORM, 64,
+                   true, "");
+  writeTestTexture(assets.join(Path("T_Sprite.chAss")), chEngineSDK::UUID::createRandom(),
+                   Format::R8G8B8A8_SRGB, 32, false, "");
+  writeTestTexture(assets.join(Path("T_Kept.chAss")), chEngineSDK::UUID::createRandom(),
+                   Format::R8G8B8A8_SRGB, 32, true, "[Texture]\nCompression=Uncompressed\n");
+  writeTestTexture(assets.join(Path("T_Odd.chAss")), chEngineSDK::UUID::createRandom(),
+                   Format::R8G8B8A8_SRGB, 30, true, "");
+
+  // A material that reads T_Normal as its normal map.
+  Material material;
+  material.setTexture(MaterialTexture::Normal, normalId, nullptr);
+  {
+    const Vector<chEngineSDK::UUID> references{normalId};
+    SPtr<DataStream> stream = FileSystem::createAndOpenFile(assets.join(Path("M_Test.chAss")));
+    REQUIRE(stream);
+    AssetFile::writeStart(*stream, chEngineSDK::UUID::createRandom(),
+                          TypeTraits<MaterialAsset>::getTypeId(), references);
+    material.serialize(*stream);
+    stream->close();
+  }
+
+  const FakeCompressor compressor(true);
+  const Path output = root.join(Path("Out/MyGame"));
+  PackageDesc desc{.gameName = "MyGame",
+                   .outputDirectory = output,
+                   .binaryDirectory = binaries,
+                   .engineContentDirectory = engine,
+                   .projectDirectory = project,
+                   .assetFiles = {assets.join(Path("T_Color.chAss")),
+                                  assets.join(Path("T_Normal.chAss")),
+                                  assets.join(Path("T_Sprite.chAss")),
+                                  assets.join(Path("T_Kept.chAss")),
+                                  assets.join(Path("T_Odd.chAss")),
+                                  assets.join(Path("M_Test.chAss"))},
+                   .startupScene = "/Game/Maps/Main",
+                   .textureCompressor = &compressor,
+                   .textureQuality = TextureCompressionQuality::Fast,
+                   .textureCacheDirectory = root.join(Path("Cache"))};
+
+  SECTION("Each texture gets the format its use and setting ask for")
+  {
+    const PackageResult result = ProjectPackager::package(desc);
+    REQUIRE(result.bSucceeded);
+    REQUIRE(result.cookStats.compressedTextures == 2);
+    REQUIRE(result.cookStats.cachedTextures == 0);
+    REQUIRE(result.cookStats.keptTextures == 3);
+    REQUIRE(result.cookStats.textureBytesAfter < result.cookStats.textureBytesBefore);
+
+    const Path packaged = output.join(Path("Assets"));
+    const TextureAssetHeader color =
+        readPackagedTextureHeader(packaged.join(Path("T_Color.chAss")));
+    REQUIRE(color.format == Format::BC7_SRGB);
+    REQUIRE(color.mipLevels == 7);
+    REQUIRE(readPackagedTextureHeader(packaged.join(Path("T_Normal.chAss"))).format ==
+            Format::BC5_UNORM);
+    REQUIRE(readPackagedTextureHeader(packaged.join(Path("T_Sprite.chAss"))).format ==
+            Format::R8G8B8A8_SRGB);
+    REQUIRE(readPackagedTextureHeader(packaged.join(Path("T_Kept.chAss"))).format ==
+            Format::R8G8B8A8_SRGB);
+    REQUIRE(readPackagedTextureHeader(packaged.join(Path("T_Odd.chAss"))).format ==
+            Format::R8G8B8A8_SRGB);
+
+    // A second package reads both compressed textures back from the cache.
+    const uint32 calls = compressor.calls.load();
+    const PackageResult again = ProjectPackager::package(desc);
+    REQUIRE(again.bSucceeded);
+    REQUIRE(again.cookStats.compressedTextures == 0);
+    REQUIRE(again.cookStats.cachedTextures == 2);
+    REQUIRE(compressor.calls.load() == calls);
+  }
+
+  SECTION("Without a compressor every texture is kept")
+  {
+    desc.textureCompressor = nullptr;
+    const PackageResult result = ProjectPackager::package(desc);
+    REQUIRE(result.bSucceeded);
+    REQUIRE(result.cookStats.keptTextures == 5);
+    REQUIRE(readPackagedTextureHeader(output.join(Path("Assets/T_Color.chAss"))).format ==
+            Format::R8G8B8A8_SRGB);
+  }
+
+  SECTION("Normal maps are found from the materials")
+  {
+    Vector<chEngineSDK::UUID> normals;
+    AssetCooker::collectNormalMapTextures(desc.assetFiles, normals);
+    REQUIRE(normals == Vector<chEngineSDK::UUID>{normalId});
+  }
+
+  FileSystem::removeAll(root);
 }
 
 #endif // USING(CH_EDITOR)

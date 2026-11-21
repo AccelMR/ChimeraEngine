@@ -10,7 +10,9 @@
 #include "chPackageDialog.h"
 
 #include "chAlgorithm.h"
+#include "chAssetCodecManager.h"
 #include "chAssetManager.h"
+#include "chConsoleVariable.h"
 #include "chEditorScene.h"
 #include "chEngineConfig.h"
 #include "chEnginePaths.h"
@@ -46,6 +48,13 @@ constexpr SIZE_T kPathBufferSize = 1024;
 constexpr ImVec4 kWarningColor(1.0f, 0.75f, 0.3f, 1.0f);
 constexpr ImVec4 kErrorColor(1.0f, 0.4f, 0.4f, 1.0f);
 constexpr ImVec4 kSuccessColor(0.5f, 0.9f, 0.5f, 1.0f);
+
+ConsoleVariable<String> g_cvarTextureQuality(
+    "Cook.TextureQuality",
+    "Normal",
+    "How hard Package Project compresses textures: Fast, Normal or High. Results are kept in "
+    "the project's Saved/Cooked, so only changed textures are compressed again.",
+    "TextureQuality");
 
 enum class PackageConfiguration : uint8
 {
@@ -165,6 +174,29 @@ remember(StringView key, StringView value)
   if (getRemembered(key) != value) {
     EngineConfig::setUserValue("Editor", kRememberedSection, key, value);
   }
+}
+
+const ITextureCompressor*
+getTextureCompressor()
+{
+#if USING(CH_CODECS)
+  return AssetCodecManager::isStarted() ? AssetCodecManager::instance().getTextureCompressor()
+                                        : nullptr;
+#else
+  return nullptr;
+#endif // USING(CH_CODECS)
+}
+
+TextureCompressionQuality
+getTextureQuality()
+{
+  TextureCompressionQuality quality = TextureCompressionQuality::Normal;
+  if (!TextureCooker::parseQuality(g_cvarTextureQuality.get(), quality)) {
+    CH_LOG_WARNING(PackageDialogLog, "Cook.TextureQuality '{0}' is not Fast, Normal or High; "
+                                     "using Normal.",
+                   g_cvarTextureQuality.get());
+  }
+  return quality;
 }
 
 Path
@@ -474,7 +506,11 @@ startPackage(DialogState& state, const Path& binaryDirectory, bool bDevelopment)
                    .binaryDirectory = binaryDirectory,
                    .engineContentDirectory = EnginePaths::getEngineContentDirectory(),
                    .projectDirectory = EnginePaths::getProjectDirectory(),
-                   .startupScene = state.startupScene};
+                   .startupScene = state.startupScene,
+                   .textureCompressor = getTextureCompressor(),
+                   .textureQuality = getTextureQuality(),
+                   .textureCacheDirectory = EnginePaths::getProjectDirectory().join(
+                       Path("Saved/Cooked/Textures"))};
   desc.assetFiles.reserve(assets.size());
   for (const UUID& uuid : assets) {
     const SPtr<IAsset> asset = assetManager.getAsset(uuid);
@@ -582,6 +618,16 @@ renderJobWindow(DialogState& state)
         ImGui::TextWrapped(ICON_FA_CHECK_CIRCLE "  Done: %u assets and %u binary files.",
                            result.assetFileCount, result.binaryFileCount);
         ImGui::PopStyleColor();
+        const AssetCookStats& stats = result.cookStats;
+        if (stats.textureBytesBefore > 0) {
+          constexpr double kMegabyte = 1024.0 * 1024.0;
+          ImGui::TextWrapped("Textures: %u compressed, %u from the cache, %u kept; %.1f MB "
+                             "became %.1f MB.",
+                             stats.compressedTextures, stats.cachedTextures,
+                             stats.keptTextures,
+                             static_cast<double>(stats.textureBytesBefore) / kMegabyte,
+                             static_cast<double>(stats.textureBytesAfter) / kMegabyte);
+        }
         ImGui::TextWrapped("%s", state.jobDirectory.toString().c_str());
         if (state.missingAssetCount > 0) {
           ImGui::PushStyleColor(ImGuiCol_Text, kWarningColor);
@@ -727,6 +773,34 @@ renderBuildCommands(SIZE_T configurationIndex)
 }
 
 void
+renderTextureSection()
+{
+  ImGui::SeparatorText("Textures");
+  const TextureCompressionQuality current = getTextureQuality();
+  const String currentName(TextureCooker::getQualityName(current));
+  if (ImGui::BeginCombo("Compression quality", currentName.c_str())) {
+    for (uint32 i = 0; i < static_cast<uint32>(TextureCompressionQuality::COUNT); ++i) {
+      const auto quality = static_cast<TextureCompressionQuality>(i);
+      const String name(TextureCooker::getQualityName(quality));
+      if (ImGui::Selectable(name.c_str(), quality == current) && quality != current) {
+        g_cvarTextureQuality.set(name, ConsoleVariableSource::Console);
+        EngineConfig::setUserValue("Editor", "Cook", "TextureQuality", name);
+      }
+    }
+    ImGui::EndCombo();
+  }
+  ImGui::SetItemTooltip("Fast for quick tests, High for releases. Each texture's own setting "
+                        "(Asset Inspector) decides its format; compressed textures are kept "
+                        "in Saved/Cooked, so packaging again only compresses what changed.");
+  if (!getTextureCompressor()) {
+    ImGui::PushStyleColor(ImGuiCol_Text, kWarningColor);
+    ImGui::TextWrapped(ICON_FA_EXCLAMATION_TRIANGLE "  The chTextureCompressor plugin is not "
+                                                    "loaded: textures go uncompressed.");
+    ImGui::PopStyleColor();
+  }
+}
+
+void
 renderBuildSection(DialogState& state)
 {
   ImGui::SeparatorText("Game runtime");
@@ -864,6 +938,7 @@ PackageDialog::render()
   ImGui::TextDisabled("The package goes into a subfolder named after the game.");
 
   renderSceneList(state);
+  renderTextureSection();
   renderBuildSection(state);
 
   if (EditorScene::isDirty()) {

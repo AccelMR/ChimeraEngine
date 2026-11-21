@@ -323,6 +323,17 @@ ProjectPackager::package(const PackageDesc& desc, PackageProgress* progress)
     return result;
   }
 
+  AssetCookSettings cookSettings{.textureCompressor = desc.textureCompressor,
+                                 .textureQuality = desc.textureQuality,
+                                 .textureCacheDirectory = desc.textureCacheDirectory,
+                                 .cancel = progress ? &progress->bCancelRequested : nullptr};
+  // Read before any texture is cooked: Auto gives these BC5.
+  AssetCooker::collectNormalMapTextures(desc.assetFiles, cookSettings.normalMapTextures);
+  if (!desc.textureCompressor) {
+    CH_LOG_WARNING(PackagerLog, "No texture compressor is loaded (the chTextureCompressor "
+                                "plugin); textures are packaged uncompressed.");
+  }
+
   for (const FileCopy& copy : copies) {
     if (progress && progress->bCancelRequested.load(std::memory_order_relaxed)) {
       // The folder was empty or a previous package, so nothing of the user's is lost.
@@ -331,15 +342,22 @@ ProjectPackager::package(const PackageDesc& desc, PackageProgress* progress)
       result.error = "Cancelled.";
       return result;
     }
-    // The editor data of an asset holds paths of this machine and means nothing to a game.
-    const bool bStripEditorData =
-        copy.kind == CopyKind::Asset &&
-        copy.source.getExtension() == EnginePaths::getEngineAssetExtension();
-    const bool bCopied =
-        bStripEditorData
-            ? AssetFile::rewriteWithEditorData(copy.source, copy.destination, StringView())
-            : FileSystem::copyFile(copy.source, copy.destination);
-    if (!bCopied) {
+    // Asset files are cooked: their editor data (paths of this machine) is left out and
+    // types with a cooker are written in the form a game loads best.
+    const bool bCook = copy.kind == CopyKind::Asset &&
+                       copy.source.getExtension() == EnginePaths::getEngineAssetExtension();
+    if (bCook) {
+      if (!AssetCooker::cookFile(copy.source, copy.destination, cookSettings,
+                                 result.cookStats, result.error)) {
+        if (progress && progress->bCancelRequested.load(std::memory_order_relaxed)) {
+          FileSystem::removeAll(desc.outputDirectory);
+          result.bCancelled = true;
+          result.error = "Cancelled.";
+        }
+        return result;
+      }
+    }
+    else if (!FileSystem::copyFile(copy.source, copy.destination)) {
       result.error = "Could not copy " + copy.source.toString() + " to " +
                      copy.destination.toString() + ".";
       return result;
@@ -359,9 +377,14 @@ ProjectPackager::package(const PackageDesc& desc, PackageProgress* progress)
     return result;
   }
 
-  CH_LOG_INFO(PackagerLog, "Packaged {0} into {1}: {2} binary files, {3} assets.",
+  const AssetCookStats& stats = result.cookStats;
+  CH_LOG_INFO(PackagerLog,
+              "Packaged {0} into {1}: {2} binary files, {3} assets. Textures: {4} compressed, "
+              "{5} from the cache, {6} kept, {7:.1f} MB to {8:.1f} MB.",
               desc.gameName, desc.outputDirectory, result.binaryFileCount,
-              result.assetFileCount);
+              result.assetFileCount, stats.compressedTextures, stats.cachedTextures,
+              stats.keptTextures, static_cast<double>(stats.textureBytesBefore) / 1048576.0,
+              static_cast<double>(stats.textureBytesAfter) / 1048576.0);
   result.bSucceeded = true;
   return result;
 }
