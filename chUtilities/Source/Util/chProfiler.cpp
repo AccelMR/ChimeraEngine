@@ -352,6 +352,14 @@ Profiler::getScopeStats()
 /*
  */
 float
+Profiler::getUpdateInterval()
+{
+  return g_cvarProfilerUpdateInterval.get();
+}
+
+/*
+ */
+float
 Profiler::getAverageFrameMilliseconds()
 {
   return getData().averageFrameMilliseconds;

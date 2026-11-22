@@ -151,6 +151,8 @@ GameApplication::fixedUpdate(const float deltaTime)
 void
 GameApplication::update(const float deltaTime)
 {
+  // First, so what finished loading is there for the scene this frame.
+  AssetManager::instance().update();
   const ISwapChain& swapChain = *getSwapChain();
   const float width = static_cast<float>(swapChain.getWidth());
   const float height = static_cast<float>(swapChain.getHeight());

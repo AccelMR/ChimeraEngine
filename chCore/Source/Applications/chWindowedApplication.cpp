@@ -23,6 +23,7 @@
 #include "chGraphicsSettings.h"
 #include "chGraphicsTypes.h"
 #include "chInputManager.h"
+#include "chJobSystem.h"
 #include "chLogger.h"
 #include "chProfiler.h"
 #include "chStringUtils.h"
@@ -125,6 +126,10 @@ WindowedApplication::run() {
     }
     if (!m_running) {
       break;
+    }
+    {
+      CH_PROFILE_SCOPE("MainThreadJobs");
+      JobSystem::pumpMainThread();
     }
 
     {

@@ -36,12 +36,13 @@ class CH_CORE_EXPORT AssetManager : public Module<AssetManager>
   /**
    * Default constructor
    */
-  AssetManager() = default;
+  AssetManager();
 
   /**
    * Destructor
    */
-  ~AssetManager() = default;
+  // Waits for the reads still running, which point into this manager.
+  ~AssetManager();
 
   void
   initialize();
@@ -63,6 +64,36 @@ class CH_CORE_EXPORT AssetManager : public Module<AssetManager>
    */
   NODISCARD SPtr<IAsset>
   getAsset(const UUID& assetUUID) const;
+
+  /**
+   * Loads the asset and what it references without stopping the frame: the files are read
+   * on Background jobs and update() finishes each asset on the main thread, references
+   * first, within a time and size budget per frame. True when the asset is loaded or on its
+   * way; false when it is missing or failed before. syncLoadAsset on an asset on its way
+   * finishes it at once.
+   */
+  bool
+  requestLoad(const SPtr<IAsset>& asset);
+
+  bool
+  requestLoad(const UUID& assetUUID);
+
+  NODISCARD bool
+  isLoadPending(const UUID& assetUUID) const;
+
+  NODISCARD FORCEINLINE SIZE_T
+  getPendingLoadCount() const noexcept
+  {
+    return m_pendingOrder.size();
+  }
+
+  /**
+   * Finishes the requested loads whose files were read and whose references are loaded,
+   * until Asset.LoadBudgetMs passed or Asset.UploadBudgetMB of data went through (at least
+   * one asset always finishes). The application calls it once a frame.
+   */
+  void
+  update();
 
   /**
    * Registers every asset under directory without loading it. For a mount root ("/Game")
@@ -198,6 +229,21 @@ class CH_CORE_EXPORT AssetManager : public Module<AssetManager>
   SPtr<IAsset>
   lazyLoadScriptFile(const Path& file);
 
+  struct PendingLoad;
+
+  /**
+   * Waits for the pending load's read and finishes it, and the pending loads it references
+   * first. Removes it from the pending loads.
+   */
+  bool
+  finishPendingNow(const UUID& assetUUID);
+
+  bool
+  finishPending(PendingLoad& pending);
+
+  NODISCARD bool
+  areReferencesReady(const PendingLoad& pending) const;
+
   /**
    * False, having registered nothing, when directory is not a mount root or one of its
    * layers has no readable manifest.
@@ -213,6 +259,11 @@ class CH_CORE_EXPORT AssetManager : public Module<AssetManager>
   createFromManifestEntry(const AssetManifestEntry& entry, StringView mountRoot);
 
  private:
+  // Requested loads by asset, and their UUIDs in the order they may finish (references
+  // before what references them).
+  UnorderedMap<UUID, UniquePtr<PendingLoad>> m_pendingLoads;
+  Vector<UUID> m_pendingOrder;
+
   Map<UUID, SPtr<IAsset>> m_assets; ///< Map of all assets by UUID, both loaded and unloaded
   Map<UUID, SPtr<IAsset>> m_loadedAssets; ///< Map of currently loaded assets by UUID
 

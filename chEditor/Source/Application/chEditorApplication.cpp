@@ -261,6 +261,8 @@ EditorApplication::fixedUpdate(const float deltaTime)
 void
 EditorApplication::update(const float deltaTime)
 {
+  // First, so what finished loading is there for the UI and the scene this frame.
+  AssetManager::instance().update();
   // A minimized window draws nothing, so no UI frame is built for it either.
   m_bViewportDrawn = false;
   m_bViewportHovered = false;

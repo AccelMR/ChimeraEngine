@@ -253,6 +253,59 @@ IAsset::load() {
 /*
  */
 bool
+IAsset::readForLoad(Vector<uint8>& outBytes,
+                    SIZE_T& outDataOffset,
+                    Vector<UUID>& outReferences,
+                    String& outError) const
+{
+  const Path file = getFilePath();
+  if (!FileSystem::isFile(file)) {
+    outError = "Asset file " + file.toString() + " does not exist";
+    return false;
+  }
+  outBytes = FileSystem::fastRead(file);
+  outDataOffset = 0;
+  outReferences.clear();
+  if (isPlainFile()) {
+    return true;
+  }
+
+  MemoryDataStream stream(outBytes.data(), outBytes.size(), false);
+  AssetFileInfo info;
+  if (outBytes.empty() || !AssetFile::readInfo(stream, info) ||
+      info.uuid != m_metadata.uuid || info.assetType != m_metadata.assetType ||
+      !AssetFile::readReferences(stream, outReferences) ||
+      !AssetFile::readEditorData(stream, nullptr)) {
+    outError = "Invalid asset file " + file.toString();
+    return false;
+  }
+  outDataOffset = stream.tell();
+  return true;
+}
+
+/*
+ */
+bool
+IAsset::finishLoad(Span<const uint8> data, Vector<UUID> references)
+{
+  if (!isPlainFile()) {
+    m_referencedAssets = std::move(references);
+  }
+  // Read only: deserialize never writes into the stream it is given.
+  const SPtr<DataStream> stream =
+      chMakeShared<MemoryDataStream>(const_cast<uint8*>(data.data()), data.size(), false);
+  if (!deserialize(stream)) {
+    CH_LOG(AssetSystem, Error, "Failed to deserialize asset {0}", m_metadata.name);
+    m_state = AssetState::Failed;
+    return false;
+  }
+  m_state = AssetState::Loaded;
+  return true;
+}
+
+/*
+ */
+bool
 IAsset::unload() {
   if (isUnloaded()) {
     return true;

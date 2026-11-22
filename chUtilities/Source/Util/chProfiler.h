@@ -77,6 +77,12 @@ class Profiler
   getAverageFrameMilliseconds();
 
   /**
+   * Seconds every average covers (Profiler.UpdateInterval).
+   */
+  NODISCARD CH_UTILITY_EXPORT static float
+  getUpdateInterval();
+
+  /**
    * Milliseconds of the last FRAME_HISTORY_SIZE frames, a ring that starts at
    * getFrameHistoryOffset() (the oldest).
    */
@@ -147,6 +153,12 @@ class Profiler
   getAverageFrameMilliseconds()
   {
     return 0.0f;
+  }
+
+  NODISCARD static float
+  getUpdateInterval()
+  {
+    return 0.5f;
   }
 
   NODISCARD static Span<const float>

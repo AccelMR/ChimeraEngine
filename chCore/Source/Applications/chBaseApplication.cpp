@@ -23,6 +23,7 @@
 #include "chEnginePaths.h"
 #include "chException.h"
 #include "chFileSystem.h"
+#include "chJobSystem.h"
 #include "chLogger.h"
 #include "chPath.h"
 #include "chPlatformSystem.h"
@@ -209,6 +210,8 @@ BaseApplication::launch(int32 argc,
     EngineConfig::initialize();
     // After the config, which may change how many backups are kept.
     removeOldLogBackups(logDirectory, info.logFileName);
+    // After the config, which sets how many workers it starts.
+    JobSystem::startUp();
 
     startUpApplication();
     BaseApplication& app = instance();
@@ -235,6 +238,9 @@ BaseApplication::launch(int32 argc,
     CH_LOG_ERROR(BaseApp, "Unknown exception caught while shutting down.");
     exitCode = 1;
   }
+
+  // After the application, whose modules wait for the jobs they started.
+  JobSystem::shutDown();
 
   RelaunchRequest& relaunch = getRelaunchRequest();
   if (relaunch.bRequested) {
@@ -298,6 +304,7 @@ BaseApplication::run() {
     previousTime = currentTime;
 
     if (!m_running) { break; }
+    JobSystem::pumpMainThread();
 
     // Update the accumulator
     accumulator += deltaTime;
