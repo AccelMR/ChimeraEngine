@@ -907,28 +907,172 @@ checkCurrentScene(lua_State* state, const ANSICHAR* function)
 }
 
 /*
- * Scene.openMap(pathOrName): when the update ends, every object of every level goes (their
- * scripts get onDestroy) and that scene becomes the map, with the sublevels it loads at
- * start. Only Lua globals carry over.
+ * A Lua function kept in the registry until the load it waits for ends. Shared by the
+ * copies of the callback the scene manager makes; the last one releases it.
+ */
+struct ScriptLoadCallback
+{
+  ScriptLoadCallback(lua_State* inState, const int32 inFunction) noexcept
+    : state(inState),
+      function(inFunction)
+  {}
+
+  ~ScriptLoadCallback()
+  {
+    // The state may have closed first (the script manager shut down).
+    if (ScriptManager::isStarted() && ScriptManager::instance().getState() == state) {
+      luaL_unref(state, LUA_REGISTRYINDEX, function);
+    }
+  }
+
+  ScriptLoadCallback(const ScriptLoadCallback&) = delete;
+
+  ScriptLoadCallback&
+  operator=(const ScriptLoadCallback&) = delete;
+
+  lua_State* state;
+  int32 function;
+};
+
+/*
+ * The optional function at index as a callback that calls it with whether the load ended
+ * well, with the active scene as the running script's scene. Empty without one.
+ */
+SceneManager::LevelLoadCallback
+makeLoadCallback(lua_State* state, const int32 index, const ANSICHAR* function)
+{
+  if (lua_isnoneornil(state, index)) {
+    return {};
+  }
+  if (!lua_isfunction(state, index)) {
+    luaL_error(state, "%s: the second argument must be a function", function);
+  }
+  lua_pushvalue(state, index);
+  const auto callback =
+      chMakeShared<ScriptLoadCallback>(state, luaL_ref(state, LUA_REGISTRYINDEX));
+  return [callback](bool bLoaded) {
+    if (!ScriptManager::isStarted() || !SceneManager::isStarted()) {
+      return;
+    }
+    ScriptManager& scriptManager = ScriptManager::instance();
+    if (scriptManager.getState() != callback->state) {
+      return;
+    }
+    Scene* const previousScene = scriptManager.getCurrentScene();
+    const SPtr<Scene> active = SceneManager::instance().getActiveScene().lock();
+    scriptManager.setCurrentScene(active.get());
+    scriptManager.beginCall(callback->function);
+    lua_pushboolean(callback->state, bLoaded);
+    static_cast<void>(scriptManager.endCall(1));
+    scriptManager.setCurrentScene(previousScene);
+  };
+}
+
+/*
+ * Scene.openMap(pathOrName, onDone?): loads that scene and the sublevels it loads at start
+ * in the background; at the end of the update after they are in, every object of every
+ * level goes (their scripts get onDestroy) and it becomes the map. Only Lua globals carry
+ * over. onDone(loaded) runs then.
  */
 int32
 openMap(lua_State* state)
 {
   const SPtr<SceneAsset> asset = checkSceneAsset(state, 1, "Scene.openMap");
-  checkSceneManager(state, "Scene.openMap").requestOpenMap(asset);
+  checkSceneManager(state, "Scene.openMap")
+      .requestOpenMap(asset, makeLoadCallback(state, 2, "Scene.openMap"));
   return 0;
 }
 
 /*
- * Scene.loadLevel(pathOrName): adds the objects of that scene as a sublevel when the update
- * ends; they start updating in the next one. A level already loaded logs a warning.
+ * Scene.loadLevel(pathOrName, onDone?): loads that scene in the background and adds all its
+ * objects as a sublevel at the end of the update after it is in; they start updating in the
+ * next one, and onDone(loaded) runs then. A level already loaded logs a warning.
  */
 int32
 loadLevel(lua_State* state)
 {
   const SPtr<SceneAsset> asset = checkSceneAsset(state, 1, "Scene.loadLevel");
-  checkSceneManager(state, "Scene.loadLevel").requestLoadLevel(asset);
+  checkSceneManager(state, "Scene.loadLevel")
+      .requestLoadLevel(asset, makeLoadCallback(state, 2, "Scene.loadLevel"));
   return 0;
+}
+
+/*
+ * Scene.getLevelLoadProgress(pathOrName): 0 to 1 while a load of that level (or a map change
+ * to it) runs, 1 otherwise.
+ */
+int32
+getLevelLoadProgress(lua_State* state)
+{
+  const SPtr<SceneAsset> asset = checkSceneAsset(state, 1, "Scene.getLevelLoadProgress");
+  const float progress = SceneManager::isStarted()
+                             ? SceneManager::instance().getLoadProgress(asset->getUUID())
+                             : 1.0f;
+  lua_pushnumber(state, progress);
+  return 1;
+}
+
+/*
+ * Scene.getMapLoadProgress(): 0 to 1 while an openMap loads, 1 otherwise.
+ */
+int32
+getMapLoadProgress(lua_State* state)
+{
+  const float progress =
+      SceneManager::isStarted() ? SceneManager::instance().getMapLoadProgress() : 1.0f;
+  lua_pushnumber(state, progress);
+  return 1;
+}
+
+/*
+ * Scene.isMapLoading(): true from openMap until the new map is in.
+ */
+int32
+isMapLoading(lua_State* state)
+{
+  lua_pushboolean(state,
+                  SceneManager::isStarted() && SceneManager::instance().isMapOpenRequested());
+  return 1;
+}
+
+/*
+ * The asset a script names by path or name, of any type; raises when there is none.
+ */
+SPtr<IAsset>
+checkAnyAsset(lua_State* state, const int32 index, const ANSICHAR* function)
+{
+  const StringView text = ScriptTraits<StringView>::check(state, index);
+  if (!AssetManager::isStarted()) {
+    luaL_error(state, "%s: there are no assets to search", function);
+  }
+  SPtr<IAsset> asset = AssetManager::instance().findAsset(UUID::null(), text);
+  if (!asset) {
+    luaL_error(state, "%s: there is no asset %s", function, String(text).c_str());
+  }
+  return asset;
+}
+
+/*
+ * Assets.preload(pathOrName): loads that asset and what it references in the background, so
+ * using it later (a prefab, a sound, a texture) costs no load. False when it cannot load.
+ */
+int32
+preloadAsset(lua_State* state)
+{
+  const SPtr<IAsset> asset = checkAnyAsset(state, 1, "Assets.preload");
+  lua_pushboolean(state, AssetManager::instance().requestLoad(asset));
+  return 1;
+}
+
+/*
+ * Assets.isLoaded(pathOrName): true once the asset is loaded.
+ */
+int32
+isAssetLoaded(lua_State* state)
+{
+  const SPtr<IAsset> asset = checkAnyAsset(state, 1, "Assets.isLoaded");
+  lua_pushboolean(state, asset->isLoaded());
+  return 1;
 }
 
 /*
@@ -955,9 +1099,8 @@ isLevelLoaded(lua_State* state)
 }
 
 /*
- * Scene.isLevelLoading(pathOrName): true between loadLevel and the end of the update that
- * loads it. Loading is not spread over frames yet, so a script that waits on it keeps
- * working when it is.
+ * Scene.isLevelLoading(pathOrName): true from loadLevel until the level is in; the load runs
+ * in the background over several frames.
  */
 int32
 isLevelLoading(lua_State* state)
@@ -1966,10 +2109,18 @@ ScriptBindings::registerObjects(lua_State* state)
                   {"normal", "Vector3"}};
   }
 
+  ScriptTable(state, "Assets", "Loading assets ahead of their use.")
+      .rawFunction("preload", &preloadAsset, "fun(asset: string): boolean")
+      .rawFunction("isLoaded", &isAssetLoaded, "fun(asset: string): boolean");
+
   ScriptTable(state, "Scene",
               "The scene of the running script: the map and the sublevels loaded into it.")
-      .rawFunction("openMap", &openMap, "fun(map: string)")
-      .rawFunction("loadLevel", &loadLevel, "fun(level: string)")
+      .rawFunction("openMap", &openMap, "fun(map: string, onDone?: fun(loaded: boolean))")
+      .rawFunction("loadLevel", &loadLevel,
+                   "fun(level: string, onDone?: fun(loaded: boolean))")
+      .rawFunction("getLevelLoadProgress", &getLevelLoadProgress, "fun(level: string): number")
+      .rawFunction("getMapLoadProgress", &getMapLoadProgress, "fun(): number")
+      .rawFunction("isMapLoading", &isMapLoading, "fun(): boolean")
       .rawFunction("unloadLevel", &unloadLevel, "fun(level: string)")
       .rawFunction("isLevelLoaded", &isLevelLoaded, "fun(level: string): boolean")
       .rawFunction("isLevelLoading", &isLevelLoading, "fun(level: string): boolean")

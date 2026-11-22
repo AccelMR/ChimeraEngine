@@ -49,8 +49,38 @@ ModelAsset::deserialize(SPtr<DataStream> stream)
     CH_LOG(ModelAssetLog, Error, "ModelAsset {0} could not be read", m_metadata.name);
     return false;
   }
+  return resolveReferences();
+}
 
-  // IAsset::load already loaded the references, so the materials are ready when they exist.
+/*
+ */
+bool
+ModelAsset::readAsync(Vector<uint8>& fileBytes, SIZE_T dataOffset, String& outError)
+{
+  MemoryDataStream stream(fileBytes.data() + dataOffset, fileBytes.size() - dataOffset, false);
+  m_pendingModel = ModelSerializer::read(stream);
+  if (!m_pendingModel) {
+    outError = "the model could not be read";
+    return false;
+  }
+  return true;
+}
+
+/*
+ */
+bool
+ModelAsset::finishAsyncRead()
+{
+  m_model = std::move(m_pendingModel);
+  return m_model && resolveReferences();
+}
+
+/*
+ */
+bool
+ModelAsset::resolveReferences()
+{
+  // The references are loaded before the model, so the materials are ready when they exist.
   AssetManager& assetManager = AssetManager::instance();
   const Vector<ModelMaterialSlot>& slots = m_model->getMaterialSlots();
   for (uint32 slot = 0; slot < slots.size(); ++slot) {

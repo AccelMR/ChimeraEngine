@@ -19,6 +19,7 @@
 #include "chProjectDescriptor.h"
 #include "chProjectPackager.h"
 #include "chScene.h"
+#include "chSceneAsset.h"
 #include "chStringUtils.h"
 #include "chUUID.h"
 

@@ -147,6 +147,9 @@ struct AssetManager::PendingLoad
   SIZE_T dataOffset = 0;
   Vector<UUID> references;
   String error;
+  // Bytes of the file, kept for the budget after readAsync may have taken them.
+  SIZE_T fileSize = 0;
+  bool bPrepared = false;
   bool bReadSucceeded = false;
   Atomic<bool> bReadDone{false};
   JobHandle job;
@@ -210,6 +213,12 @@ AssetManager::requestLoad(const SPtr<IAsset>& asset)
       [load] {
         load->bReadSucceeded = load->asset->readForLoad(load->bytes, load->dataOffset,
                                                         load->references, load->error);
+        load->fileSize = load->bytes.size();
+        if (load->bReadSucceeded && load->asset->hasAsyncRead()) {
+          load->bPrepared = true;
+          load->bReadSucceeded =
+              load->asset->readAsync(load->bytes, load->dataOffset, load->error);
+        }
         load->bReadDone.store(true, std::memory_order_release);
       },
       JobPriority::Background);
@@ -250,9 +259,11 @@ AssetManager::finishPending(PendingLoad& pending)
     asset->m_state = AssetState::Failed;
     return false;
   }
-  const Span<const uint8> data(pending.bytes.data() + pending.dataOffset,
-                               pending.bytes.size() - pending.dataOffset);
-  if (!asset->finishLoad(data, std::move(pending.references))) {
+  const Span<const uint8> data =
+      pending.bPrepared ? Span<const uint8>()
+                        : Span<const uint8>(pending.bytes.data() + pending.dataOffset,
+                                            pending.bytes.size() - pending.dataOffset);
+  if (!asset->finishLoad(data, std::move(pending.references), pending.bPrepared)) {
     CH_LOG_ERROR(AssetSystem, "Failed to load asset {0}", asset->getName());
     return false;
   }
@@ -314,7 +325,7 @@ AssetManager::update()
       m_pendingOrder[kept++] = uuid;
       continue;
     }
-    finishedBytes += pending.bytes.size();
+    finishedBytes += pending.fileSize;
     ++finishedCount;
     UniquePtr<PendingLoad> finished = std::move(it->second);
     m_pendingLoads.erase(it);
@@ -601,7 +612,8 @@ AssetManager::findAsset(const UUID& typeId, StringView pathOrName) const
   const StringView folder = bHasFolder ? pathOrName.substr(0, nameStart) : StringView();
 
   for (const auto& [uuid, asset] : m_assets) {
-    if (asset->getAssetTypeId() != typeId || StringView(asset->getName()) != name) {
+    if ((!typeId.isNull() && asset->getAssetTypeId() != typeId) ||
+        StringView(asset->getName()) != name) {
       continue;
     }
     if (!bHasFolder || StringView(asset->getAssetPath()) == folder) {

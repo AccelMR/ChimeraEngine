@@ -147,6 +147,18 @@ class CH_CORE_EXPORT TextureAsset : public IAsset
   void
   clearAssetData() override;
 
+  NODISCARD bool
+  hasAsyncRead() const override
+  {
+    return true;
+  }
+
+  bool
+  readAsync(Vector<uint8>& fileBytes, SIZE_T dataOffset, String& outError) override;
+
+  bool
+  finishAsyncRead() override;
+
   void
   createTextureFromData();
 
@@ -165,6 +177,9 @@ class CH_CORE_EXPORT TextureAsset : public IAsset
   uint32 m_height = 0; ///< Height of the texture
   Format m_format = Format::Unknown;
   uint32 m_mipLevels = 1;
+  // What readAsync read on the load's worker, made live by finishAsyncRead.
+  TextureAssetHeader m_pendingHeader{};
+  Vector<uint8> m_pendingPixels;
 #if USING(CH_EDITOR)
   TextureCompression m_compression = TextureCompression::Auto;
 #endif // USING(CH_EDITOR)

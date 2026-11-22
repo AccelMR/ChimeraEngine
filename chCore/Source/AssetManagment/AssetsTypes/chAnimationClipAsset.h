@@ -46,8 +46,22 @@ class CH_CORE_EXPORT AnimationClipAsset : public IAsset
   void
   clearAssetData() override;
 
+  NODISCARD bool
+  hasAsyncRead() const override
+  {
+    return true;
+  }
+
+  bool
+  readAsync(Vector<uint8>& fileBytes, SIZE_T dataOffset, String& outError) override;
+
+  bool
+  finishAsyncRead() override;
+
  private:
   SPtr<AnimationClip> m_clip;
+  // Read by readAsync on the load's worker.
+  SPtr<AnimationClip> m_pendingClip;
 };
 DECLARE_ASSET_TYPE(AnimationClipAsset);
 

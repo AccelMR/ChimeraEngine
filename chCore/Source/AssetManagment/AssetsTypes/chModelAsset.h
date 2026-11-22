@@ -46,11 +46,31 @@ class CH_CORE_EXPORT ModelAsset : public IAsset
   void
   clearAssetData() override;
 
+  NODISCARD bool
+  hasAsyncRead() const override
+  {
+    return true;
+  }
+
+  bool
+  readAsync(Vector<uint8>& fileBytes, SIZE_T dataOffset, String& outError) override;
+
+  bool
+  finishAsyncRead() override;
+
+  /**
+   * Links the read model to its materials and skeleton, which are loaded first.
+   */
+  bool
+  resolveReferences();
+
   void
   collectReferences(Vector<UUID>& outReferences) const override;
 
  private:
   SPtr<Model> m_model;
+  // Read by readAsync on the load's worker.
+  SPtr<Model> m_pendingModel;
 };
 DECLARE_ASSET_TYPE(ModelAsset);
 

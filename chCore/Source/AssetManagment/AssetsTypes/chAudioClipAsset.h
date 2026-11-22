@@ -81,8 +81,28 @@ class CH_CORE_EXPORT AudioClipAsset : public IAsset
   void
   clearAssetData() override;
 
+  NODISCARD bool
+  hasAsyncRead() const override
+  {
+    return true;
+  }
+
+  bool
+  readAsync(Vector<uint8>& fileBytes, SIZE_T dataOffset, String& outError) override;
+
+  bool
+  finishAsyncRead() override;
+
+  /**
+   * Reads the header and the sound file after it; outClip is null when it fails.
+   */
+  bool
+  readClip(DataStream& stream, SPtr<AudioClip>& outClip) const;
+
  private:
   SPtr<AudioClip> m_clip;
+  // Read by readAsync on the load's worker.
+  SPtr<AudioClip> m_pendingClip;
 };
 
 DECLARE_ASSET_TYPE(AudioClipAsset);

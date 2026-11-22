@@ -10,6 +10,8 @@
 
 #include "chSceneManager.h"
 
+#include "chAlgorithm.h"
+
 #include "chAssetManager.h"
 #include "chFileStream.h"
 #include "chGameObjectSerializer.h"
@@ -174,9 +176,10 @@ bool
 SceneManager::readLevelObjects(const SPtr<SceneAsset>& asset,
                                Scene& scene,
                                const SceneLevelId level,
-                               Vector<SceneSubLevel>* outSubLevels)
+                               Vector<SceneSubLevel>* outSubLevels,
+                               const bool bTakeObjects)
 {
-  if (asset->isLoaded()) {
+  if (asset->isLoaded() && !bTakeObjects) {
     // Someone else uses its scene (the editor has it open), so the objects are copied.
     const SPtr<Scene>& source = asset->getScene();
     if (!source) {
@@ -218,6 +221,16 @@ SceneManager::readLevelObjects(const SPtr<SceneAsset>& asset,
 WeakPtr<Scene>
 SceneManager::openMap(const SPtr<SceneAsset>& asset, const bool bPlaying)
 {
+  return openMapTaking(asset, bPlaying, nullptr);
+}
+
+/*
+ */
+WeakPtr<Scene>
+SceneManager::openMapTaking(const SPtr<SceneAsset>& asset,
+                            const bool bPlaying,
+                            const Vector<UUID>* takeFrom)
+{
   if (!asset) {
     return {};
   }
@@ -225,7 +238,9 @@ SceneManager::openMap(const SPtr<SceneAsset>& asset, const bool bPlaying)
   SPtr<Scene> scene = chMakeShared<Scene>(asset->getName(), UUID::createRandom());
   scene->setMapLevel(asset->getName(), asset->getUUID());
   Vector<SceneSubLevel> subLevels;
-  if (!readLevelObjects(asset, *scene, Scene::MAP_LEVEL, &subLevels)) {
+  const bool bTake = takeFrom ? Algorithm::contains(*takeFrom, asset->getUUID())
+                             : !asset->isLoaded();
+  if (!readLevelObjects(asset, *scene, Scene::MAP_LEVEL, &subLevels, bTake)) {
     return {};
   }
   scene->setSubLevels(subLevels);
@@ -236,7 +251,7 @@ SceneManager::openMap(const SPtr<SceneAsset>& asset, const bool bPlaying)
   }
   m_loadedScenes[scene->getUUID()] = scene;
   m_activeScene = scene;
-  loadStartLevels(*scene);
+  loadStartLevelsTaking(*scene, takeFrom);
   CH_LOG_INFO(SceneManagerLog, "Opened the map {0}.", asset->getName());
   return scene;
 }
@@ -245,6 +260,16 @@ SceneManager::openMap(const SPtr<SceneAsset>& asset, const bool bPlaying)
  */
 bool
 SceneManager::loadLevel(Scene& scene, const SPtr<SceneAsset>& asset)
+{
+  return asset && loadLevelTaking(scene, asset, !asset->isLoaded());
+}
+
+/*
+ */
+bool
+SceneManager::loadLevelTaking(Scene& scene,
+                              const SPtr<SceneAsset>& asset,
+                              const bool bTakeObjects)
 {
   if (!asset) {
     return false;
@@ -255,7 +280,7 @@ SceneManager::loadLevel(Scene& scene, const SPtr<SceneAsset>& asset)
     return false;
   }
   const SceneLevelId level = scene.addLevel(asset->getName(), asset->getUUID());
-  if (!readLevelObjects(asset, scene, level, nullptr)) {
+  if (!readLevelObjects(asset, scene, level, nullptr, bTakeObjects)) {
     scene.removeLevel(level);
     return false;
   }
@@ -286,6 +311,14 @@ SceneManager::unloadLevel(Scene& scene, const UUID& asset)
 void
 SceneManager::loadStartLevels(Scene& scene)
 {
+  loadStartLevelsTaking(scene, nullptr);
+}
+
+/*
+ */
+void
+SceneManager::loadStartLevelsTaking(Scene& scene, const Vector<UUID>* takeFrom)
+{
   if (!AssetManager::isStarted()) {
     return;
   }
@@ -302,28 +335,100 @@ SceneManager::loadStartLevels(Scene& scene)
                      scene.getName(), subLevel.asset);
       continue;
     }
-    loadLevel(scene, sceneAsset);
+    const bool bTake = takeFrom ? Algorithm::contains(*takeFrom, sceneAsset->getUUID())
+                               : !sceneAsset->isLoaded();
+    loadLevelTaking(scene, sceneAsset, bTake);
   }
 }
 
 /*
  */
 void
-SceneManager::requestOpenMap(const SPtr<SceneAsset>& asset)
+SceneManager::addLoadAssets(const SPtr<SceneAsset>& asset, LevelRequest& request)
 {
-  if (asset) {
-    m_levelRequests.push_back({.type = LevelRequestType::OpenMap, .asset = asset->getUUID()});
+  if (!asset->isLoaded() && !asset->isLoading()) {
+    request.takeObjectsFrom.push_back(asset->getUUID());
+  }
+  if (!AssetManager::isStarted()) {
+    return;
+  }
+  AssetManager& assetManager = AssetManager::instance();
+  assetManager.requestLoad(asset);
+
+  // Every asset the scene pulls in, for the progress and to know when it is ready.
+  Vector<UUID> toVisit{asset->getUUID()};
+  while (!toVisit.empty()) {
+    const UUID uuid = toVisit.back();
+    toVisit.pop_back();
+    if (Algorithm::contains(request.assets, uuid)) {
+      continue;
+    }
+    request.assets.push_back(uuid);
+    const SPtr<IAsset> visited = assetManager.getAsset(uuid);
+    if (!visited) {
+      continue;
+    }
+    for (const UUID& reference : visited->getReferencedAssets()) {
+      const SPtr<IAsset> referenced = assetManager.getAsset(reference);
+      if (referenced && referenced->isLoadedWithReferrers()) {
+        toVisit.push_back(reference);
+      }
+    }
   }
 }
 
 /*
  */
 void
-SceneManager::requestLoadLevel(const SPtr<SceneAsset>& asset)
+SceneManager::requestOpenMap(const SPtr<SceneAsset>& asset, LevelLoadCallback onDone)
 {
-  if (asset) {
-    m_levelRequests.push_back({.type = LevelRequestType::Load, .asset = asset->getUUID()});
+  if (!asset) {
+    return;
   }
+  LevelRequest request{.type = LevelRequestType::OpenMap,
+                       .asset = asset->getUUID(),
+                       .onDone = std::move(onDone)};
+  addLoadAssets(asset, request);
+  addStartLevels(request);
+  m_levelRequests.push_back(std::move(request));
+}
+
+/*
+ */
+void
+SceneManager::addStartLevels(LevelRequest& request)
+{
+  // The list is in the map's own data, so it is known once the map is loaded.
+  if (request.bStartLevelsAdded || !AssetManager::isStarted()) {
+    return;
+  }
+  const SPtr<IAsset> map = AssetManager::instance().getAsset(request.asset);
+  const SPtr<SceneAsset> mapAsset = map ? map->as<SceneAsset>() : nullptr;
+  if (!mapAsset || !mapAsset->isLoaded() || !mapAsset->getScene()) {
+    return;
+  }
+  request.bStartLevelsAdded = true;
+  for (const SceneSubLevel& subLevel : mapAsset->getScene()->getSubLevels()) {
+    const SPtr<IAsset> level = AssetManager::instance().getAsset(subLevel.asset);
+    const SPtr<SceneAsset> levelAsset = level ? level->as<SceneAsset>() : nullptr;
+    if (subLevel.bLoadAtStart && levelAsset) {
+      addLoadAssets(levelAsset, request);
+    }
+  }
+}
+
+/*
+ */
+void
+SceneManager::requestLoadLevel(const SPtr<SceneAsset>& asset, LevelLoadCallback onDone)
+{
+  if (!asset) {
+    return;
+  }
+  LevelRequest request{
+      .type = LevelRequestType::Load, .asset = asset->getUUID(), .onDone = std::move(onDone)};
+  addLoadAssets(asset, request);
+  m_levelRequests.push_back(std::move(request));
 }
 
 /*
@@ -349,19 +454,121 @@ SceneManager::isLevelLoadRequested(const UUID& asset) const
 
 /*
  */
+const SceneManager::LevelRequest*
+SceneManager::findLoadRequest(const UUID& asset) const
+{
+  for (const LevelRequest& request : m_levelRequests) {
+    if (request.type != LevelRequestType::Unload && request.asset == asset) {
+      return &request;
+    }
+  }
+  return nullptr;
+}
+
+/*
+ */
+float
+SceneManager::getRequestProgress(const LevelRequest& request)
+{
+  if (request.assets.empty() || !AssetManager::isStarted()) {
+    return 1.0f;
+  }
+  const AssetManager& assetManager = AssetManager::instance();
+  uint32 done = 0;
+  for (const UUID& uuid : request.assets) {
+    if (!assetManager.isLoadPending(uuid)) {
+      ++done;
+    }
+  }
+  return static_cast<float>(done) / static_cast<float>(request.assets.size());
+}
+
+/*
+ */
+float
+SceneManager::getLoadProgress(const UUID& asset) const
+{
+  const LevelRequest* request = findLoadRequest(asset);
+  return request ? getRequestProgress(*request) : 1.0f;
+}
+
+/*
+ */
+bool
+SceneManager::isMapOpenRequested() const
+{
+  for (const LevelRequest& request : m_levelRequests) {
+    if (request.type == LevelRequestType::OpenMap) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/*
+ */
+float
+SceneManager::getMapLoadProgress() const
+{
+  for (const LevelRequest& request : m_levelRequests) {
+    if (request.type == LevelRequestType::OpenMap) {
+      return getRequestProgress(request);
+    }
+  }
+  return 1.0f;
+}
+
+/*
+ */
+bool
+SceneManager::isRequestReady(const LevelRequest& request) const
+{
+  if (request.type == LevelRequestType::Unload || !AssetManager::isStarted()) {
+    return true;
+  }
+  // A map that loaded keeps waiting until its start sublevels joined the request.
+  if (request.type == LevelRequestType::OpenMap && !request.bStartLevelsAdded &&
+      !AssetManager::instance().isLoadPending(request.asset)) {
+    const SPtr<IAsset> map = AssetManager::instance().getAsset(request.asset);
+    if (map && map->isLoaded()) {
+      return false;
+    }
+  }
+  const AssetManager& assetManager = AssetManager::instance();
+  for (const UUID& uuid : request.assets) {
+    if (assetManager.isLoadPending(uuid)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/*
+ */
 void
 SceneManager::applyLevelRequests()
 {
-  if (m_levelRequests.empty()) {
-    return;
+  // In order, stopping at the first load still loading, so what was asked after it (an
+  // unload) never overtakes it. Requests made while these apply (a script's onDestroy) go
+  // to the end and wait for the next update.
+  for (LevelRequest& request : m_levelRequests) {
+    if (request.type == LevelRequestType::OpenMap) {
+      addStartLevels(request);
+    }
   }
-  // Scripts of a level loaded or unloaded here may ask for more (onDestroy); those wait for
-  // the next update.
-  m_levelRequestBatch.swap(m_levelRequests);
-  for (const LevelRequest& request : m_levelRequestBatch) {
+  SIZE_T applied = 0;
+  const SIZE_T count = m_levelRequests.size();
+  bool bMapOpened = false;
+  while (applied < count && isRequestReady(m_levelRequests[applied])) {
+    // Moved out: applying may add requests, which moves the list.
+    LevelRequest request = std::move(m_levelRequests[applied]);
+    ++applied;
     SPtr<Scene> scene = m_activeScene.lock();
     if (!scene) {
-      break;
+      if (request.onDone) {
+        request.onDone(false);
+      }
+      continue;
     }
     if (request.type == LevelRequestType::Unload) {
       unloadLevel(*scene, request.asset);
@@ -371,21 +578,39 @@ SceneManager::applyLevelRequests()
     const SPtr<IAsset> asset =
         AssetManager::isStarted() ? AssetManager::instance().getAsset(request.asset) : nullptr;
     const SPtr<SceneAsset> sceneAsset = asset ? asset->as<SceneAsset>() : nullptr;
-    if (!sceneAsset) {
+    bool bLoaded = false;
+    if (!sceneAsset || sceneAsset->isFailed()) {
       CH_LOG_ERROR(SceneManagerLog, "No scene {0} to load.", request.asset);
-      continue;
     }
-    if (request.type == LevelRequestType::Load) {
-      loadLevel(*scene, sceneAsset);
-      continue;
+    else if (request.type == LevelRequestType::Load) {
+      bLoaded = loadLevelTaking(*scene, sceneAsset,
+                                Algorithm::contains(request.takeObjectsFrom, request.asset));
     }
-
-    // What came after the map change was meant for the scene it replaced.
-    openMap(sceneAsset, scene->isPlaying());
-    m_levelRequests.clear();
-    break;
+    else {
+      bLoaded = !openMapTaking(sceneAsset, scene->isPlaying(), &request.takeObjectsFrom)
+                     .expired();
+      bMapOpened = bLoaded;
+    }
+    if (request.onDone) {
+      request.onDone(bLoaded);
+    }
+    if (bMapOpened) {
+      break;
+    }
   }
-  m_levelRequestBatch.clear();
+
+  if (bMapOpened) {
+    // What came after the map change was meant for the scene it replaced.
+    for (SIZE_T i = applied; i < m_levelRequests.size(); ++i) {
+      if (m_levelRequests[i].onDone) {
+        m_levelRequests[i].onDone(false);
+      }
+    }
+    m_levelRequests.clear();
+    return;
+  }
+  m_levelRequests.erase(m_levelRequests.begin(),
+                        m_levelRequests.begin() + static_cast<int64>(applied));
 }
 
 } // namespace chEngineSDK

@@ -8,6 +8,8 @@
 /************************************************************************/
 #include "chTextureAsset.h"
 
+#include <cstring>
+
 #include "chIGraphicsAPI.h"
 #include "chFileStream.h"
 #include "chLogger.h"
@@ -213,6 +215,56 @@ TextureAsset::deserialize(SPtr<DataStream> stream) {
 
   createTextureFromData();
 
+  return true;
+}
+
+/*
+ */
+bool
+TextureAsset::readAsync(Vector<uint8>& fileBytes, SIZE_T dataOffset, String& outError)
+{
+  TextureAssetHeader header;
+  if (fileBytes.size() < dataOffset + sizeof(header)) {
+    outError = "the texture is cut short";
+    return false;
+  }
+  memcpy(&header, fileBytes.data() + dataOffset, sizeof(header));
+  if (header.version != TextureAssetHeader::VERSION ||
+      static_cast<uint32>(header.format) >= static_cast<uint32>(Format::COUNT) ||
+      header.mipLevels == 0 ||
+      header.mipLevels > TextureMips::getMipCount(header.width, header.height) ||
+      !isValidSize(header.format, header.width, header.height)) {
+    outError = "bad header or old version; import it again";
+    return false;
+  }
+  const SIZE_T pixelStart = dataOffset + sizeof(header);
+  const SIZE_T chainSize = getChainSize(header.format, header.width, header.height,
+                                        header.mipLevels);
+  if (chainSize == 0 || fileBytes.size() - pixelStart < chainSize) {
+    outError = "the texture data is cut short";
+    return false;
+  }
+  // The file's own buffer becomes the pixels: moving the start out costs one pass on this
+  // thread instead of a second copy of the whole image.
+  fileBytes.erase(fileBytes.begin(), fileBytes.begin() + static_cast<int64>(pixelStart));
+  fileBytes.resize(chainSize);
+  m_pendingPixels = std::move(fileBytes);
+  m_pendingHeader = header;
+  return true;
+}
+
+/*
+ */
+bool
+TextureAsset::finishAsyncRead()
+{
+  m_width = m_pendingHeader.width;
+  m_height = m_pendingHeader.height;
+  m_format = m_pendingHeader.format;
+  m_mipLevels = m_pendingHeader.mipLevels;
+  m_textureData = std::move(m_pendingPixels);
+  m_pendingPixels = {};
+  createTextureFromData();
   return true;
 }
 
