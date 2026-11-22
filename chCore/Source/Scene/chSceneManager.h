@@ -132,26 +132,53 @@ class CH_CORE_EXPORT SceneManager : public Module<SceneManager>
   loadStartLevels(Scene& scene);
 
   /**
-   * Replaces the active scene with asset's map when the running update ends; the new one
-   * plays when the old one did.
+   * Called when a requested load ends: true when the level or map is in, false when it could
+   * not be loaded or a map change dropped the request.
    */
-  void
-  requestOpenMap(const SPtr<SceneAsset>& asset);
+  using LevelLoadCallback = Function<void(bool bLoaded)>;
 
   /**
-   * Loads asset as a level of the active scene when the running update ends.
+   * Replaces the active scene with asset's map once it and the sublevels it loads at start
+   * are loaded in the background (AssetManager::requestLoad), at the end of an update; the
+   * new one plays when the old one did. Requests made after it are dropped then.
    */
   void
-  requestLoadLevel(const SPtr<SceneAsset>& asset);
+  requestOpenMap(const SPtr<SceneAsset>& asset, LevelLoadCallback onDone = {});
 
+  /**
+   * Loads asset in the background and adds it as a level of the active scene at the end of
+   * the first update after it is loaded; its objects all appear in that update.
+   */
+  void
+  requestLoadLevel(const SPtr<SceneAsset>& asset, LevelLoadCallback onDone = {});
+
+  /**
+   * Applied in order with the loads: after a load requested before it.
+   */
   void
   requestUnloadLevel(const UUID& asset);
 
   /**
-   * True while a load of asset waits for the end of the update.
+   * True from requestLoadLevel until the level is in (or failed).
    */
   NODISCARD bool
   isLevelLoadRequested(const UUID& asset) const;
+
+  /**
+   * How much of a requested load of asset (a level or a map) is loaded, 0 to 1 by assets;
+   * 1 when none waits.
+   */
+  NODISCARD float
+  getLoadProgress(const UUID& asset) const;
+
+  /**
+   * getLoadProgress of the map waiting to open; 1 when none waits.
+   */
+  NODISCARD float
+  getMapLoadProgress() const;
+
+  NODISCARD bool
+  isMapOpenRequested() const;
 
  private:
   enum class LevelRequestType
@@ -165,26 +192,59 @@ class CH_CORE_EXPORT SceneManager : public Module<SceneManager>
   {
     LevelRequestType type = LevelRequestType::Load;
     UUID asset = UUID::null();
+    // Every asset the request waits for: the scene, what it references and, for a map, the
+    // sublevels it loads at start with theirs.
+    Vector<UUID> assets{};
+    // Scene assets this request loaded; their objects are moved out and they are unloaded.
+    // A scene that was already loaded (open in the editor) is copied instead.
+    Vector<UUID> takeObjectsFrom{};
+    LevelLoadCallback onDone{};
+    // A map lists its start sublevels in its own data, so they join once it is loaded.
+    bool bStartLevelsAdded = false;
   };
 
   void
   applyLevelRequests();
 
+  NODISCARD bool
+  isRequestReady(const LevelRequest& request) const;
+
+  void
+  addLoadAssets(const SPtr<SceneAsset>& asset, LevelRequest& request);
+
+  void
+  addStartLevels(LevelRequest& request);
+
+  NODISCARD const LevelRequest*
+  findLoadRequest(const UUID& asset) const;
+
+  NODISCARD static float
+  getRequestProgress(const LevelRequest& request);
+
+  WeakPtr<Scene>
+  openMapTaking(const SPtr<SceneAsset>& asset, bool bPlaying, const Vector<UUID>* takeFrom);
+
+  bool
+  loadLevelTaking(Scene& scene, const SPtr<SceneAsset>& asset, bool bTakeObjects);
+
+  void
+  loadStartLevelsTaking(Scene& scene, const Vector<UUID>* takeFrom);
+
   /**
-   * Puts the objects of asset into scene as objects of level. outSubLevels, when given, gets
-   * the asset's list of sublevels.
+   * Puts the objects of asset into scene as objects of level: moved out of the asset, which
+   * is unloaded, with bTakeObjects (or when it is not loaded yet), else copied. outSubLevels,
+   * when given, gets the asset's list of sublevels.
    */
   NODISCARD bool
   readLevelObjects(const SPtr<SceneAsset>& asset,
                    Scene& scene,
                    SceneLevelId level,
-                   Vector<SceneSubLevel>* outSubLevels);
+                   Vector<SceneSubLevel>* outSubLevels,
+                   bool bTakeObjects);
 
   UnorderedMap<UUID, SPtr<Scene>> m_loadedScenes;
   WeakPtr<Scene> m_activeScene;
   Vector<LevelRequest> m_levelRequests;
-  // The requests being applied; a member so its memory is kept.
-  Vector<LevelRequest> m_levelRequestBatch;
 };
 
 } // namespace chEngineSDK

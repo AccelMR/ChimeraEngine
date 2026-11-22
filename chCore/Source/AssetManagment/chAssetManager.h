@@ -126,7 +126,7 @@ class CH_CORE_EXPORT AssetManager : public Module<AssetManager>
   findScene(StringView pathOrName) const;
 
   /**
-   * Same as findScene for any asset type.
+   * Same as findScene for any asset type; a null typeId matches every type.
    */
   NODISCARD SPtr<IAsset>
   findAsset(const UUID& typeId, StringView pathOrName) const;

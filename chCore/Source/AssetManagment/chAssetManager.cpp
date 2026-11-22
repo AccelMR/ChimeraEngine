@@ -612,7 +612,8 @@ AssetManager::findAsset(const UUID& typeId, StringView pathOrName) const
   const StringView folder = bHasFolder ? pathOrName.substr(0, nameStart) : StringView();
 
   for (const auto& [uuid, asset] : m_assets) {
-    if (asset->getAssetTypeId() != typeId || StringView(asset->getName()) != name) {
+    if ((!typeId.isNull() && asset->getAssetTypeId() != typeId) ||
+        StringView(asset->getName()) != name) {
       continue;
     }
     if (!bHasFolder || StringView(asset->getAssetPath()) == folder) {

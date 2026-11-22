@@ -15,14 +15,18 @@
 #include "chAnimationGraph.h"
 #include "chAnimationGraphAsset.h"
 #include "chAnimationTestHelpers.h"
+#include "chAssetManager.h"
 #include "chAudioClipAsset.h"
 #include "chAudioTestHelpers.h"
-#include "chFontAsset.h"
-#include "chTextTestHelpers.h"
-#include "chAssetManager.h"
 #include "chConsoleVariable.h"
 #include "chFileSystem.h"
+#include "chFontAsset.h"
+#include "chGameObject.h"
 #include "chJobSystem.h"
+#include "chScene.h"
+#include "chSceneAsset.h"
+#include "chSceneManager.h"
+#include "chTextTestHelpers.h"
 
 #include "catch.hpp"
 
@@ -30,6 +34,7 @@ using namespace chEngineSDK;
 
 namespace {
 constexpr const ANSICHAR* kMount = "AsyncLoadTest";
+constexpr const ANSICHAR* kLevelMount = "AsyncLevelTest";
 
 AssetMetadata
 makeMountMetadata(const chEngineSDK::UUID& type, const ANSICHAR* name)
@@ -58,6 +63,51 @@ pumpUntilDone(AssetManager& manager, uint32& outMostPerUpdate)
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
   return updates;
+}
+SPtr<SceneAsset>
+saveTestScene(AssetManager& manager, const ANSICHAR* name, Span<const ANSICHAR* const> objects)
+{
+  AssetMetadata metadata;
+  metadata.uuid = chEngineSDK::UUID::createRandom();
+  metadata.assetType = AssetTypeTraits<SceneAsset>::getTypeId();
+  StringUtils::copyToBuffer(metadata.name, name);
+  StringUtils::copyToBuffer(metadata.assetPath, String("/") + kLevelMount);
+  const auto asset = chMakeShared<SceneAsset>(metadata);
+  const auto scene = chMakeShared<Scene>(name, metadata.uuid);
+  for (const ANSICHAR* object : objects) {
+    static_cast<void>(scene->createGameObject(object));
+  }
+  asset->setScene(scene);
+  REQUIRE(manager.saveAsset(asset));
+  return asset;
+}
+
+bool
+hasRoot(const Scene& scene, StringView name)
+{
+  for (const SPtr<GameObject>& root : scene.getRootGameObjects()) {
+    if (StringView(root->getName()) == name) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Runs frames like an application: the asset loads, then the scene update that applies the
+// level requests. Stops when nothing waits (or after a few seconds).
+void
+pumpFrames(AssetManager& assets, SceneManager& scenes)
+{
+  for (uint32 i = 0; i < 5000; ++i) {
+    assets.update();
+    scenes.update(1.0f / 60.0f);
+    if (assets.getPendingLoadCount() == 0 && !scenes.isMapOpenRequested()) {
+      // One more update applies what finished loading in this one.
+      scenes.update(1.0f / 60.0f);
+      return;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
 }
 } // namespace
 
@@ -181,6 +231,85 @@ TEST_CASE("chCore - Asynchronous asset loads", "[Assets]")
   const SPtr<Font>& loadedFont = std::static_pointer_cast<FontAsset>(fontFile)->getFont();
   REQUIRE(loadedFont);
   REQUIRE(loadedFont->getLineHeight() > 0.0f);
+
+  // Levels and maps: a request waits for its scene's load, then its objects come in one
+  // update. In this test because the managers cannot start twice in one program.
+  const Path levelRoot = FileSystem::absolutePath(Path("AsyncLevelTestDir"));
+  FileSystem::removeAll(levelRoot);
+  REQUIRE(FileSystem::createDirectories(levelRoot));
+  REQUIRE(FileSystem::mount(kLevelMount, levelRoot, 0, true));
+  AssetManager& assets = manager;
+  const ANSICHAR* const mainObjects[] = {"Player", "Floor"};
+  const ANSICHAR* const ruinsObjects[] = {"Pillar", "Lintel"};
+  const ANSICHAR* const arenaObjects[] = {"Wall"};
+  const chEngineSDK::UUID mainId = saveTestScene(assets, "Main", mainObjects)->getUUID();
+  const chEngineSDK::UUID ruinsId = saveTestScene(assets, "Ruins", ruinsObjects)->getUUID();
+  const chEngineSDK::UUID arenaId = saveTestScene(assets, "Arena", arenaObjects)->getUUID();
+
+  // The scenes as a game finds them: registered from their files, not loaded.
+  assets.lazyLoadAssetsFromDirectory(Path(String("/") + kLevelMount));
+  const SPtr<SceneAsset> main = std::static_pointer_cast<SceneAsset>(assets.getAsset(mainId));
+  const SPtr<SceneAsset> ruins =
+      std::static_pointer_cast<SceneAsset>(assets.getAsset(ruinsId));
+  const SPtr<SceneAsset> arena =
+      std::static_pointer_cast<SceneAsset>(assets.getAsset(arenaId));
+  REQUIRE(main);
+  REQUIRE(ruins);
+  REQUIRE(arena);
+  REQUIRE_FALSE(ruins->isLoaded());
+
+  // A local one: the module cannot start twice in one program, and another test starts it.
+  SceneManager scenes;
+  const SPtr<Scene> world = scenes.openMap(main, true).lock();
+  REQUIRE(world);
+  REQUIRE(hasRoot(*world, "Player"));
+
+  // A level waits for its load, then all its objects come in one update.
+  int32 calls = 0;
+  bool bLoadedResult = false;
+  scenes.requestLoadLevel(ruins, [&calls, &bLoadedResult](bool bLoaded) {
+    ++calls;
+    bLoadedResult = bLoaded;
+  });
+  REQUIRE(scenes.isLevelLoadRequested(ruinsId));
+  REQUIRE(scenes.getLoadProgress(ruinsId) < 1.0f);
+  REQUIRE(ruins->isLoading());
+  pumpFrames(assets, scenes);
+  REQUIRE(calls == 1);
+  REQUIRE(bLoadedResult);
+  REQUIRE_FALSE(scenes.isLevelLoadRequested(ruinsId));
+  REQUIRE(scenes.getLoadProgress(ruinsId) == 1.0f);
+  REQUIRE(world->findLevel(ruinsId));
+  REQUIRE(hasRoot(*world, "Pillar"));
+  REQUIRE(hasRoot(*world, "Lintel"));
+  // Loaded for the level only, its objects moved out and the asset let go.
+  REQUIRE_FALSE(ruins->isLoaded());
+
+  // An unload asked after a load waits for it, so both apply in order.
+  REQUIRE(scenes.unloadLevel(*world, ruinsId));
+  scenes.update(1.0f / 60.0f);
+  REQUIRE_FALSE(hasRoot(*world, "Pillar"));
+  scenes.requestLoadLevel(ruins);
+  scenes.requestUnloadLevel(ruinsId);
+  pumpFrames(assets, scenes);
+  REQUIRE_FALSE(world->findLevel(ruinsId));
+  REQUIRE_FALSE(hasRoot(*world, "Pillar"));
+
+  // A map change waits for its load too and replaces the active scene.
+  bool bMapOpened = false;
+  scenes.requestOpenMap(arena, [&bMapOpened](bool bLoaded) { bMapOpened = bLoaded; });
+  REQUIRE(scenes.isMapOpenRequested());
+  REQUIRE(scenes.getMapLoadProgress() < 1.0f);
+  pumpFrames(assets, scenes);
+  REQUIRE(bMapOpened);
+  REQUIRE_FALSE(scenes.isMapOpenRequested());
+  const SPtr<Scene> arenaScene = scenes.getActiveScene().lock();
+  REQUIRE(arenaScene);
+  REQUIRE(hasRoot(*arenaScene, "Wall"));
+  REQUIRE_FALSE(hasRoot(*arenaScene, "Player"));
+
+  REQUIRE(FileSystem::unmount(kLevelMount, levelRoot));
+  FileSystem::removeAll(levelRoot);
 
   AssetManager::shutDown();
   JobSystem::shutDown();

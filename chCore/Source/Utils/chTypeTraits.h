@@ -48,12 +48,16 @@ template <typename T> struct TypeTraits {
 
 // Keep backward compatibility for assets
 template <typename T> struct AssetTypeTraits {
+  // Without the asset's header the generic TypeTraits (a null id) is used, and the linker
+  // may then keep that one for every file of the program.
   static constexpr const ANSICHAR*
   getTypeName() {
+    static_assert(TypeTraits<T>::DECLARED, "Include the header of the asset type.");
     return TypeTraits<T>::getTypeName();
   }
   static const UUID&
   getTypeId() {
+    static_assert(TypeTraits<T>::DECLARED, "Include the header of the asset type.");
     return TypeTraits<T>::getTypeId();
   }
 
