@@ -67,10 +67,10 @@ FontAsset::serialize(SPtr<DataStream> stream)
 /*
  */
 bool
-FontAsset::deserialize(SPtr<DataStream> stream)
+FontAsset::readFont(DataStream& stream, FontSettings& outSettings, Vector<uint8>& outFontData) const
 {
   FontAssetHeader header;
-  if (!stream || !AssetFile::readValue(*stream, header)) {
+  if (!AssetFile::readValue(stream, header)) {
     CH_LOG_ERROR(AssetSystem, "Font {0} is cut short.", getName());
     return false;
   }
@@ -93,23 +93,67 @@ FontAsset::deserialize(SPtr<DataStream> stream)
                         .bPreloadAscii = (header.flags & FontAssetHeader::PRELOAD_ASCII_BIT) != 0,
                         .bPreloadLatin1 =
                             (header.flags & FontAssetHeader::PRELOAD_LATIN1_BIT) != 0};
-  if (!AssetFile::readString(*stream, settings.preloadCharacters, MAX_PRELOAD_CHARACTERS_SIZE)) {
+  if (!AssetFile::readString(stream, settings.preloadCharacters, MAX_PRELOAD_CHARACTERS_SIZE)) {
     CH_LOG_ERROR(AssetSystem, "Font {0} has broken preload characters.", getName());
     return false;
   }
   if (header.fontDataSize == 0 || header.fontDataSize > MAX_FONT_DATA_SIZE ||
-      header.fontDataSize > AssetFile::getBytesLeft(*stream)) {
+      header.fontDataSize > AssetFile::getBytesLeft(stream)) {
     CH_LOG_ERROR(AssetSystem, "Font {0} is cut short.", getName());
     return false;
   }
   Vector<uint8> fontData(header.fontDataSize);
-  if (!AssetFile::readBytes(*stream, fontData.data(), fontData.size())) {
+  if (!AssetFile::readBytes(stream, fontData.data(), fontData.size())) {
     CH_LOG_ERROR(AssetSystem, "Font {0} is cut short.", getName());
     return false;
   }
 
-  m_settings = std::move(settings);
+  outSettings = std::move(settings);
+  outFontData = std::move(fontData);
+  return true;
+}
+
+/*
+ */
+bool
+FontAsset::deserialize(SPtr<DataStream> stream)
+{
+  Vector<uint8> fontData;
+  if (!stream || !readFont(*stream, m_settings, fontData)) {
+    return false;
+  }
   makeFont(std::move(fontData));
+  return m_font != nullptr;
+}
+
+/*
+ */
+bool
+FontAsset::readAsync(Vector<uint8>& fileBytes, SIZE_T dataOffset, String& outError)
+{
+  // Making the font draws the glyphs it preloads, the slow part of loading it.
+  MemoryDataStream stream(fileBytes.data() + dataOffset, fileBytes.size() - dataOffset, false);
+  Vector<uint8> fontData;
+  if (!readFont(stream, m_pendingSettings, fontData)) {
+    outError = "the font could not be read";
+    return false;
+  }
+  m_pendingFont = chMakeShared<Font>(std::move(fontData), m_pendingSettings);
+  if (!m_pendingFont->isValid()) {
+    m_pendingFont.reset();
+    outError = "it does not hold a TrueType or OpenType file";
+    return false;
+  }
+  return true;
+}
+
+/*
+ */
+bool
+FontAsset::finishAsyncRead()
+{
+  m_settings = std::move(m_pendingSettings);
+  m_font = std::move(m_pendingFont);
   return m_font != nullptr;
 }
 

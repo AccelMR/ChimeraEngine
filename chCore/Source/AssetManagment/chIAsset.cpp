@@ -286,15 +286,22 @@ IAsset::readForLoad(Vector<uint8>& outBytes,
 /*
  */
 bool
-IAsset::finishLoad(Span<const uint8> data, Vector<UUID> references)
+IAsset::finishLoad(Span<const uint8> data, Vector<UUID> references, bool bPrepared)
 {
   if (!isPlainFile()) {
     m_referencedAssets = std::move(references);
   }
-  // Read only: deserialize never writes into the stream it is given.
-  const SPtr<DataStream> stream =
-      chMakeShared<MemoryDataStream>(const_cast<uint8*>(data.data()), data.size(), false);
-  if (!deserialize(stream)) {
+  bool bLoaded = false;
+  if (bPrepared) {
+    bLoaded = finishAsyncRead();
+  }
+  else {
+    // Read only: deserialize never writes into the stream it is given.
+    const SPtr<DataStream> stream =
+        chMakeShared<MemoryDataStream>(const_cast<uint8*>(data.data()), data.size(), false);
+    bLoaded = deserialize(stream);
+  }
+  if (!bLoaded) {
     CH_LOG(AssetSystem, Error, "Failed to deserialize asset {0}", m_metadata.name);
     m_state = AssetState::Failed;
     return false;

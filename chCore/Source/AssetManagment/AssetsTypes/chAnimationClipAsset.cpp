@@ -45,6 +45,29 @@ AnimationClipAsset::deserialize(SPtr<DataStream> stream)
 
 /*
  */
+bool
+AnimationClipAsset::readAsync(Vector<uint8>& fileBytes, SIZE_T dataOffset, String& outError)
+{
+  MemoryDataStream stream(fileBytes.data() + dataOffset, fileBytes.size() - dataOffset, false);
+  m_pendingClip = AnimationClip::deserialize(stream);
+  if (!m_pendingClip) {
+    outError = "the clip could not be read";
+    return false;
+  }
+  return true;
+}
+
+/*
+ */
+bool
+AnimationClipAsset::finishAsyncRead()
+{
+  m_clip = std::move(m_pendingClip);
+  return m_clip != nullptr;
+}
+
+/*
+ */
 void
 AnimationClipAsset::clearAssetData()
 {

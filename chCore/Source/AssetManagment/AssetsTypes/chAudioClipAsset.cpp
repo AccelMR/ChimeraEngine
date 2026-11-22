@@ -65,10 +65,10 @@ AudioClipAsset::serialize(SPtr<DataStream> stream)
 /*
  */
 bool
-AudioClipAsset::deserialize(SPtr<DataStream> stream)
+AudioClipAsset::readClip(DataStream& stream, SPtr<AudioClip>& outClip) const
 {
   AudioClipAssetHeader header;
-  if (!stream || !AssetFile::readValue(*stream, header)) {
+  if (!AssetFile::readValue(stream, header)) {
     CH_LOG_ERROR(AssetSystem, "Audio clip {0} is cut short.", getName());
     return false;
   }
@@ -87,12 +87,12 @@ AudioClipAsset::deserialize(SPtr<DataStream> stream)
     return false;
   }
   if (header.dataSize == 0 || header.dataSize > AudioClip::MAX_ENCODED_SIZE ||
-      header.dataSize > AssetFile::getBytesLeft(*stream)) {
+      header.dataSize > AssetFile::getBytesLeft(stream)) {
     CH_LOG_ERROR(AssetSystem, "Audio clip {0} is cut short.", getName());
     return false;
   }
   Vector<uint8> data(header.dataSize);
-  if (!AssetFile::readBytes(*stream, data.data(), data.size())) {
+  if (!AssetFile::readBytes(stream, data.data(), data.size())) {
     CH_LOG_ERROR(AssetSystem, "Audio clip {0} is cut short.", getName());
     return false;
   }
@@ -101,11 +101,42 @@ AudioClipAsset::deserialize(SPtr<DataStream> stream)
                                    .bus = static_cast<AudioBus>(header.bus),
                                    .volume = header.volume,
                                    .maxVoices = header.maxVoices};
-  m_clip = AudioClip::create(std::move(data), settings);
-  if (!m_clip) {
+  outClip = AudioClip::create(std::move(data), settings);
+  if (!outClip) {
     CH_LOG_ERROR(AssetSystem, "Audio clip {0} does not hold a sound this build reads.",
                  getName());
   }
+  return outClip != nullptr;
+}
+
+/*
+ */
+bool
+AudioClipAsset::deserialize(SPtr<DataStream> stream)
+{
+  return stream && readClip(*stream, m_clip);
+}
+
+/*
+ */
+bool
+AudioClipAsset::readAsync(Vector<uint8>& fileBytes, SIZE_T dataOffset, String& outError)
+{
+  // Decompressed clips decode the whole sound here, the slow part of loading them.
+  MemoryDataStream stream(fileBytes.data() + dataOffset, fileBytes.size() - dataOffset, false);
+  if (!readClip(stream, m_pendingClip)) {
+    outError = "the sound could not be read";
+    return false;
+  }
+  return true;
+}
+
+/*
+ */
+bool
+AudioClipAsset::finishAsyncRead()
+{
+  m_clip = std::move(m_pendingClip);
   return m_clip != nullptr;
 }
 

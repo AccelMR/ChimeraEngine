@@ -217,11 +217,46 @@ class CH_CORE_EXPORT IAsset : public EnableSharedFromThis<IAsset>
               String& outError) const;
 
   /**
-   * The second half, on the main thread once the references are loaded: deserialize over
-   * data, the bytes after the file start.
+   * The second half, on the main thread once the references are loaded: finishAsyncRead
+   * when readAsync already ran (bPrepared), else deserialize over data, the bytes after the
+   * file start.
    */
   NODISCARD bool
-  finishLoad(Span<const uint8> data, Vector<UUID> references);
+  finishLoad(Span<const uint8> data, Vector<UUID> references, bool bPrepared);
+
+  /**
+   * Whether the type moves the heavy part of deserialize to the load's worker thread.
+   */
+  NODISCARD virtual bool
+  hasAsyncRead() const
+  {
+    return false;
+  }
+
+  /**
+   * On a worker thread right after readForLoad: parses the bytes after the file start
+   * (from dataOffset in fileBytes, which it may take) into the asset's own staging members
+   * only. It must not touch the asset manager, the graphics API or anything other threads
+   * read; finishAsyncRead completes on the main thread.
+   */
+  virtual bool
+  readAsync(Vector<uint8>& fileBytes, SIZE_T dataOffset, String& outError)
+  {
+    CH_PARAMETER_UNUSED(fileBytes);
+    CH_PARAMETER_UNUSED(dataOffset);
+    CH_PARAMETER_UNUSED(outError);
+    return false;
+  }
+
+  /**
+   * On the main thread once the references are loaded: makes what readAsync staged live
+   * (GPU uploads, references to other assets).
+   */
+  virtual bool
+  finishAsyncRead()
+  {
+    return false;
+  }
 
   NODISCARD bool
   unload();

@@ -15,6 +15,10 @@
 #include "chAnimationGraph.h"
 #include "chAnimationGraphAsset.h"
 #include "chAnimationTestHelpers.h"
+#include "chAudioClipAsset.h"
+#include "chAudioTestHelpers.h"
+#include "chFontAsset.h"
+#include "chTextTestHelpers.h"
 #include "chAssetManager.h"
 #include "chConsoleVariable.h"
 #include "chFileSystem.h"
@@ -150,6 +154,33 @@ TEST_CASE("chCore - Asynchronous asset loads", "[Assets]")
   REQUIRE(runFile->isFailed());
   REQUIRE(graphFile->isLoaded());
   REQUIRE_FALSE(manager.requestLoad(runFile));
+
+  // Sounds and fonts do their slow part (decoding, drawing glyphs) on the load's worker.
+  const auto sound = chMakeShared<AudioClipAsset>(
+      makeMountMetadata(AssetTypeTraits<AudioClipAsset>::getTypeId(), "S_Beep"),
+      makeTestWav(2, kTestAudioRate, 4800, kTestAudioValue),
+      AudioClipSettings{.loadMode = AudioClipLoadMode::Decompress});
+  const auto font = chMakeShared<FontAsset>(
+      makeMountMetadata(AssetTypeTraits<FontAsset>::getTypeId(), "F_Test"), readTestFont(),
+      FontSettings{});
+  REQUIRE(manager.saveAsset(sound));
+  REQUIRE(manager.saveAsset(font));
+  manager.lazyLoadAssetsFromDirectory(Path(String("/") + kMount));
+  const SPtr<IAsset> soundFile = manager.getAsset(sound->getUUID());
+  const SPtr<IAsset> fontFile = manager.getAsset(font->getUUID());
+  REQUIRE(soundFile);
+  REQUIRE(fontFile);
+  REQUIRE(manager.requestLoad(soundFile));
+  REQUIRE(manager.requestLoad(fontFile));
+  pumpUntilDone(manager, mostPerUpdate);
+  REQUIRE(soundFile->isLoaded());
+  REQUIRE(fontFile->isLoaded());
+  const SPtr<AudioClip>& clip = std::static_pointer_cast<AudioClipAsset>(soundFile)->getClip();
+  REQUIRE(clip);
+  REQUIRE(clip->getInfo().frameCount == 4800);
+  const SPtr<Font>& loadedFont = std::static_pointer_cast<FontAsset>(fontFile)->getFont();
+  REQUIRE(loadedFont);
+  REQUIRE(loadedFont->getLineHeight() > 0.0f);
 
   AssetManager::shutDown();
   JobSystem::shutDown();
