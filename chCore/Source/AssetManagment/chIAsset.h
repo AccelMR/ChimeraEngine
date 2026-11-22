@@ -205,6 +205,24 @@ class CH_CORE_EXPORT IAsset : public EnableSharedFromThis<IAsset>
   NODISCARD bool
   load();
 
+  /**
+   * The first half of a load made by AssetManager::requestLoad, safe on any thread: reads
+   * the whole file and checks its start. It reads only the asset's metadata, so the asset
+   * may be used meanwhile.
+   */
+  NODISCARD bool
+  readForLoad(Vector<uint8>& outBytes,
+              SIZE_T& outDataOffset,
+              Vector<UUID>& outReferences,
+              String& outError) const;
+
+  /**
+   * The second half, on the main thread once the references are loaded: deserialize over
+   * data, the bytes after the file start.
+   */
+  NODISCARD bool
+  finishLoad(Span<const uint8> data, Vector<UUID> references);
+
   NODISCARD bool
   unload();
 

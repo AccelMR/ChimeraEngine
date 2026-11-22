@@ -12,6 +12,14 @@
 
 #include "chAssetManager.h"
 
+#include <chrono>
+
+#include "chAlgorithm.h"
+#include "chConsoleVariable.h"
+#include "chJobSystem.h"
+#include "chMath.h"
+#include "chProfiler.h"
+
 
 #include "chAssetFile.h"
 #include "chPakArchive.h"
@@ -40,6 +48,18 @@
 
 
 namespace chEngineSDK {
+namespace {
+ConsoleVariable<float> g_cvarLoadBudgetMs(
+    "Asset.LoadBudgetMs",
+    4.0f,
+    "Milliseconds per frame spent finishing assets loaded in the background.",
+    "LoadBudgetMs");
+ConsoleVariable<int32> g_cvarUploadBudgetMB(
+    "Asset.UploadBudgetMB",
+    64,
+    "Megabytes of asset data finished per frame (most of it goes to the GPU).",
+    "UploadBudgetMB");
+} // namespace
 CH_LOG_DEFINE_CATEGORY_SHARED(AssetSystem, All);
 
 namespace AssetManagerUtils {} // namespace AssetManagerUtils
@@ -82,6 +102,9 @@ AssetManager::syncLoadAsset(const SPtr<IAsset>& asset) {
     CH_LOG_DEBUG(AssetSystem, "Asset {0} is already loaded", asset->getName());
     return true;
   }
+  if (isLoadPending(asset->getUUID())) {
+    return finishPendingNow(asset->getUUID());
+  }
   if (asset->isLoading()) {
     CH_LOG_DEBUG(AssetSystem, "Asset {0} is already loading", asset->getName());
     return false;
@@ -114,6 +137,194 @@ AssetManager::syncLoadAsset(const SPtr<IAsset>& asset) {
 
 /*
 */
+/*
+ * A load asked for with requestLoad: what its Background job read, and the job.
+ */
+struct AssetManager::PendingLoad
+{
+  SPtr<IAsset> asset;
+  Vector<uint8> bytes;
+  SIZE_T dataOffset = 0;
+  Vector<UUID> references;
+  String error;
+  bool bReadSucceeded = false;
+  Atomic<bool> bReadDone{false};
+  JobHandle job;
+};
+
+/*
+ */
+AssetManager::AssetManager() = default;
+
+/*
+ */
+AssetManager::~AssetManager()
+{
+  for (const auto& [uuid, pending] : m_pendingLoads) {
+    JobSystem::wait(pending->job);
+  }
+}
+
+/*
+ */
+bool
+AssetManager::requestLoad(const UUID& assetUUID)
+{
+  return requestLoad(getAsset(assetUUID));
+}
+
+/*
+ */
+bool
+AssetManager::requestLoad(const SPtr<IAsset>& asset)
+{
+  if (!asset || asset->isFailed()) {
+    return false;
+  }
+  if (asset->isLoaded() || isLoadPending(asset->getUUID())) {
+    return true;
+  }
+  if (!asset->isUnloaded()) {
+    // Loading synchronously right now, or unloading.
+    return false;
+  }
+
+  // Listed before its references are requested, so a cycle of references ends here.
+  auto pending = chMakeUnique<PendingLoad>();
+  PendingLoad* load = pending.get();
+  load->asset = asset;
+  asset->m_state = AssetState::Loading;
+  m_pendingLoads.emplace(asset->getUUID(), std::move(pending));
+
+  for (const UUID& reference : asset->getReferencedAssets()) {
+    const SPtr<IAsset> referenced = getAsset(reference);
+    if (referenced && referenced->isLoadedWithReferrers()) {
+      requestLoad(referenced);
+    }
+  }
+  // After its references, which may finish first.
+  m_pendingOrder.push_back(asset->getUUID());
+
+  load->job = JobSystem::submit(
+      "ReadAsset",
+      [load] {
+        load->bReadSucceeded = load->asset->readForLoad(load->bytes, load->dataOffset,
+                                                        load->references, load->error);
+        load->bReadDone.store(true, std::memory_order_release);
+      },
+      JobPriority::Background);
+  return true;
+}
+
+/*
+ */
+bool
+AssetManager::isLoadPending(const UUID& assetUUID) const
+{
+  return m_pendingLoads.contains(assetUUID);
+}
+
+/*
+ */
+bool
+AssetManager::areReferencesReady(const PendingLoad& pending) const
+{
+  for (const UUID& reference : pending.asset->getReferencedAssets()) {
+    if (m_pendingLoads.contains(reference)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/*
+ */
+bool
+AssetManager::finishPending(PendingLoad& pending)
+{
+  JobSystem::wait(pending.job);
+  const SPtr<IAsset>& asset = pending.asset;
+  if (!pending.bReadSucceeded) {
+    CH_LOG_ERROR(AssetSystem, "Failed to load asset {0}: {1}", asset->getName(),
+                 pending.error);
+    asset->m_state = AssetState::Failed;
+    return false;
+  }
+  const Span<const uint8> data(pending.bytes.data() + pending.dataOffset,
+                               pending.bytes.size() - pending.dataOffset);
+  if (!asset->finishLoad(data, std::move(pending.references))) {
+    CH_LOG_ERROR(AssetSystem, "Failed to load asset {0}", asset->getName());
+    return false;
+  }
+  m_loadedAssets[asset->getUUID()] = asset;
+  return true;
+}
+
+/*
+ */
+bool
+AssetManager::finishPendingNow(const UUID& assetUUID)
+{
+  const auto it = m_pendingLoads.find(assetUUID);
+  if (it == m_pendingLoads.end()) {
+    return false;
+  }
+  UniquePtr<PendingLoad> pending = std::move(it->second);
+  m_pendingLoads.erase(it);
+  Algorithm::removeFirst(m_pendingOrder, assetUUID);
+
+  // What it references must be ready before its deserialize looks for it.
+  for (const UUID& reference : pending->asset->getReferencedAssets()) {
+    if (m_pendingLoads.contains(reference)) {
+      finishPendingNow(reference);
+    }
+  }
+  return finishPending(*pending);
+}
+
+/*
+ */
+void
+AssetManager::update()
+{
+  if (m_pendingOrder.empty()) {
+    return;
+  }
+  CH_PROFILE_SCOPE("AssetLoading");
+  const auto start = std::chrono::steady_clock::now();
+  const double timeBudget = static_cast<double>(g_cvarLoadBudgetMs.get());
+  const uint64 sizeBudget = static_cast<uint64>(Math::max(g_cvarUploadBudgetMB.get(), 0)) *
+                            1024ull * 1024ull;
+  uint64 finishedBytes = 0;
+  uint32 finishedCount = 0;
+
+  // In request order, so an asset is only reached after the ones it references.
+  SIZE_T kept = 0;
+  for (SIZE_T i = 0; i < m_pendingOrder.size(); ++i) {
+    const UUID uuid = m_pendingOrder[i];
+    const bool bOverBudget =
+        finishedCount > 0 &&
+        (finishedBytes >= sizeBudget ||
+         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
+                 .count() >= timeBudget);
+    const auto it = m_pendingLoads.find(uuid);
+    PendingLoad& pending = *it->second;
+    if (bOverBudget || !pending.bReadDone.load(std::memory_order_acquire) ||
+        !areReferencesReady(pending)) {
+      m_pendingOrder[kept++] = uuid;
+      continue;
+    }
+    finishedBytes += pending.bytes.size();
+    ++finishedCount;
+    UniquePtr<PendingLoad> finished = std::move(it->second);
+    m_pendingLoads.erase(it);
+    finishPending(*finished);
+  }
+  m_pendingOrder.resize(kept);
+}
+
+/*
+ */
 bool
 AssetManager::unloadAsset(const SPtr<IAsset>& asset) {
   if (!asset) {
