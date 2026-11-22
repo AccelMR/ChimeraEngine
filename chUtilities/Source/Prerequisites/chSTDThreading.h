@@ -14,6 +14,7 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <mutex>
 #include <thread>
 
@@ -25,6 +26,11 @@ using RecursiveLock = std::unique_lock<RecursiveMutex>;
 
 template<typename M>
 using LockGuard = std::lock_guard<M>;
+
+template<typename M>
+using UniqueLock = std::unique_lock<M>;
+
+using ConditionVariable = std::condition_variable;
 
 template<typename T>
 using Atomic = std::atomic<T>;

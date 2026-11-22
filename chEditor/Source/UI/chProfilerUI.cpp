@@ -13,7 +13,9 @@
 #include <cstring>
 
 #include "chConsoleVariable.h"
+#include "chAlgorithm.h"
 #include "chEngineConfig.h"
+#include "chJobSystem.h"
 #include "chMath.h"
 #include "chProfiler.h"
 #include "chRenderSettings.h"
@@ -340,6 +342,135 @@ renderPassTable(const RenderFrameStats& stats)
   ImGui::EndTable();
 }
 
+// The job counters are totals since start; what the window shows is the change over the
+// last Profiler.UpdateInterval, made from two snapshots.
+struct JobView
+{
+  Vector<JobThreadStats> previousThreads;
+  Vector<JobThreadStats> threads;
+  Vector<JobNameStats> previousNames;
+  Vector<JobNameStats> names;
+  // Per thread: busy fraction and jobs per second; per name: the interval's counts.
+  Vector<float> threadBusy;
+  Vector<float> threadJobsPerSecond;
+  Vector<JobNameStats> intervalNames;
+  double lastTime = -1.0;
+  double intervalSeconds = 0.0;
+};
+
+JobView&
+getJobView()
+{
+  static JobView view;
+  return view;
+}
+
+void
+refreshJobView(JobView& view, double now)
+{
+  JobSystem::getThreadStats(view.threads);
+  JobSystem::getNameStats(view.names);
+  view.intervalSeconds = view.lastTime < 0.0 ? 0.0 : now - view.lastTime;
+  view.lastTime = now;
+
+  view.threadBusy.assign(view.threads.size(), 0.0f);
+  view.threadJobsPerSecond.assign(view.threads.size(), 0.0f);
+  view.intervalNames.clear();
+  if (view.intervalSeconds > 0.0 && view.previousThreads.size() == view.threads.size()) {
+    for (SIZE_T i = 0; i < view.threads.size(); ++i) {
+      const double busy = static_cast<double>(view.threads[i].busyNanoseconds -
+                                              view.previousThreads[i].busyNanoseconds);
+      const double jobs = static_cast<double>(view.threads[i].jobCount -
+                                              view.previousThreads[i].jobCount);
+      view.threadBusy[i] = static_cast<float>(busy / (view.intervalSeconds * 1.0e9));
+      view.threadJobsPerSecond[i] = static_cast<float>(jobs / view.intervalSeconds);
+    }
+    for (const JobNameStats& current : view.names) {
+      JobNameStats delta = current;
+      for (const JobNameStats& previous : view.previousNames) {
+        if (previous.name == current.name) {
+          delta.jobCount -= previous.jobCount;
+          delta.busyNanoseconds -= previous.busyNanoseconds;
+          break;
+        }
+      }
+      if (delta.jobCount > 0) {
+        view.intervalNames.push_back(delta);
+      }
+    }
+    Algorithm::sort(view.intervalNames, [](const JobNameStats& a, const JobNameStats& b) {
+      return a.busyNanoseconds > b.busyNanoseconds;
+    });
+  }
+  std::swap(view.previousThreads, view.threads);
+  std::swap(view.previousNames, view.names);
+}
+
+void
+renderJobs()
+{
+  if (!JobSystem::isStarted()) {
+    ImGui::TextDisabled("The job system is not running.");
+    return;
+  }
+  JobView& view = getJobView();
+  const double now = ImGui::GetTime();
+  if (view.lastTime < 0.0 ||
+      now - view.lastTime >= static_cast<double>(Profiler::getUpdateInterval())) {
+    refreshJobView(view, now);
+  }
+
+  const ImGuiTableFlags tableFlags =
+      ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp;
+  if (ImGui::BeginTable("##JobThreads", 3, tableFlags)) {
+    ImGui::TableSetupColumn("Thread");
+    ImGui::TableSetupColumn("Busy");
+    ImGui::TableSetupColumn("Jobs/s");
+    ImGui::TableHeadersRow();
+    const SIZE_T workers = JobSystem::getWorkerCount();
+    for (SIZE_T i = 0; i < view.threadBusy.size(); ++i) {
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
+      if (i < workers) {
+        ImGui::Text("Worker %u", static_cast<uint32>(i));
+      }
+      else {
+        ImGui::TextUnformatted("Main");
+      }
+      ImGui::TableNextColumn();
+      ImGui::ProgressBar(Math::clamp(view.threadBusy[i], 0.0f, 1.0f), ImVec2(-1.0f, 0.0f));
+      ImGui::TableNextColumn();
+      ImGui::Text("%.0f", view.threadJobsPerSecond[i]);
+    }
+    ImGui::EndTable();
+  }
+
+  if (view.intervalNames.empty()) {
+    ImGui::TextDisabled("No jobs ran in the last interval.");
+    return;
+  }
+  if (ImGui::BeginTable("##JobNames", 4, tableFlags)) {
+    ImGui::TableSetupColumn("Job");
+    ImGui::TableSetupColumn("Jobs/s");
+    ImGui::TableSetupColumn("ms/s");
+    ImGui::TableSetupColumn("ms each");
+    ImGui::TableHeadersRow();
+    for (const JobNameStats& stats : view.intervalNames) {
+      const double milliseconds = static_cast<double>(stats.busyNanoseconds) / 1.0e6;
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
+      ImGui::TextUnformatted(stats.name ? stats.name : "?");
+      ImGui::TableNextColumn();
+      ImGui::Text("%.0f", static_cast<double>(stats.jobCount) / view.intervalSeconds);
+      ImGui::TableNextColumn();
+      ImGui::Text("%.2f", milliseconds / view.intervalSeconds);
+      ImGui::TableNextColumn();
+      ImGui::Text("%.3f", milliseconds / static_cast<double>(stats.jobCount));
+    }
+    ImGui::EndTable();
+  }
+}
+
 void
 renderWindow(const RenderFrameStats& stats)
 {
@@ -369,6 +500,9 @@ renderWindow(const RenderFrameStats& stats)
   }
   if (ImGui::CollapsingHeader("Render Passes", ImGuiTreeNodeFlags_DefaultOpen)) {
     renderPassTable(stats);
+  }
+  if (ImGui::CollapsingHeader("Jobs", ImGuiTreeNodeFlags_DefaultOpen)) {
+    renderJobs();
   }
   if (ImGui::CollapsingHeader("Features", ImGuiTreeNodeFlags_DefaultOpen)) {
     renderFeatures();

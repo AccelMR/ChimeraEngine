@@ -17,6 +17,7 @@
 #include "chFileStream.h"
 #include "chFileSystem.h"
 #include "chHash.h"
+#include "chJobSystem.h"
 #include "chLogger.h"
 #include "chMath.h"
 #include "chStringUtils.h"
@@ -40,8 +41,8 @@ constexpr uint32 kCacheMagic = 0x43544843u;
 // quickly and to keep the scratch buffers on the stack.
 constexpr SIZE_T kBlocksPerBatch = 64;
 
-// Fewer blocks than this per thread are not worth a thread.
-constexpr SIZE_T kMinBlocksPerThread = 256;
+// Fewer blocks than this are not worth a job of their own.
+constexpr SIZE_T kMinBlocksPerJob = 256;
 
 // In front of every cache file.
 struct CacheFileHeader
@@ -294,25 +295,12 @@ TextureCooker::compress(const ITextureCompressor& compressor,
   }
   outData.resize(outputSize);
 
-  const SIZE_T hardwareThreads = Math::max<SIZE_T>(Thread::hardware_concurrency(), 1);
-  const SIZE_T threadCount =
-      Math::max<SIZE_T>(Math::min(hardwareThreads, blockCount / kMinBlocksPerThread), 1);
-  const SIZE_T blocksPerThread = (blockCount + threadCount - 1) / threadCount;
-  Vector<Thread> threads;
-  threads.reserve(threadCount - 1);
-  for (SIZE_T i = 1; i < threadCount; ++i) {
-    const SIZE_T first = Math::min(i * blocksPerThread, blockCount);
-    const SIZE_T end = Math::min(first + blocksPerThread, blockCount);
-    threads.emplace_back([&, first, end] {
-      compressRange(compressor, source, target, quality, levels, first, end, outData.data(),
-                    cancel);
-    });
-  }
-  compressRange(compressor, source, target, quality, levels, 0,
-                Math::min(blocksPerThread, blockCount), outData.data(), cancel);
-  for (Thread& thread : threads) {
-    thread.join();
-  }
+  uint8* output = outData.data();
+  JobSystem::parallelFor("CompressTexture", blockCount, kMinBlocksPerJob,
+                         [&](SIZE_T first, SIZE_T end) {
+                           compressRange(compressor, source, target, quality, levels, first,
+                                         end, output, cancel);
+                         });
 
   if (cancel && cancel->load(std::memory_order_relaxed)) {
     outData.clear();

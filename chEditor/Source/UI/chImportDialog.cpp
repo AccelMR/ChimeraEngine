@@ -12,6 +12,7 @@
 #include "chAlgorithm.h"
 #include "chAssetCodec.h"
 #include "chEnginePaths.h"
+#include "chJobSystem.h"
 #include "chLogger.h"
 #include "chMath.h"
 #include "chAssetManager.h"
@@ -73,7 +74,7 @@ struct DialogState
   // bReadSucceeded is only read after bReadDone is seen true.
   UniquePtr<IImportTask> task;
   UniquePtr<ImportProgress> progress;
-  Thread worker;
+  JobHandle worker;
   bool bReadSucceeded = false;
   Atomic<bool> bReadDone{false};
   Event<void(const SPtr<IAsset>&)> onImported;
@@ -216,10 +217,13 @@ startImport(DialogState& state)
   state.progress = chMakeUnique<ImportProgress>();
   state.bReadSucceeded = false;
   state.bReadDone.store(false, std::memory_order_relaxed);
-  state.worker = Thread([&state]() {
-    state.bReadSucceeded = state.task->readSource(*state.progress);
-    state.bReadDone.store(true, std::memory_order_release);
-  });
+  state.worker = JobSystem::submit(
+      "ImportAsset",
+      [&state]() {
+        state.bReadSucceeded = state.task->readSource(*state.progress);
+        state.bReadDone.store(true, std::memory_order_release);
+      },
+      JobPriority::Background);
 }
 
 /*
@@ -421,7 +425,8 @@ ImportDialog::update()
   if (!state.task || !state.bReadDone.load(std::memory_order_acquire)) {
     return;
   }
-  state.worker.join();
+  JobSystem::wait(state.worker);
+  state.worker = {};
 
   if (state.progress->isCancelled()) {
     CH_LOG_INFO(ImportDialogLog, "Import of {0} cancelled", state.sourceFile);
@@ -447,10 +452,11 @@ void
 ImportDialog::shutDown()
 {
   DialogState& state = getState();
-  if (state.worker.joinable()) {
+  if (!JobSystem::isDone(state.worker)) {
     state.progress->cancel();
-    state.worker.join();
+    JobSystem::wait(state.worker);
   }
+  state.worker = {};
   endImport(state);
 }
 

@@ -17,6 +17,7 @@
 #include "chEngineConfig.h"
 #include "chEnginePaths.h"
 #include "chFileSystem.h"
+#include "chJobSystem.h"
 #include "chLogger.h"
 #include "chMath.h"
 #include "chProjectPackager.h"
@@ -154,7 +155,9 @@ struct DialogState
   Path jobDirectory;
   uint32 missingAssetCount = 0;
   UniquePtr<PackageProgress> progress;
-  Thread worker;
+  JobHandle worker;
+  // Kept here for the job, whose function holds only a pointer to the state.
+  PackageDesc jobDesc;
   PackageResult result;
   Atomic<bool> bJobDone{false};
   // When the result was first drawn; the window closes kResultSeconds later.
@@ -531,21 +534,24 @@ startPackage(DialogState& state, const Path& binaryDirectory, bool bDevelopment)
                                     ? StringView()
                                     : StringView(outputParent.toString()));
 
-  state.worker = Thread([&state, desc = std::move(desc)]() {
-    state.result = ProjectPackager::package(desc, state.progress.get());
-    if (!state.result.bSucceeded && !state.result.bCancelled) {
-      CH_LOG_ERROR(PackageDialogLog, "Package failed: {0}", state.result.error);
-    }
-    state.bJobDone.store(true, std::memory_order_release);
-  });
+  state.jobDesc = std::move(desc);
+  state.worker = JobSystem::submit(
+      "PackageProject",
+      [&state]() {
+        state.result = ProjectPackager::package(state.jobDesc, state.progress.get());
+        if (!state.result.bSucceeded && !state.result.bCancelled) {
+          CH_LOG_ERROR(PackageDialogLog, "Package failed: {0}", state.result.error);
+        }
+        state.bJobDone.store(true, std::memory_order_release);
+      },
+      JobPriority::Background);
 }
 
 void
 endJob(DialogState& state)
 {
-  if (state.worker.joinable()) {
-    state.worker.join();
-  }
+  JobSystem::wait(state.worker);
+  state.worker = {};
   state.progress.reset();
   state.bJobShown = false;
 }
@@ -574,8 +580,9 @@ renderJobWindow(DialogState& state)
     return;
   }
   const bool bDone = state.bJobDone.load(std::memory_order_acquire);
-  if (bDone && state.worker.joinable()) {
-    state.worker.join();
+  if (bDone && state.worker.isValid()) {
+    JobSystem::wait(state.worker);
+    state.worker = {};
   }
 
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -1022,10 +1029,11 @@ void
 PackageDialog::shutDown()
 {
   DialogState& state = getState();
-  if (state.worker.joinable()) {
+  if (!JobSystem::isDone(state.worker)) {
     state.progress->bCancelRequested.store(true);
-    state.worker.join();
+    JobSystem::wait(state.worker);
   }
+  state.worker = {};
   state.progress.reset();
 }
 
