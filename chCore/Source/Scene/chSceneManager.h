@@ -20,6 +20,19 @@ CH_LOG_DECLARE_EXTERN(CH_CORE_EXPORT, SceneManagerLog);
 
 namespace chEngineSDK {
 
+/**
+ * How SceneManager::requestOpenMap shows the wait for the map.
+ */
+struct MapOpenOptions
+{
+  // Scene shown while the map loads; null takes Game.LoadingScene.
+  SPtr<SceneAsset> loadingScene{};
+  // Keeps the current map until the new one is in, even when Game.LoadingScene is set.
+  bool bNoLoadingScene = false;
+  // Least seconds the loading scene stays; negative takes Game.LoadingMinTime.
+  float minLoadingTime = -1.0f;
+};
+
 class CH_CORE_EXPORT SceneManager : public Module<SceneManager>
 {
  public:
@@ -107,6 +120,7 @@ class CH_CORE_EXPORT SceneManager : public Module<SceneManager>
    * loads at start, and makes it the active one; the scene it replaces is forgotten. A scene
    * asset already loaded (open in the editor) is copied and stays loaded; otherwise it is
    * unloaded once its objects moved. Never during an update. Null when asset cannot load.
+   * Requests still waiting are dropped (called back with false).
    */
   WeakPtr<Scene>
   openMap(const SPtr<SceneAsset>& asset, bool bPlaying);
@@ -141,9 +155,20 @@ class CH_CORE_EXPORT SceneManager : public Module<SceneManager>
    * Replaces the active scene with asset's map once it and the sublevels it loads at start
    * are loaded in the background (AssetManager::requestLoad), at the end of an update; the
    * new one plays when the old one did. Requests made after it are dropped then.
+   * With a loading scene, the old map goes as soon as that scene is loaded and a copy of it
+   * is the active scene until the map is in (and at least the minimum time passed); an
+   * active scene that already is that loading scene stays as it is.
    */
   void
-  requestOpenMap(const SPtr<SceneAsset>& asset, LevelLoadCallback onDone = {});
+  requestOpenMap(const SPtr<SceneAsset>& asset,
+                 LevelLoadCallback onDone = {},
+                 const MapOpenOptions& options = {});
+
+  /**
+   * The scene Game.LoadingScene names; null when it is empty or names no scene.
+   */
+  NODISCARD static SPtr<SceneAsset>
+  getDefaultLoadingScene();
 
   /**
    * Loads asset in the background and adds it as a level of the active scene at the end of
@@ -180,6 +205,18 @@ class CH_CORE_EXPORT SceneManager : public Module<SceneManager>
   NODISCARD bool
   isMapOpenRequested() const;
 
+  /**
+   * The map a requestOpenMap waits for; null when none waits.
+   */
+  NODISCARD UUID
+  getRequestedMap() const;
+
+  /**
+   * True while a loading scene is the active scene, waiting for a map.
+   */
+  NODISCARD bool
+  isLoadingScreenShown() const;
+
  private:
   enum class LevelRequestType
   {
@@ -199,12 +236,31 @@ class CH_CORE_EXPORT SceneManager : public Module<SceneManager>
     // A scene that was already loaded (open in the editor) is copied instead.
     Vector<UUID> takeObjectsFrom{};
     LevelLoadCallback onDone{};
+    // Scene shown while a map loads; null for none, or once it turned out missing.
+    UUID loadingScene = UUID::null();
+    float minLoadingTime = 0.0f;
+    // Seconds the loading scene has been shown.
+    float loadingTime = 0.0f;
+    bool bLoadingScreenShown = false;
     // A map lists its start sublevels in its own data, so they join once it is loaded.
     bool bStartLevelsAdded = false;
   };
 
   void
-  applyLevelRequests();
+  applyLevelRequests(float deltaTime);
+
+  /**
+   * Makes a copy of the loading scene of the request at index the active scene, dropping
+   * the old map. False while that scene still loads.
+   */
+  NODISCARD bool
+  showLoadingScreen(SIZE_T index);
+
+  /**
+   * Calls every waiting request back with false and forgets them.
+   */
+  void
+  dropLevelRequests();
 
   NODISCARD bool
   isRequestReady(const LevelRequest& request) const;

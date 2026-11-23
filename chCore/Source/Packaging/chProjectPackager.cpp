@@ -27,8 +27,9 @@ namespace chEngineSDK {
 CH_LOG_DECLARE_STATIC(PackagerLog, All);
 
 namespace {
-// The engine content folder of these holds sources the build already compiled.
-const ANSICHAR* const kEngineSourceFolders[] = {"Shaders"};
+// Engine content folders that hold shader sources: the build compiled the engine's, and the
+// editor compiles the post-process effects into project assets, so games read neither.
+const ANSICHAR* const kEngineSourceFolders[] = {"Shaders", "PostProcess"};
 
 enum class CopyKind : uint8
 {

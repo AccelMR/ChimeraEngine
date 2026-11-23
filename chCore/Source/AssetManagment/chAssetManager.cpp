@@ -56,7 +56,7 @@ ConsoleVariable<float> g_cvarLoadBudgetMs(
     "LoadBudgetMs");
 ConsoleVariable<int32> g_cvarUploadBudgetMB(
     "Asset.UploadBudgetMB",
-    64,
+    16,
     "Megabytes of asset data finished per frame (most of it goes to the GPU).",
     "UploadBudgetMB");
 } // namespace

@@ -24,6 +24,7 @@
 #include "chProjectSettingsUI.h"
 #include "chSTDThreading.h"
 #include "chSceneAsset.h"
+#include "chSceneManager.h"
 #include "chStringUtils.h"
 
 #include "imgui.h"
@@ -484,6 +485,11 @@ startPackage(DialogState& state, const Path& binaryDirectory, bool bDevelopment)
     return;
   }
   saveScenes(state);
+  // Game.ini names it only by text, so no scene references it.
+  if (const SPtr<SceneAsset> loading = SceneManager::getDefaultLoadingScene();
+      loading && !Algorithm::contains(roots, loading->getUUID())) {
+    roots.push_back(loading->getUUID());
+  }
 
   // What every root of content always packages, for what code names only by text.
   const Vector<SPtr<IAsset>> allAssets = assetManager.getAllAssets();
