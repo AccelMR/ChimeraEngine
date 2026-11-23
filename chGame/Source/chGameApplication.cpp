@@ -87,7 +87,26 @@ GameApplication::openStartupScene()
 {
   const String& sceneName = g_cvarStartupScene.get();
   SceneManager& sceneManager = SceneManager::instance();
-  if (const SPtr<SceneAsset> asset = AssetManager::instance().findScene(sceneName)) {
+  AssetManager& assetManager = AssetManager::instance();
+  if (const SPtr<SceneAsset> asset = assetManager.findScene(sceneName)) {
+    // With a loading scene the map loads behind it, so the window shows something at once.
+    // Loaded first, so it is copied and stays loaded for the next map change.
+    const SPtr<SceneAsset> loading = SceneManager::getDefaultLoadingScene();
+    if (loading && loading != asset && assetManager.syncLoadAsset(loading)) {
+      if (const SPtr<Scene> scene = sceneManager.openMap(loading, true).lock()) {
+        m_scene = scene;
+        sceneManager.requestOpenMap(
+            asset,
+            [sceneName](const bool bLoaded) {
+              if (!bLoaded) {
+                CH_LOG_ERROR(GameApp, "Could not open the startup scene {0}.", sceneName);
+              }
+            },
+            {.loadingScene = loading});
+        CH_LOG_INFO(GameApp, "Loading scene {0} behind {1}.", sceneName, loading->getName());
+        return;
+      }
+    }
     if (const SPtr<Scene> scene = sceneManager.openMap(asset, true).lock()) {
       m_scene = scene;
       CH_LOG_INFO(GameApp, "Playing scene {0}.", sceneName);

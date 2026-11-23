@@ -245,6 +245,9 @@ TEST_CASE("chCore - Asynchronous asset loads", "[Assets]")
   const chEngineSDK::UUID mainId = saveTestScene(assets, "Main", mainObjects)->getUUID();
   const chEngineSDK::UUID ruinsId = saveTestScene(assets, "Ruins", ruinsObjects)->getUUID();
   const chEngineSDK::UUID arenaId = saveTestScene(assets, "Arena", arenaObjects)->getUUID();
+  const ANSICHAR* const loadingObjects[] = {"Spinner"};
+  const chEngineSDK::UUID loadingId =
+      saveTestScene(assets, "Loading", loadingObjects)->getUUID();
 
   // The scenes as a game finds them: registered from their files, not loaded.
   assets.lazyLoadAssetsFromDirectory(Path(String("/") + kLevelMount));
@@ -307,6 +310,59 @@ TEST_CASE("chCore - Asynchronous asset loads", "[Assets]")
   REQUIRE(arenaScene);
   REQUIRE(hasRoot(*arenaScene, "Wall"));
   REQUIRE_FALSE(hasRoot(*arenaScene, "Player"));
+
+  // A loading scene replaces the old map once it is loaded and runs until the map is in and
+  // its least time passed.
+  const SPtr<SceneAsset> loadingScene =
+      std::static_pointer_cast<SceneAsset>(assets.getAsset(loadingId));
+  REQUIRE(loadingScene);
+  bMapOpened = false;
+  scenes.requestOpenMap(main, [&bMapOpened](bool bLoaded) { bMapOpened = bLoaded; },
+                        {.loadingScene = loadingScene, .minLoadingTime = 0.1f});
+  REQUIRE(scenes.getRequestedMap() == mainId);
+  REQUIRE_FALSE(scenes.isLoadingScreenShown());
+  uint32 shownUpdates = 0;
+  for (uint32 i = 0; i < 5000 && scenes.isMapOpenRequested(); ++i) {
+    assets.update();
+    scenes.update(1.0f / 60.0f);
+    if (scenes.isLoadingScreenShown()) {
+      ++shownUpdates;
+      const SPtr<Scene> shown = scenes.getActiveScene().lock();
+      REQUIRE(shown);
+      REQUIRE(hasRoot(*shown, "Spinner"));
+      REQUIRE_FALSE(hasRoot(*shown, "Wall"));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  REQUIRE(bMapOpened);
+  REQUIRE(shownUpdates >= 5);
+  REQUIRE(scenes.getRequestedMap().isNull());
+  const SPtr<Scene> mainAgain = scenes.getActiveScene().lock();
+  REQUIRE(mainAgain);
+  REQUIRE(hasRoot(*mainAgain, "Player"));
+  REQUIRE_FALSE(hasRoot(*mainAgain, "Spinner"));
+  // Shown as a copy, so it stays loaded for the next map change.
+  REQUIRE(loadingScene->isLoaded());
+
+  // A map already loaded opens at once, without the loading scene.
+  REQUIRE(assets.syncLoadAsset(arena));
+  bMapOpened = false;
+  scenes.requestOpenMap(arena, [&bMapOpened](bool bLoaded) { bMapOpened = bLoaded; },
+                        {.loadingScene = loadingScene});
+  scenes.update(1.0f / 60.0f);
+  REQUIRE(bMapOpened);
+  REQUIRE_FALSE(scenes.isLoadingScreenShown());
+  REQUIRE(hasRoot(*scenes.getActiveScene().lock(), "Wall"));
+
+  // Requests made by the callback of a map change are for the new map and stay.
+  bool bLevelLoaded = false;
+  scenes.requestOpenMap(main, [&scenes, &ruins, &bLevelLoaded](bool) {
+    scenes.requestLoadLevel(ruins, [&bLevelLoaded](bool bLoaded) { bLevelLoaded = bLoaded; });
+  });
+  pumpFrames(assets, scenes);
+  pumpFrames(assets, scenes);
+  REQUIRE(bLevelLoaded);
+  REQUIRE(hasRoot(*scenes.getActiveScene().lock(), "Pillar"));
 
   REQUIRE(FileSystem::unmount(kLevelMount, levelRoot));
   FileSystem::removeAll(levelRoot);

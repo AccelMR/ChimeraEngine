@@ -149,6 +149,7 @@ TEST_CASE("chCore - Project packager", "[Packaging]")
   const Path engine = root.join(Path("EngineContent"));
   writeTestFile(engine.join(Path("Config/Engine.ini")), "[Window]\nWidth=640\n");
   writeTestFile(engine.join(Path("Shaders/forward.hlsl")), "source");
+  writeTestFile(engine.join(Path("PostProcess/Vignette.hlsl")), "source");
 
   const Path project = root.join(Path("Project"));
   writeTestFile(project.join(Path("Project.chproject")), "[Modules]\nGameModules=GameCode\n");
@@ -185,6 +186,7 @@ TEST_CASE("chCore - Project packager", "[Packaging]")
     REQUIRE(FileSystem::isFile(output.join(Path("Shaders/SPIRV/forward.ps.spv"))));
     REQUIRE(FileSystem::isFile(output.join(Path("Engine/Config/Engine.ini"))));
     REQUIRE_FALSE(FileSystem::exists(output.join(Path("Engine/Shaders"))));
+    REQUIRE_FALSE(FileSystem::exists(output.join(Path("Engine/PostProcess"))));
     REQUIRE_FALSE(FileSystem::exists(output.join(Path("Config/Editor.ini"))));
     REQUIRE_FALSE(FileSystem::exists(output.join(Path("Config/Package.ini"))));
     REQUIRE(FileSystem::isFile(output.join(Path("Assets/Maps/Main.chAss"))));

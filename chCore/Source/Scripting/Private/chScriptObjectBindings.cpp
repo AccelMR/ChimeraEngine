@@ -969,18 +969,80 @@ makeLoadCallback(lua_State* state, const int32 index, const ANSICHAR* function)
 }
 
 /*
- * Scene.openMap(pathOrName, onDone?): loads that scene and the sublevels it loads at start
- * in the background; at the end of the update after they are in, every object of every
- * level goes (their scripts get onDestroy) and it becomes the map. Only Lua globals carry
- * over. onDone(loaded) runs then.
+ * The named fields of the openMap options table at index; a misspelt one raises.
+ */
+MapOpenOptions
+readMapOpenOptions(lua_State* state, const int32 index)
+{
+  MapOpenOptions options;
+  if (lua_isnoneornil(state, index)) {
+    return options;
+  }
+  luaL_checktype(state, index, LUA_TTABLE);
+  lua_pushnil(state);
+  while (lua_next(state, index) != 0) {
+    const int32 value = lua_gettop(state);
+    if (lua_type(state, -2) != LUA_TSTRING) {
+      luaL_error(state, "Scene.openMap: options are named fields");
+    }
+    const StringView key = lua_tostring(state, -2);
+    if (key == "loadingScene") {
+      // false shows none, not even Game.LoadingScene.
+      if (lua_isboolean(state, value) && !lua_toboolean(state, value)) {
+        options.bNoLoadingScene = true;
+      }
+      else {
+        options.loadingScene = checkSceneAsset(state, value, "Scene.openMap");
+      }
+    }
+    else if (key == "minLoadingTime") {
+      options.minLoadingTime =
+          static_cast<float>(Math::max(luaL_checknumber(state, value), 0.0));
+    }
+    else {
+      luaL_error(state, "Scene.openMap: unknown option %s", String(key).c_str());
+    }
+    lua_pop(state, 1);
+  }
+  return options;
+}
+
+/*
+ * Scene.openMap(pathOrName, onDone?, options?): loads that scene and the sublevels it loads
+ * at start in the background; at the end of the update after they are in, every object of
+ * every level goes (their scripts get onDestroy) and it becomes the map. Only Lua globals
+ * carry over. onDone(loaded) runs then. With a loading scene (options.loadingScene, else
+ * Game.LoadingScene) the old map goes as soon as that scene is loaded, and a copy of it runs
+ * until the map is in.
  */
 int32
 openMap(lua_State* state)
 {
   const SPtr<SceneAsset> asset = checkSceneAsset(state, 1, "Scene.openMap");
-  checkSceneManager(state, "Scene.openMap")
-      .requestOpenMap(asset, makeLoadCallback(state, 2, "Scene.openMap"));
+  SceneManager& sceneManager = checkSceneManager(state, "Scene.openMap");
+  const MapOpenOptions options = readMapOpenOptions(state, 3);
+  sceneManager.requestOpenMap(asset, makeLoadCallback(state, 2, "Scene.openMap"), options);
   return 0;
+}
+
+/*
+ * Scene.getLoadingMapName(): name of the map an openMap waits for, nil when none waits. For
+ * loading scenes that name where the player goes.
+ */
+int32
+getLoadingMapName(lua_State* state)
+{
+  const UUID map =
+      SceneManager::isStarted() ? SceneManager::instance().getRequestedMap() : UUID::null();
+  const SPtr<IAsset> asset =
+      !map.isNull() && AssetManager::isStarted() ? AssetManager::instance().getAsset(map)
+                                                 : nullptr;
+  if (!asset) {
+    lua_pushnil(state);
+    return 1;
+  }
+  ScriptTraits<StringView>::push(state, asset->getName());
+  return 1;
 }
 
 /*
@@ -2109,13 +2171,21 @@ ScriptBindings::registerObjects(lua_State* state)
                   {"normal", "Vector3"}};
   }
 
+  if (ScriptApiDescription* api = ScriptApiDescription::find(state)) {
+    ScriptApiType& options = api->addType("MapOpenOptions", ScriptApiTypeKind::Shape);
+    options.description = "How Scene.openMap shows the wait; every field is optional.";
+    options.fields = {{"loadingScene?", "string|false"}, {"minLoadingTime?", "number"}};
+  }
+
   ScriptTable(state, "Assets", "Loading assets ahead of their use.")
       .rawFunction("preload", &preloadAsset, "fun(asset: string): boolean")
       .rawFunction("isLoaded", &isAssetLoaded, "fun(asset: string): boolean");
 
   ScriptTable(state, "Scene",
               "The scene of the running script: the map and the sublevels loaded into it.")
-      .rawFunction("openMap", &openMap, "fun(map: string, onDone?: fun(loaded: boolean))")
+      .rawFunction("openMap", &openMap,
+                   "fun(map: string, onDone?: fun(loaded: boolean), options?: MapOpenOptions)")
+      .rawFunction("getLoadingMapName", &getLoadingMapName, "fun(): string?")
       .rawFunction("loadLevel", &loadLevel,
                    "fun(level: string, onDone?: fun(loaded: boolean))")
       .rawFunction("getLevelLoadProgress", &getLevelLoadProgress, "fun(level: string): number")
