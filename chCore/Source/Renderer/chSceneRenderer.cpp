@@ -34,6 +34,8 @@ CH_LOG_DECLARE_STATIC(SceneRendererLog, All);
 namespace {
 // Half floats keep light brighter than 1 and enough precision in the darks for the tonemap.
 constexpr Format kSceneColorFormat = Format::R16G16B16A16_SFLOAT;
+// How far in front of the overlay's plane its camera stands; only the clip planes care.
+constexpr float kOverlayCameraDistance = 1000.0f;
 } // namespace
 
 /*
@@ -44,6 +46,7 @@ SceneRenderer::SceneRenderer(const SceneRendererDesc& desc)
     m_deferredRenderPath(new DeferredRenderPath()),
     m_renderPath(m_deferredRenderPath.get()),
     m_spritePass(new SpritePass()),
+    m_overlayPass(new SpritePass()),
     m_debugRenderPath(new DebugRenderPath()),
 #if USING(CH_DEBUG_DRAW)
     m_debugLinePass(new DebugLinePass()),
@@ -66,10 +69,11 @@ void
 SceneRenderer::extract(const Scene& scene,
                        const Camera& camera,
                        const LinearColor& clearColor,
-                       const DebugDraw* extraLines)
+                       const DebugDraw* extraLines,
+                       const ScreenOverlay* overlay)
 {
   CH_PROFILE_SCOPE("ExtractRenderFrame");
-  m_frame.extract(scene, camera, clearColor, extraLines);
+  m_frame.extract(scene, camera, clearColor, extraLines, overlay);
 }
 
 /*
@@ -120,7 +124,37 @@ SceneRenderer::addScenePasses(RGTextureHandle output)
     m_debugLinePass->addPass(m_graph, camera, m_frame.getDebugLines(), output, depth);
   }
 #endif // USING(CH_DEBUG_DRAW)
+  addOverlayPass(output);
   return depth;
+}
+
+/*
+ */
+void
+SceneRenderer::addOverlayPass(const RGTextureHandle output)
+{
+  if (m_frame.getOverlaySprites().empty() && m_frame.getOverlayGlyphRuns().empty()) {
+    return;
+  }
+  // An orthographic camera that sees the overlay's plane one unit per pixel, x right and y
+  // down from the top left corner (the plane's Z is -y).
+  const RGTextureDesc outputDesc = m_graph.getTextureDesc(output);
+  const float width = static_cast<float>(outputDesc.width);
+  const float height = static_cast<float>(outputDesc.height);
+  const Vector3 center(0.0f, width * 0.5f, -height * 0.5f);
+  Camera camera(center - Vector3(kOverlayCameraDistance, 0.0f, 0.0f), center, width, height);
+  camera.setProjectionType(CameraProjectionType::Orthographic);
+  camera.setOrthographicSize(height * 0.5f);
+  camera.setClipPlanes(1.0f, kOverlayCameraDistance * 2.0f);
+  m_overlayPass->addPass(m_graph,
+                         camera,
+                         m_frame.getOverlaySprites(),
+                         m_frame.getOverlayGlyphRuns(),
+                         {},
+                         {},
+                         LinearColor::TRANSPARENT_BLACK,
+                         output,
+                         SpritePassTarget::EncodedOverlay);
 }
 
 /*

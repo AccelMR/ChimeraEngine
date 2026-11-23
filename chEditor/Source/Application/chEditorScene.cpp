@@ -40,6 +40,10 @@ CH_LOG_DECLARE_STATIC(EditorSceneLog, All);
 
 namespace chEngineSDK {
 namespace {
+// A setting of the game; the editor reads it as text to open the same scene.
+ConfigDataKey g_dataGameStartupScene("Game.StartupScene",
+                                     "Scene the game opens; the editor opens it too.");
+
 ConsoleVariable<String> g_cvarStartupScene(
     "Editor.StartupScene",
     "DefaultScene",
@@ -907,6 +911,12 @@ stopPlaying(EditorSceneState& state)
   rememberSelection(state);
   SceneManager& sceneManager = SceneManager::instance();
   sceneManager.unloadScene(*state.scene);
+#if USING(CH_CONSOLE)
+  // Their functions belong to the scripts of the game that stopped.
+  if (ScriptManager::isStarted()) {
+    ScriptManager::instance().removeConsoleCommands();
+  }
+#endif // USING(CH_CONSOLE)
   state.scene = std::move(state.editScene);
   if (!sceneManager.setActiveScene(state.scene)) {
     CH_LOG_ERROR(EditorSceneLog, "Could not make the scene active again.");

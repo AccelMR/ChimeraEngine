@@ -198,12 +198,30 @@ void
 InputManager::processEvent(const DisplayEvent& event)
 {
   if (const KeyEvent* key = std::get_if<KeyEvent>(&event)) {
+    if (m_bTextInput) {
+      // Releases still reach the state, so no key stays down there.
+      if (!key->bDown) {
+        m_state.setKey(key->key, false);
+      }
+      if (key->bDown) {
+        OnTextKey(*key);
+      }
+      return;
+    }
+    if (key->bRepeat) {
+      return;
+    }
     m_state.setKey(key->key, key->bDown);
     if (key->bDown) {
       OnKeyPressed(*key);
     }
     else {
       OnKeyReleased(*key);
+    }
+  }
+  else if (const TextInputEvent* text = std::get_if<TextInputEvent>(&event)) {
+    if (m_bTextInput) {
+      OnTextInput(StringView(text->text));
     }
   }
   else if (const MouseMoveEvent* move = std::get_if<MouseMoveEvent>(&event)) {
@@ -861,6 +879,42 @@ InputManager::setWindow(DisplaySurface* window)
   m_window = window;
   m_appliedCursorMode = CursorMode::Normal;
   applyCursorMode();
+}
+
+/*
+ */
+void
+InputManager::startTextInput()
+{
+  if (m_bTextInput) {
+    return;
+  }
+  m_bTextInput = true;
+  for (uint32 index = static_cast<uint32>(InputKey::None) + 1;
+       index < static_cast<uint32>(InputKey::MouseLeft);
+       ++index) {
+    const InputKey key = static_cast<InputKey>(index);
+    if (m_state.isDown(key)) {
+      m_state.setKey(key, false);
+    }
+  }
+  if (m_window) {
+    InputPlatform::setTextInput(*m_window, true);
+  }
+}
+
+/*
+ */
+void
+InputManager::stopTextInput()
+{
+  if (!m_bTextInput) {
+    return;
+  }
+  m_bTextInput = false;
+  if (m_window) {
+    InputPlatform::setTextInput(*m_window, false);
+  }
 }
 
 /*

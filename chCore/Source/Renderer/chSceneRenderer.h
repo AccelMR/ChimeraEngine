@@ -28,6 +28,7 @@ class ShadowRenderer;
 class SkinningPass;
 class PostProcessRenderer;
 class SkyPass;
+class ScreenOverlay;
 class SpritePass;
 class TonemapPass;
 
@@ -92,14 +93,16 @@ class CH_CORE_EXPORT SceneRenderer
 
   /**
    * Copies what the scene passes of the next frame draw: the scene as it is now, seen by
-   * camera, plus the application's lines (extraLines, may be null). Call it at the end of
-   * the update, after Scene::updateTransforms.
+   * camera, plus the application's lines (extraLines, may be null) and what it draws over
+   * the final image (overlay, may be null; addScenePasses draws it last). Call it at the end
+   * of the update, after Scene::updateTransforms.
    */
   void
   extract(const Scene& scene,
           const Camera& camera,
           const LinearColor& clearColor,
-          const DebugDraw* extraLines = nullptr);
+          const DebugDraw* extraLines = nullptr,
+          const ScreenOverlay* overlay = nullptr);
 
   /**
    * What the last extract() copied.
@@ -214,6 +217,12 @@ class CH_CORE_EXPORT SceneRenderer
   void
   addTonemapAndPostProcess(RGTextureHandle sceneColor, RGTextureHandle output, bool bEncodeOnly);
 
+  /**
+   * Draws the ScreenOverlay the frame copied over output, when it holds anything.
+   */
+  void
+  addOverlayPass(RGTextureHandle output);
+
   void
   updateSettings();
 
@@ -227,6 +236,8 @@ class CH_CORE_EXPORT SceneRenderer
   // The one of the two above that draws the Lit view modes, unless m_bSpritePath.
   IRenderPath* m_renderPath = nullptr;
   UniquePtr<SpritePass> m_spritePass;
+  // Its own pass: a SpritePass keeps per-frame buffers, which the scene's sprites fill.
+  UniquePtr<SpritePass> m_overlayPass;
   bool m_bSpritePath = false;
   UniquePtr<DebugRenderPath> m_debugRenderPath;
 #if USING(CH_DEBUG_DRAW)

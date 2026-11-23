@@ -43,6 +43,9 @@ namespace chEngineSDK {
 CH_LOG_DECLARE_STATIC(PackageDialogLog, All);
 
 namespace {
+ConfigDataKey g_dataPackage("Package.*",
+                            "Folders and choices Package Project remembers between uses.");
+
 constexpr const ANSICHAR* kPopupName = ICON_FA_BOX_OPEN "  Package Project###PackageDialog";
 constexpr const ANSICHAR* kDevelopmentSuffix = "_Development";
 constexpr const ANSICHAR* kDefaultStartupScene = "/Game/Maps/Main";

@@ -33,6 +33,8 @@ namespace chEngineSDK {
  * allocate. The copies still point at meshes, materials and textures of assets, which must
  * stay alive until the frame is drawn.
  */
+class ScreenOverlay;
+
 class CH_CORE_EXPORT RenderFrame
 {
  public:
@@ -46,13 +48,15 @@ class CH_CORE_EXPORT RenderFrame
 
   /**
    * Replaces the contents with the scene as it is now (Scene::updateTransforms must have
-   * run) seen by camera; extraLines (may be null) are the application's own lines.
+   * run) seen by camera; extraLines (may be null) are the application's own lines and
+   * overlay (may be null) what it draws over the final image.
    */
   void
   extract(const Scene& scene,
           const Camera& camera,
           const LinearColor& clearColor,
-          const DebugDraw* extraLines = nullptr);
+          const DebugDraw* extraLines = nullptr,
+          const ScreenOverlay* overlay = nullptr);
 
   NODISCARD FORCEINLINE const Camera&
   getCamera() const
@@ -120,6 +124,21 @@ class CH_CORE_EXPORT RenderFrame
   }
 
   /**
+   * The sprites of the application's ScreenOverlay, in its plane.
+   */
+  NODISCARD FORCEINLINE Span<const SpriteItem>
+  getOverlaySprites() const
+  {
+    return m_overlaySprites;
+  }
+
+  NODISCARD FORCEINLINE Span<const GlyphRunItem>
+  getOverlayGlyphRuns() const
+  {
+    return m_overlayGlyphRuns;
+  }
+
+  /**
    * The sky light that lights the scene, null when there is none.
    */
   NODISCARD FORCEINLINE const SkyLightItem*
@@ -180,6 +199,8 @@ class CH_CORE_EXPORT RenderFrame
   Vector<GlyphRunItem> m_glyphRuns;
   Vector<GlyphRunBatch> m_glyphRunBatches;
   Vector<CustomSpriteBatch> m_customBatches;
+  Vector<SpriteItem> m_overlaySprites;
+  Vector<GlyphRunItem> m_overlayGlyphRuns;
   SkyLightItem m_skyLight;
   bool m_bHasSkyLight = false;
   Vector<PostProcessPassItem> m_postProcessPasses;

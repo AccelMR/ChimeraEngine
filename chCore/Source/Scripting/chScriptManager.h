@@ -26,6 +26,7 @@ class Scene;
 class ScriptAllocator;
 class ScriptApiDescription;
 class ScriptAsset;
+struct ScriptConsoleCommand;
 
 CH_LOG_DECLARE_EXTERN(CH_CORE_EXPORT, ScriptLog);
 
@@ -302,6 +303,34 @@ class CH_CORE_EXPORT ScriptManager : public Module<ScriptManager>
   void
   collectGarbage();
 
+#if USING(CH_CONSOLE)
+  /**
+   * A console command that calls the function at registry reference function (taken: the
+   * manager releases it) as function(words, text). A command of the same name a script added
+   * before is replaced. False, and the reference released, when the name is empty, has spaces
+   * or belongs to a command of the engine.
+   */
+  NODISCARD bool
+  addConsoleCommand(StringView name,
+                    StringView usage,
+                    StringView help,
+                    bool bCheat,
+                    int32 function);
+
+  /**
+   * False when no script added a command of that name.
+   */
+  bool
+  removeConsoleCommand(StringView name);
+
+  /**
+   * Forgets every command scripts added: when Play starts and stops in the editor, and when
+   * the state closes, since their functions belong to it.
+   */
+  void
+  removeConsoleCommands();
+#endif // USING(CH_CONSOLE)
+
   /**
    * What scripts can call, for code editors; null outside the editor.
    */
@@ -348,6 +377,11 @@ class CH_CORE_EXPORT ScriptManager : public Module<ScriptManager>
   float m_fixedDeltaTime = 0.0f;
   uint64 m_frameCount = 0;
   bool m_bInFixedStep = false;
+#if USING(CH_CONSOLE)
+  Vector<UniquePtr<ScriptConsoleCommand>> m_consoleCommands;
+  // The command whose function runs now; removed while it runs, it goes once it returns.
+  ScriptConsoleCommand* m_runningCommand = nullptr;
+#endif // USING(CH_CONSOLE)
 };
 
 } // namespace chEngineSDK

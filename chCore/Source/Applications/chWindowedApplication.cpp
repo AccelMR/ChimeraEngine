@@ -49,7 +49,8 @@ ConsoleVariable<String> g_cvarApplicationId("Application.Id",
                                             "Id the desktop matches the windows by (Wayland "
                                             "app_id, X11 class), e.g. in window rules. Empty "
                                             "uses the application's own.",
-                                            "AppId");
+                                            "AppId",
+                                            ConsoleVariableBehavior::RequiresRestart);
 
 ConsoleVariable<String> g_cvarWindowTitle("Window.Title",
                                           "Chimera Engine Windowed Application",
@@ -60,18 +61,19 @@ ConsoleVariable<int32> g_cvarWindowWidth("Window.Width",
                                          0,
                                          "Width of the main window when it opens, in screen "
                                          "units. 0 opens it maximized.",
-                                         "Width");
+                                         "Width", ConsoleVariableBehavior::RequiresRestart);
 
 ConsoleVariable<int32> g_cvarWindowHeight("Window.Height",
                                           0,
                                           "Height of the main window when it opens, in "
                                           "screen units. 0 opens it maximized.",
-                                          "Height");
+                                          "Height", ConsoleVariableBehavior::RequiresRestart);
 
 ConsoleVariable<bool> g_cvarWindowMaximized("Window.Maximized",
                                             false,
                                             "Opens the main window maximized.",
-                                            "Maximized");
+                                            "Maximized",
+                                            ConsoleVariableBehavior::RequiresRestart);
 
 ConsoleVariable<int32> g_cvarWindowResizeDelay("Window.ResizeDelay",
                                                150,
@@ -540,17 +542,28 @@ WindowedApplication::bindEvents() {
 
   auto& eventDispatcher = EventDispatcherManager::instance();
 
-  m_closeEvent = eventDispatcher.OnClose.connect([&]() {
-    if (onCloseRequested()) {
-      m_running = false;
-    }
-  });
+  m_closeEvent = eventDispatcher.OnClose.connect([&]() { requestExit("window closed"); });
   m_resizeEvent = eventDispatcher.OnResize.connect(
       [&](uint32 width, uint32 height) {
         CH_PARAMETER_UNUSED(width);
         CH_PARAMETER_UNUSED(height);
         requestResize();
       });
+}
+
+/*
+ */
+void
+WindowedApplication::requestExit(const String& reason)
+{
+  // The window may send more than one close request before the loop ends.
+  if (!m_running) {
+    return;
+  }
+  if (onCloseRequested()) {
+    CH_LOG_INFO(WindowedApp, "Closing: {0}", reason);
+    m_running = false;
+  }
 }
 
 } // namespace chEngineSDK

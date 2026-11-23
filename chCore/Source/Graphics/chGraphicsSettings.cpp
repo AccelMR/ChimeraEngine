@@ -13,7 +13,8 @@ namespace chEngineSDK {
 ConsoleVariable<String> g_cvarGraphicsAPI("Graphics.API",
                                           CH_DEFAULT_GRAPHICS_API,
                                           "Graphics API plugin loaded at start up.",
-                                          "GraphicsAPI");
+                                          "GraphicsAPI",
+                                          ConsoleVariableBehavior::RequiresRestart);
 
 ConsoleVariable<bool> g_cvarVSync("Graphics.VSync",
                                   false,
@@ -26,6 +27,7 @@ ConsoleVariable<bool> g_cvarValidationLayer("Graphics.ValidationLayer",
                                             USING(CH_DEBUG_MODE),
                                             "Turns on the graphics API debug checks. Default: on "
                                             "in debug builds only.",
-                                            "ValidationLayer");
+                                            "ValidationLayer",
+                                            ConsoleVariableBehavior::RequiresRestart);
 
 } // namespace chEngineSDK

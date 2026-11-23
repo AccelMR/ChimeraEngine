@@ -24,6 +24,16 @@ class ISampler;
 class IShader;
 
 /**
+ * What a SpritePass draws into: a scene color it clears first, in linear values, or the
+ * final image it draws over, writing encoded colors (the screen overlay).
+ */
+enum class SpritePassTarget : uint8
+{
+  Scene,
+  EncodedOverlay
+};
+
+/**
  * Exists to draw any number of sprites with a few draw calls: the visible sprites, sorted by
  * SpriteBatcher, go into a storage buffer of the frame slot (made bigger when a frame has
  * more), and each run of one blend mode is one instanced draw of a quad built in the vertex
@@ -41,8 +51,9 @@ class CH_CORE_EXPORT SpritePass
   ~SpritePass();
 
   /**
-   * Draws the sprites the camera sees into output, cleared first to clearColor. The sprites,
-   * the batches and the camera are read here, not when the graph runs.
+   * Draws the sprites the camera sees into output: cleared first to clearColor for a Scene
+   * target, over what it holds for an EncodedOverlay. The sprites, the batches and the camera
+   * are read here, not when the graph runs.
    */
   void
   addPass(RenderGraph& graph,
@@ -52,7 +63,8 @@ class CH_CORE_EXPORT SpritePass
           Span<const GlyphRunBatch> glyphRunBatches,
           Span<const CustomSpriteBatch> customBatches,
           const LinearColor& clearColor,
-          RGTextureHandle output);
+          RGTextureHandle output,
+          SpritePassTarget target = SpritePassTarget::Scene);
 
   /**
    * Instances drawn by the last addPass, for the profiler.

@@ -38,3 +38,10 @@
 #else
 # define CH_PROFILER NOT_IN_USE
 #endif
+
+// Its own option, not tied to the build type, so a Release game may keep the console.
+#ifdef CH_CONSOLE_ENABLED
+# define CH_CONSOLE IN_USE
+#else
+# define CH_CONSOLE NOT_IN_USE
+#endif

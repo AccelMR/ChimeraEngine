@@ -8,6 +8,7 @@
 /************************************************************************/
 #include "chEngineConfig.h"
 
+#include "chCommandLine.h"
 #include "chConsoleVariable.h"
 #include "chEnginePaths.h"
 #include "chLogger.h"
@@ -36,10 +37,18 @@ constexpr ConfigFileInfo kConfigFiles[] = {
 
 constexpr SIZE_T kConfigFileCount = sizeof(kConfigFiles) / sizeof(kConfigFiles[0]);
 
+// A key as a file gave it, so a warning can name the file.
+struct LoadedKey
+{
+  String name;
+  Path file;
+};
+
 struct ConfigState
 {
   bool initialized = false;
   Array<ConfigFile, kConfigFileCount> files;
+  Vector<LoadedKey> loadedKeys;
 };
 
 NODISCARD ConfigState&
@@ -58,18 +67,21 @@ getFilePath(const Path& folder, StringView name)
 }
 
 void
-sendToConsoleVariables(const ConfigFile& file, ConsoleVariableSource source)
+sendToConsoleVariables(const ConfigFile& file,
+                       const Path& path,
+                       ConsoleVariableSource source,
+                       Vector<LoadedKey>& outKeys)
 {
   for (const ConfigFile::Section& section : file.getSections()) {
     for (const ConfigFile::Entry& entry : section.entries) {
-      if (section.name.empty()) {
-        ConsoleVariables::setStartupValue(entry.key, entry.value, source);
-        continue;
+      String name;
+      if (!section.name.empty()) {
+        name = section.name;
+        name += '.';
       }
-      String name = section.name;
-      name += '.';
       name += entry.key;
       ConsoleVariables::setStartupValue(name, entry.value, source);
+      outKeys.push_back({.name = std::move(name), .file = path});
     }
   }
 }
@@ -116,7 +128,7 @@ EngineConfig::initialize()
         continue;
       }
       CH_LOG_INFO(EngineConfigLog, "Loaded {0}", path);
-      sendToConsoleVariables(layer, source);
+      sendToConsoleVariables(layer, path, source, state.loadedKeys);
       state.files[i].merge(layer);
     }
   }
@@ -166,6 +178,29 @@ EngineConfig::setUserValue(StringView fileName,
     }
   }
   return true;
+}
+
+/*
+ */
+void
+EngineConfig::warnUnknownSettings()
+{
+  for (const LoadedKey& key : getState().loadedKeys) {
+    if (!ConsoleVariables::isKnownConfigKey(key.name)) {
+      CH_LOG_WARNING(EngineConfigLog,
+                     "{0} in {1} is not a setting of this program: a typo, or a plugin that "
+                     "is not enabled.",
+                     key.name, key.file);
+    }
+  }
+  for (const String& option : CommandLine::getOptionNames()) {
+    if (!CommandLine::isKnownOption(option)) {
+      CH_LOG_WARNING(EngineConfigLog,
+                     "-{0} on the command line is not an option of this program. Run with "
+                     "-help to list them.",
+                     option);
+    }
+  }
 }
 
 } // namespace chEngineSDK

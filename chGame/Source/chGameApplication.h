@@ -12,6 +12,7 @@
 #include "chWindowedApplication.h"
 
 #include "chCamera.h"
+#include "chScreenOverlay.h"
 
 namespace chEngineSDK {
 class Scene;
@@ -22,6 +23,8 @@ class SceneRenderer;
  * it and draws it through the scene's camera. It holds no game logic of its own, so the
  * same executable plays any project; a game brings its behavior in its scene and assets.
  */
+class GameConsole;
+
 class GameApplication : public WindowedApplication
 {
  public:
@@ -58,6 +61,11 @@ class GameApplication : public WindowedApplication
   SPtr<Scene> m_scene;
   Camera m_camera;
   bool m_bWarnedNoCamera = false;
+  // Drawn over the final image every frame: the console, later the game's UI.
+  ScreenOverlay m_overlay;
+#if USING(CH_CONSOLE)
+  UniquePtr<GameConsole> m_console;
+#endif // USING(CH_CONSOLE)
 };
 
 } // namespace chEngineSDK

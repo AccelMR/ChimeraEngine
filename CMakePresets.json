@@ -73,7 +73,8 @@
       "cacheVariables": {
         "CH_BUILD_EDITOR": "OFF",
         "CH_ENABLE_PROFILER": "OFF",
-        "CH_ENABLE_DEBUG_DRAW": "OFF"
+        "CH_ENABLE_DEBUG_DRAW": "OFF",
+        "CH_ENABLE_CONSOLE": "OFF"
       }
     },
     {

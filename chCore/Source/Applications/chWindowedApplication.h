@@ -114,6 +114,13 @@ class CH_CORE_EXPORT WindowedApplication : public BaseApplication
   quit() { m_running = false; }
 
   /**
+   * Asks to close, as the window's close button does, so the application may ask about
+   * unsaved work first (onCloseRequested).
+   */
+  void
+  requestExit(const String& reason) override;
+
+  /**
    * Writes the main window's size and maximized state into /Saved/Config/<configFile>.ini,
    * so the next start opens it the same way. Call it before destroyModules closes the window.
    */
