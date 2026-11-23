@@ -12,6 +12,12 @@
 #include "chMath.h"
 #include "chStringUtils.h"
 
+#if USING(CH_CONSOLE)
+#include "chConsole.h"
+#include "chConsoleVariable.h"
+#include "chInputManager.h"
+#endif // USING(CH_CONSOLE)
+
 #include "imgui.h"
 
 #include "../../Content/Fonts/IconsFontAwsome5.h"
@@ -88,6 +94,18 @@ OutputLogUI::renderOutputLogUI()
 {
   // Flushed even while hidden so the queue does not keep growing.
   flushPendingEntries();
+
+#if USING(CH_CONSOLE)
+  // The backquote takes the user to the command line, unless the game has the keyboard.
+  const bool bGameHasInput =
+      InputManager::isStarted() && InputManager::instance().isGameInputEnabled();
+  if (!bGameHasInput && !ImGui::GetIO().WantTextInput &&
+      ImGui::IsKeyPressed(ImGuiKey_GraveAccent, false)) {
+    m_isVisible = true;
+    m_bFocusCommand = true;
+    ImGui::SetWindowFocus("###OutputLog");
+  }
+#endif // USING(CH_CONSOLE)
 
   if (!m_isVisible) {
     return;
@@ -243,12 +261,17 @@ OutputLogUI::renderLogEntries()
   const bool hasSelection = NO_SELECTION != m_selectedSequence;
   const float detailHeight =
       hasSelection ? ImGui::GetTextLineHeightWithSpacing() * 8.0f : 0.0f;
+#if USING(CH_CONSOLE)
+  const float commandHeight = ImGui::GetFrameHeightWithSpacing();
+#else
+  const float commandHeight = 0.0f;
+#endif // USING(CH_CONSOLE)
 
   if (ImGui::BeginTable("LogTable", 5,
                         ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg |
                             ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV |
                             ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable,
-                        ImVec2(0.0f, -detailHeight))) {
+                        ImVec2(0.0f, -(detailHeight + commandHeight)))) {
     ImGui::TableSetupColumn("Level", ImGuiTableColumnFlags_WidthFixed, 60.0f);
     ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 80.0f);
     ImGui::TableSetupColumn("Category", ImGuiTableColumnFlags_WidthFixed, 100.0f);
@@ -278,6 +301,9 @@ OutputLogUI::renderLogEntries()
   if (hasSelection) {
     renderSelectedEntry();
   }
+#if USING(CH_CONSOLE)
+  renderCommandLine();
+#endif // USING(CH_CONSOLE)
 }
 
 /*
@@ -364,7 +390,14 @@ OutputLogUI::renderSelectedEntry()
     m_selectedSequence = NO_SELECTION;
   }
 
-  if (ImGui::BeginChild("SelectedLogEntry", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+#if USING(CH_CONSOLE)
+  // Room for the command line under it.
+  const float childHeight = -ImGui::GetFrameHeightWithSpacing();
+#else
+  const float childHeight = 0.0f;
+#endif // USING(CH_CONSOLE)
+  if (ImGui::BeginChild("SelectedLogEntry", ImVec2(0.0f, childHeight),
+                        ImGuiChildFlags_Borders)) {
     if (!entry.sourceFunctionName.empty()) {
       ImGui::TextDisabled("%s", entry.sourceFunctionName.c_str());
     }
@@ -574,5 +607,210 @@ OutputLogUI::LogFilter::passesFilter(const LogBufferEntry& entry) const
   return StringUtils::containsIgnoreCase(entry.message, searchText) ||
          StringUtils::containsIgnoreCase(entry.category, searchText);
 }
+
+#if USING(CH_CONSOLE)
+namespace {
+NODISCARD constexpr ANSICHAR
+toLowerAscii(const ANSICHAR character) noexcept
+{
+  return character >= 'A' && character <= 'Z'
+             ? static_cast<ANSICHAR>(character - 'A' + 'a')
+             : character;
+}
+} // namespace
+
+/*
+ */
+void
+OutputLogUI::renderCommandLine()
+{
+  if (m_bFocusCommand) {
+    ImGui::SetKeyboardFocusHere();
+    m_bFocusCommand = false;
+  }
+  ImGui::SetNextItemWidth(-FLT_MIN);
+  const ImGuiInputTextFlags flags =
+      ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_EscapeClearsAll |
+      ImGuiInputTextFlags_CallbackHistory | ImGuiInputTextFlags_CallbackCompletion |
+      ImGuiInputTextFlags_CallbackEdit | ImGuiInputTextFlags_CallbackCharFilter;
+  const bool bEntered = ImGui::InputTextWithHint(
+      "##ConsoleCommand", ICON_FA_CHEVRON_RIGHT "  Command: help, find <text>, or a setting",
+      m_commandBuffer, sizeof(m_commandBuffer), flags, &OutputLogUI::onCommandInput, this);
+  const bool bActive = ImGui::IsItemActive();
+  const ImVec2 fieldPosition = ImGui::GetItemRectMin();
+
+  if (bEntered) {
+    if (m_commandBuffer[0] != '\0') {
+      Console::execute(m_commandBuffer);
+      m_commandBuffer[0] = '\0';
+      m_historyIndex = NO_HISTORY;
+      m_needsScrollToBottom = true;
+    }
+    // Enter leaves the field; the user keeps typing commands.
+    ImGui::SetKeyboardFocusHere(-1);
+  }
+
+  if (bActive && m_commandBuffer[0] != '\0') {
+    updateSuggestions();
+    renderSuggestions(fieldPosition);
+  }
+}
+
+/*
+ */
+void
+OutputLogUI::updateSuggestions()
+{
+  const StringView text = m_commandBuffer;
+  if (m_suggestionsFor == text) {
+    return;
+  }
+  m_suggestionsFor = text;
+  m_suggestions.clear();
+  m_suggestionCount = 0;
+
+  const SIZE_T space = text.find_first_of(" \t");
+  if (space != StringView::npos) {
+    // A name is typed: tell what it takes.
+    const StringView name = text.substr(0, space);
+    if (const ConsoleCommand* command = Console::findCommand(name)) {
+      m_suggestions.push_back({.name = command->getName(),
+                               .detail = command->getUsage() + "  " + command->getHelp()});
+    }
+    else if (const IConsoleVariable* variable = ConsoleVariables::find(name)) {
+      m_suggestions.push_back({.name = variable->getName(),
+                               .detail = "= " + variable->toString() + "  " +
+                                         variable->getHelp()});
+    }
+    m_suggestionCount = m_suggestions.size();
+    return;
+  }
+
+  Console::complete(text, m_completionNames);
+  m_suggestionCount = m_completionNames.size();
+  const SIZE_T shown = Math::min(m_completionNames.size(), MAX_SHOWN_SUGGESTIONS);
+  for (SIZE_T i = 0; i < shown; ++i) {
+    const String& name = m_completionNames[i];
+    if (const ConsoleCommand* command = Console::findCommand(name)) {
+      m_suggestions.push_back({.name = name, .detail = command->getUsage()});
+    }
+    else if (const IConsoleVariable* variable = ConsoleVariables::find(name)) {
+      m_suggestions.push_back({.name = name, .detail = "= " + variable->toString()});
+    }
+  }
+}
+
+/*
+ */
+void
+OutputLogUI::renderSuggestions(const ImVec2& fieldPosition) const
+{
+  if (m_suggestions.empty()) {
+    return;
+  }
+  // Above the field, which sits at the bottom of the panel.
+  ImGui::SetNextWindowPos(fieldPosition, ImGuiCond_Always, ImVec2(0.0f, 1.0f));
+  if (!ImGui::BeginTooltip()) {
+    return;
+  }
+  for (const Suggestion& suggestion : m_suggestions) {
+    ImGui::TextUnformatted(suggestion.name.c_str());
+    if (!suggestion.detail.empty()) {
+      ImGui::SameLine();
+      ImGui::TextDisabled("%s", suggestion.detail.c_str());
+    }
+  }
+  if (m_suggestionCount > m_suggestions.size()) {
+    ImGui::TextDisabled("%d more; type more of the name.",
+                        static_cast<int32>(m_suggestionCount - m_suggestions.size()));
+  }
+  else if (m_suggestionCount > 1) {
+    ImGui::TextDisabled("Tab completes what they share.");
+  }
+  ImGui::EndTooltip();
+}
+
+/*
+ */
+int32
+OutputLogUI::onCommandInput(ImGuiInputTextCallbackData* data)
+{
+  OutputLogUI& self = *static_cast<OutputLogUI*>(data->UserData);
+  const auto replaceText = [data](StringView text) {
+    data->DeleteChars(0, data->BufTextLen);
+    data->InsertChars(0, text.data(), text.data() + text.size());
+  };
+
+  switch (data->EventFlag) {
+    case ImGuiInputTextFlags_CallbackCharFilter:
+      // The backquote opens the command line; it never belongs in a command.
+      return data->EventChar == '`' ? 1 : 0;
+
+    case ImGuiInputTextFlags_CallbackEdit:
+      // Typing leaves the history.
+      self.m_historyIndex = NO_HISTORY;
+      return 0;
+
+    case ImGuiInputTextFlags_CallbackHistory: {
+      const Vector<String>& history = Console::getHistory();
+      if (history.empty()) {
+        return 0;
+      }
+      const int32 last = static_cast<int32>(history.size()) - 1;
+      if (data->EventKey == ImGuiKey_UpArrow) {
+        self.m_historyIndex =
+            self.m_historyIndex == NO_HISTORY ? last : Math::max(self.m_historyIndex - 1, 0);
+      }
+      else if (data->EventKey == ImGuiKey_DownArrow) {
+        if (self.m_historyIndex == NO_HISTORY) {
+          return 0;
+        }
+        ++self.m_historyIndex;
+        if (self.m_historyIndex > last) {
+          self.m_historyIndex = NO_HISTORY;
+        }
+      }
+      replaceText(self.m_historyIndex == NO_HISTORY
+                      ? StringView()
+                      : StringView(history[static_cast<SIZE_T>(self.m_historyIndex)]));
+      return 0;
+    }
+
+    case ImGuiInputTextFlags_CallbackCompletion: {
+      const StringView text(data->Buf, static_cast<SIZE_T>(data->BufTextLen));
+      // Only the name is completed.
+      if (text.empty() || text.find_first_of(" \t") != StringView::npos) {
+        return 0;
+      }
+      Console::complete(text, self.m_completionNames);
+      const Vector<String>& names = self.m_completionNames;
+      if (names.empty()) {
+        return 0;
+      }
+      if (names.size() == 1) {
+        replaceText(names[0] + " ");
+        return 0;
+      }
+      // What every match starts with, ignoring case, written as the first match writes it.
+      SIZE_T shared = names[0].size();
+      for (const String& name : names) {
+        SIZE_T length = 0;
+        while (length < shared && length < name.size() &&
+               toLowerAscii(name[length]) == toLowerAscii(names[0][length])) {
+          ++length;
+        }
+        shared = length;
+      }
+      if (shared > text.size()) {
+        replaceText(StringView(names[0]).substr(0, shared));
+      }
+      return 0;
+    }
+
+    default:
+      return 0;
+  }
+}
+#endif // USING(CH_CONSOLE)
 
 } // namespace chEngineSDK

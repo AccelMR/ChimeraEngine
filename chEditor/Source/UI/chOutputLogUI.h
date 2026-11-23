@@ -12,12 +12,16 @@
 #include "chLogger.h"
 #include "chSTDThreading.h"
 
+struct ImGuiInputTextCallbackData;
+struct ImVec2;
+
 namespace chEngineSDK {
 
 /**
  * Editor window that shows the engine log, filtered by verbosity, category and text.
  * The last entries are kept in a ring buffer and only the visible rows are drawn, so
- * the cost per frame does not grow with the size of the log.
+ * the cost per frame does not grow with the size of the log. With the console built in, a
+ * command line under the log runs console commands and settings.
  */
 class OutputLogUI
 {
@@ -122,6 +126,23 @@ class OutputLogUI
   void
   renderSelectedEntry();
 
+#if USING(CH_CONSOLE)
+  void
+  renderCommandLine();
+
+  /**
+   * Remakes the suggestions when the typed text changed since the last time.
+   */
+  void
+  updateSuggestions();
+
+  void
+  renderSuggestions(const ImVec2& fieldPosition) const;
+
+  static int32
+  onCommandInput(ImGuiInputTextCallbackData* data);
+#endif // USING(CH_CONSOLE)
+
  private:
   static constexpr uint64 NO_SELECTION = ~0ull;
 
@@ -153,6 +174,28 @@ class OutputLogUI
   Vector<SPtr<const LogBufferEntry>> m_flushEntries;
 
   HEvent m_logWrittenEvent;
+
+#if USING(CH_CONSOLE)
+  struct Suggestion
+  {
+    String name;
+    // Usage and help of a command, or the value of a setting.
+    String detail;
+  };
+
+  static constexpr SIZE_T MAX_SHOWN_SUGGESTIONS = 12;
+
+  ANSICHAR m_commandBuffer[512] = {0};
+  // Place in the console history while browsing it with the arrows; NO_HISTORY otherwise.
+  static constexpr int32 NO_HISTORY = -1;
+  int32 m_historyIndex = NO_HISTORY;
+  bool m_bFocusCommand = false;
+  // Kept until the text changes, so nothing is searched or formatted every frame.
+  String m_suggestionsFor;
+  Vector<Suggestion> m_suggestions;
+  SIZE_T m_suggestionCount = 0;
+  Vector<String> m_completionNames;
+#endif // USING(CH_CONSOLE)
 };
 
 } // namespace chEngineSDK
