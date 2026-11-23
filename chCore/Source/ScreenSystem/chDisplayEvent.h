@@ -56,6 +56,8 @@ struct KeyEvent {
   InputKey key;
   bool bDown;
   KeyModifierFlags modifiers;
+  // Sent again by the system while the key is held. Only text editing reads it.
+  bool bRepeat = false;
 
   NODISCARD constexpr bool
   hasShift() const noexcept
@@ -79,6 +81,15 @@ struct KeyEvent {
 /**
  * Positions are in the units of the window under the mouse, from its top left corner.
  */
+/**
+ * Text the system typed while text input is on, already through the keyboard layout, dead
+ * keys and the input method: UTF-8, one or more characters.
+ */
+struct TextInputEvent
+{
+  ANSICHAR text[32];
+};
+
 struct MouseButtonEvent {
   InputKey button;
   bool bDown;
@@ -132,8 +143,9 @@ struct GamepadAxisEvent {
  * Every type is trivially copyable, so a frame's events live in one reused vector.
  */
 using DisplayEvent =
-    Variant<CloseEvent, ResizeEvent, FocusEvent, KeyEvent, MouseButtonEvent, MouseMoveEvent,
-            MouseWheelEvent, GamepadConnectionEvent, GamepadButtonEvent, GamepadAxisEvent>;
+    Variant<CloseEvent, ResizeEvent, FocusEvent, KeyEvent, TextInputEvent, MouseButtonEvent,
+            MouseMoveEvent, MouseWheelEvent, GamepadConnectionEvent, GamepadButtonEvent,
+            GamepadAxisEvent>;
 
 static_assert(std::is_trivially_copyable_v<DisplayEvent>);
 

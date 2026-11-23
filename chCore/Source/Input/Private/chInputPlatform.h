@@ -27,6 +27,13 @@ class InputPlatform
   static void
   setCursorMode(DisplaySurface& window, CursorMode mode);
 
+  /**
+   * Turns on or off the system's text input for window (TextInputEvent; an on-screen
+   * keyboard or input method may show).
+   */
+  static void
+  setTextInput(DisplaySurface& window, bool bEnabled);
+
   static bool
   rumbleGamepad(uint32 slot, float lowFrequency, float highFrequency, uint32 milliseconds);
 

@@ -8,6 +8,7 @@
 /************************************************************************/
 #include "chConfigFile.h"
 #include "chInputManager.h"
+#include "chStringUtils.h"
 #include "chVector2.h"
 
 #include "catch.hpp"
@@ -450,6 +451,65 @@ TEST_CASE("chCore - Input key events", "[Input]")
   // Window events are not input.
   input.processEvent(ResizeEvent{.width = 10, .height = 10});
   REQUIRE(pressed == 1);
+  // Repeats of a held key are no presses.
+  input.processEvent(KeyEvent{.key = InputKey::S,
+                              .bDown = true,
+                              .modifiers = KeyModifier::RightControl,
+                              .bRepeat = true});
+  REQUIRE(pressed == 1);
+  REQUIRE_FALSE(input.getState().isDown(InputKey::S));
   onPressed.disconnect();
   onReleased.disconnect();
+}
+
+TEST_CASE("chCore - Input text", "[Input]")
+{
+  InputManager input;
+  String typed;
+  Vector<InputKey> textKeys;
+  HEvent onText = input.OnTextInput.connect([&typed](StringView text) { typed += text; });
+  HEvent onTextKey = input.OnTextKey.connect(
+      [&textKeys](const KeyEvent& event) { textKeys.push_back(event.key); });
+  uint32 pressed = 0;
+  HEvent onPressed = input.OnKeyPressed.connect([&pressed](const KeyEvent&) { ++pressed; });
+
+  input.beginFrame();
+  // Text is ignored while text input is off.
+  TextInputEvent text{};
+  StringUtils::copyToBuffer(text.text, "x");
+  input.processEvent(text);
+  REQUIRE(typed.empty());
+
+  // A key held when text input starts is released, so the game does not see it stuck.
+  input.processEvent(KeyEvent{.key = InputKey::W, .bDown = true, .modifiers = {}});
+  REQUIRE(input.getState().isDown(InputKey::W));
+  input.startTextInput();
+  REQUIRE(input.isTextInputActive());
+  REQUIRE_FALSE(input.getState().isDown(InputKey::W));
+
+  StringUtils::copyToBuffer(text.text, "\xC3\xA9t\xC3\xA9");
+  input.processEvent(text);
+  REQUIRE(typed == "\xC3\xA9t\xC3\xA9");
+
+  // Keys go to the text field, repeats too, and never to the state or the shortcuts.
+  input.processEvent(KeyEvent{.key = InputKey::Backspace, .bDown = true, .modifiers = {}});
+  input.processEvent(
+      KeyEvent{.key = InputKey::Backspace, .bDown = true, .modifiers = {}, .bRepeat = true});
+  input.processEvent(KeyEvent{.key = InputKey::Backspace, .bDown = false, .modifiers = {}});
+  REQUIRE(textKeys == Vector<InputKey>{InputKey::Backspace, InputKey::Backspace});
+  REQUIRE_FALSE(input.getState().isDown(InputKey::Backspace));
+  REQUIRE(pressed == 1);
+  // The mouse still works.
+  input.processEvent(
+      MouseButtonEvent{.button = InputKey::MouseLeft, .bDown = true, .x = 0.0f, .y = 0.0f});
+  REQUIRE(input.getState().isDown(InputKey::MouseLeft));
+
+  input.stopTextInput();
+  REQUIRE_FALSE(input.isTextInputActive());
+  input.processEvent(KeyEvent{.key = InputKey::A, .bDown = true, .modifiers = {}});
+  REQUIRE(input.getState().isDown(InputKey::A));
+  REQUIRE(textKeys.size() == 2);
+  onText.disconnect();
+  onTextKey.disconnect();
+  onPressed.disconnect();
 }

@@ -8,6 +8,7 @@
  *  the input system asks of the platform.
  */
 /************************************************************************/
+#include "chStringUtils.h"
 #include "chDisplayEventHandle.h"
 
 #if USING(CH_DISPLAY_SDL3)
@@ -314,12 +315,21 @@ DisplayEventHandle::update()
     case SDL_EVENT_KEY_DOWN:
     case SDL_EVENT_KEY_UP: {
       const InputKey key = translateScancode(event.key.scancode);
-      if (key != InputKey::None && !event.key.repeat) {
+      if (key != InputKey::None) {
         m_events.emplace_back(KeyEvent{.key = key,
                                        .bDown = event.key.down,
-                                       .modifiers = translateModifiers(event.key.mod)});
+                                       .modifiers = translateModifiers(event.key.mod),
+                                       .bRepeat = event.key.repeat});
       }
     } break;
+
+    case SDL_EVENT_TEXT_INPUT:
+      if (event.text.text && event.text.text[0] != '\0') {
+        TextInputEvent text{};
+        StringUtils::copyToBuffer(text.text, event.text.text);
+        m_events.emplace_back(text);
+      }
+      break;
 
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
     case SDL_EVENT_MOUSE_BUTTON_UP: {
@@ -431,6 +441,23 @@ InputPlatform::setCursorMode(DisplaySurface& window, CursorMode mode)
   }
   else {
     SDL_HideCursor();
+  }
+}
+
+/*
+ */
+void
+InputPlatform::setTextInput(DisplaySurface& window, const bool bEnabled)
+{
+  SDL_Window* handle = window.getPlatformHandler();
+  if (!handle) {
+    return;
+  }
+  if (bEnabled) {
+    SDL_StartTextInput(handle);
+  }
+  else {
+    SDL_StopTextInput(handle);
   }
 }
 

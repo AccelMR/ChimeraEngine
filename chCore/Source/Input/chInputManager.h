@@ -307,6 +307,24 @@ class CH_CORE_EXPORT InputManager : public Module<InputManager>
   setWindow(DisplaySurface* window);
 
   /**
+   * Text input on: the system's text goes to OnTextInput and keyboard keys to OnTextKey
+   * (with the system's repeats) instead of the state, so the game and its actions see no
+   * keyboard key until stopTextInput (keys held when it starts are released). Mouse and
+   * gamepads keep working.
+   */
+  void
+  startTextInput();
+
+  void
+  stopTextInput();
+
+  NODISCARD FORCEINLINE bool
+  isTextInputActive() const noexcept
+  {
+    return m_bTextInput;
+  }
+
+  /**
    * What to show the player: keyboard keys as the current layout names them, gamepad
    * buttons as the player's gamepad family names them.
    */
@@ -348,6 +366,11 @@ class CH_CORE_EXPORT InputManager : public Module<InputManager>
   // moment and the modifiers matter; held keys do not repeat it. Not filtered by game input.
   const Event<void(const KeyEvent&)> OnKeyPressed;
   const Event<void(const KeyEvent&)> OnKeyReleased;
+
+  // While text input is on: typed text (UTF-8), and keyboard keys pressed or repeated by the
+  // system (Backspace, arrows, Enter), for text fields.
+  const Event<void(StringView)> OnTextInput;
+  const Event<void(const KeyEvent&)> OnTextKey;
 
  protected:
   void
@@ -413,6 +436,7 @@ class CH_CORE_EXPORT InputManager : public Module<InputManager>
   CursorMode m_cursorMode = CursorMode::Normal;
   CursorMode m_appliedCursorMode = CursorMode::Normal;
   bool m_bGameInputEnabled = true;
+  bool m_bTextInput = false;
   bool m_bInFixedStep = false;
 };
 
