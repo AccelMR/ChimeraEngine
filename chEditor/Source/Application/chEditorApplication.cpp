@@ -22,6 +22,7 @@
 #include "chConsoleVariable.h"
 #include "chInputManager.h"
 #include "chDynamicLibManager.h"
+#include "chEngineConfig.h"
 #include "chEnginePaths.h"
 #include "chEnginePlugins.h"
 #include "chFileSystem.h"
@@ -517,6 +518,8 @@ EditorApplication::initializeEditorComponents() {
   // Before the managers: plugins register the components scenes hold and the script
   // bindings the state is made with.
   EnginePlugins::loadEnabled();
+  // After the codecs and plugins, which register settings of their own.
+  EngineConfig::warnUnknownSettings();
   CoreComponentEditors::registerDescriptions();
 
   AudioManager::startUp();

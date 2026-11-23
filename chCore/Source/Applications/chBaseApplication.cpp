@@ -18,6 +18,8 @@
 
 #include "chAlgorithm.h"
 #include "chCommandLine.h"
+#include "chDynamicLibManager.h"
+#include "chEnginePlugins.h"
 #include "chConsoleVariable.h"
 #include "chEngineConfig.h"
 #include "chEnginePaths.h"
@@ -43,6 +45,9 @@ using std::stoi;
 CH_LOG_DECLARE_STATIC(BaseApp, CH_BASE_APPLICATION_LOG_LEVEL);
 
 namespace {
+CommandLineOption g_optionLog("log", "Opens a console window with the log.");
+CommandLineOption g_optionHelp("help", "Lists every setting and option, then exits.");
+
 struct RelaunchRequest
 {
   bool bRequested = false;
@@ -59,7 +64,8 @@ getRelaunchRequest()
 ConsoleVariable<int32> g_cvarLogMaxBackups("Log.MaxBackups",
                                            20,
                                            "Logs of earlier runs kept per program in "
-                                           "Saved/Logs; the oldest go first. 0 keeps all.");
+                                           "Saved/Logs; the oldest go first. 0 keeps all.",
+                                           "", ConsoleVariableBehavior::RequiresRestart);
 
 constexpr const ANSICHAR* kBackupTag = "-backup-";
 // "[YYYY-MM-DD HH:MM:SS", the start of every line the Logger writes.
@@ -189,7 +195,7 @@ BaseApplication::launch(int32 argc,
 {
   CommandLine::initialize(argc, argv);
   // Windowed programs start without a console; -log asks for one, before the first message.
-  if (CommandLine::hasFlag("log")) {
+  if (CommandLine::hasFlag("log") || CommandLine::hasFlag("help")) {
     Logger::openConsoleWindow();
   }
 
@@ -213,11 +219,16 @@ BaseApplication::launch(int32 argc,
     // After the config, which sets how many workers it starts.
     JobSystem::startUp();
 
-    startUpApplication();
-    BaseApplication& app = instance();
-    app.initialize();
-    app.run();
-    CH_LOG_INFO(BaseApp, "Application finished successfully.");
+    if (CommandLine::hasFlag("help")) {
+      logHelp();
+    }
+    else {
+      startUpApplication();
+      BaseApplication& app = instance();
+      app.initialize();
+      app.run();
+      CH_LOG_INFO(BaseApp, "Application finished successfully.");
+    }
   } catch (const Exception& e) {
     CH_LOG_ERROR(BaseApp, "Exception caught: {0}", e.what());
     exitCode = 1;
@@ -257,6 +268,23 @@ BaseApplication::launch(int32 argc,
     }
   }
   return exitCode;
+}
+
+/*
+ */
+void
+BaseApplication::logHelp()
+{
+  // Plugins register settings of their own, so the list loads them first.
+  const bool bStartedLibraries = !DynamicLibraryManager::isStarted();
+  if (bStartedLibraries) {
+    DynamicLibraryManager::startUp();
+  }
+  EnginePlugins::loadEnabled();
+  ConsoleVariables::logHelp();
+  if (bStartedLibraries) {
+    DynamicLibraryManager::shutDown();
+  }
 }
 
 /*

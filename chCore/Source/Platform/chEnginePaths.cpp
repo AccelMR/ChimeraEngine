@@ -24,6 +24,8 @@ namespace chEngineSDK {
 CH_LOG_DECLARE_STATIC(EnginePathsLog, All);
 
 namespace {
+CommandLineOption g_optionProject("project", "Project to open: its folder or .chproject file.");
+
 const ANSICHAR* const kEngineContentFolder = "chCore/Content";
 #if USING(CH_EDITOR)
 const ANSICHAR* const kEditorContentFolder = "chEditor/Content";

@@ -15,6 +15,8 @@
 /************************************************************************/
 #include "chPrerequisitesUtilities.h"
 
+#include "chFlags.h"
+
 namespace chEngineSDK {
 
 /**
@@ -31,6 +33,17 @@ enum class ConsoleVariableSource : uint8
   Code,
   Console
 };
+
+/**
+ * How a console variable behaves once the engine runs.
+ */
+enum class ConsoleVariableBehavior : uint8
+{
+  None = 0,
+  // Read only while the engine starts, so a change waits for the next run.
+  RequiresRestart = 1 << 0
+};
+CH_FLAGS(ConsoleVariableBehavior);
 
 /**
  * Base of every ConsoleVariable, so the registry can find, list and set them by name
@@ -78,8 +91,23 @@ class CH_UTILITY_EXPORT IConsoleVariable
     return m_source;
   }
 
+  NODISCARD FORCEINLINE bool
+  requiresRestart() const noexcept
+  {
+    return m_behavior.isSet(ConsoleVariableBehavior::RequiresRestart);
+  }
+
+  /**
+   * Type name for listings: "bool", "int", "float" or "string".
+   */
+  NODISCARD virtual StringView
+  getTypeName() const noexcept = 0;
+
  protected:
-  IConsoleVariable(StringView name, StringView help, StringView commandLineAlias);
+  IConsoleVariable(StringView name,
+                   StringView help,
+                   StringView commandLineAlias,
+                   ConsoleVariableBehaviorFlags behavior);
 
   virtual ~IConsoleVariable();
 
@@ -137,6 +165,7 @@ class CH_UTILITY_EXPORT IConsoleVariable
   String m_help;
   String m_commandLineAlias;
   ConsoleVariableSource m_source = ConsoleVariableSource::Default;
+  ConsoleVariableBehaviorFlags m_behavior;
 };
 
 /**
@@ -164,8 +193,9 @@ class ConsoleVariable final : public IConsoleVariable
   ConsoleVariable(StringView name,
                   T defaultValue,
                   StringView help,
-                  StringView commandLineAlias = StringView())
-   : IConsoleVariable(name, help, commandLineAlias),
+                  StringView commandLineAlias = StringView(),
+                  ConsoleVariableBehaviorFlags behavior = ConsoleVariableBehavior::None)
+   : IConsoleVariable(name, help, commandLineAlias, behavior),
      m_value(defaultValue),
      m_defaultValue(std::move(defaultValue))
   {
@@ -204,6 +234,23 @@ class ConsoleVariable final : public IConsoleVariable
   toString() const override
   {
     return valueToString(m_value);
+  }
+
+  NODISCARD StringView
+  getTypeName() const noexcept override
+  {
+    if constexpr (std::is_same_v<T, bool>) {
+      return "bool";
+    }
+    else if constexpr (std::is_same_v<T, int32>) {
+      return "int";
+    }
+    else if constexpr (std::is_same_v<T, float>) {
+      return "float";
+    }
+    else {
+      return "string";
+    }
   }
 
  protected:
@@ -258,6 +305,18 @@ class CH_UTILITY_EXPORT ConsoleVariables
   static void
   applyStartupValues();
 
+  /**
+   * True when "Section.Key" of a config file names a variable or a ConfigDataKey.
+   */
+  NODISCARD static bool
+  isKnownConfigKey(StringView name);
+
+  /**
+   * Logs every variable, config data key and command line option with its help (-help).
+   */
+  static void
+  logHelp();
+
  private:
   friend class IConsoleVariable;
 
@@ -266,6 +325,50 @@ class CH_UTILITY_EXPORT ConsoleVariables
 
   static void
   remove(IConsoleVariable& variable);
+};
+
+/**
+ * Exists so config files may hold values that are not console variables (a folder the
+ * editor remembers, a setting another program reads) without being reported as typos.
+ * Declared as a global next to the code that reads the value, like a ConsoleVariable.
+ * "Section.*" covers every key of a section that only holds such values.
+ */
+class CH_UTILITY_EXPORT ConfigDataKey
+{
+ public:
+  ConfigDataKey(StringView name, StringView help);
+
+  ~ConfigDataKey();
+
+  ConfigDataKey(const ConfigDataKey&) = delete;
+
+  ConfigDataKey&
+  operator=(const ConfigDataKey&) = delete;
+
+  NODISCARD bool
+  matches(StringView name) const noexcept;
+
+  NODISCARD FORCEINLINE const String&
+  getName() const noexcept
+  {
+    return m_name;
+  }
+
+  NODISCARD FORCEINLINE const String&
+  getHelp() const noexcept
+  {
+    return m_help;
+  }
+
+  /**
+   * Sorted by name.
+   */
+  NODISCARD static Vector<const ConfigDataKey*>
+  getAll();
+
+ private:
+  String m_name;
+  String m_help;
 };
 
 } // namespace chEngineSDK

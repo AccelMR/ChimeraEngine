@@ -48,6 +48,14 @@ class CH_CORE_EXPORT EngineConfig
    */
   static bool
   setUserValue(StringView fileName, StringView section, StringView key, StringView value);
+
+  /**
+   * Warns about every config key and command line option that names no console variable,
+   * ConfigDataKey or CommandLineOption (a typo, or a setting of a plugin that is not
+   * loaded). Call it once the plugins are loaded, since they register settings.
+   */
+  static void
+  warnUnknownSettings();
 };
 
 } // namespace chEngineSDK

@@ -40,6 +40,10 @@ CH_LOG_DECLARE_STATIC(EditorSceneLog, All);
 
 namespace chEngineSDK {
 namespace {
+// A setting of the game; the editor reads it as text to open the same scene.
+ConfigDataKey g_dataGameStartupScene("Game.StartupScene",
+                                     "Scene the game opens; the editor opens it too.");
+
 ConsoleVariable<String> g_cvarStartupScene(
     "Editor.StartupScene",
     "DefaultScene",

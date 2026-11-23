@@ -73,6 +73,57 @@ class CH_UTILITY_EXPORT CommandLine
 
   NODISCARD static const ANSICHAR* const*
   getArgv() noexcept;
+
+  /**
+   * Every option given, as written without the leading '-' and "=value", sorted.
+   */
+  NODISCARD static Vector<String>
+  getOptionNames();
+
+  /**
+   * True when name is a console variable (by name or alias) or a CommandLineOption.
+   */
+  NODISCARD static bool
+  isKnownOption(StringView name);
+};
+
+/**
+ * Exists so options that are not console variables (-project, -log) are listed by -help and
+ * not reported as typos. Declared as a global next to the code that reads the option.
+ */
+class CH_UTILITY_EXPORT CommandLineOption
+{
+ public:
+  CommandLineOption(StringView name, StringView help);
+
+  ~CommandLineOption();
+
+  CommandLineOption(const CommandLineOption&) = delete;
+
+  CommandLineOption&
+  operator=(const CommandLineOption&) = delete;
+
+  NODISCARD FORCEINLINE const String&
+  getName() const noexcept
+  {
+    return m_name;
+  }
+
+  NODISCARD FORCEINLINE const String&
+  getHelp() const noexcept
+  {
+    return m_help;
+  }
+
+  /**
+   * Sorted by name.
+   */
+  NODISCARD static Vector<const CommandLineOption*>
+  getAll();
+
+ private:
+  String m_name;
+  String m_help;
 };
 
 } // namespace chEngineSDK

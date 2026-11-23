@@ -26,10 +26,12 @@ namespace {
 ConsoleVariable<bool> g_cvarAudioEnabled(
     "Audio.Enabled", true,
     "Opens the sound device. Off, sounds still play their logic but nothing is heard. Read at "
-    "start up.");
+    "start up.",
+    "", ConsoleVariableBehavior::RequiresRestart);
 ConsoleVariable<int32> g_cvarMaxVoices(
     "Audio.MaxVoices", 64,
-    "Sounds that can play at once; a new one past it stops the oldest. Read at start up.");
+    "Sounds that can play at once; a new one past it stops the oldest. Read at start up.",
+    "", ConsoleVariableBehavior::RequiresRestart);
 ConsoleVariable<float> g_cvarMasterVolume("Audio.MasterVolume", 1.0f,
                                           "Volume of everything, 0 to 1.");
 ConsoleVariable<float> g_cvarSfxVolume("Audio.SfxVolume", 1.0f,

@@ -16,6 +16,26 @@
 #include "chStringUtils.h"
 
 namespace chEngineSDK {
+namespace {
+CommandLineOption g_optionGenerate(IdeDebugSettingsApplication::COMMAND_LINE_FLAG,
+                                   "Writes IDE debug settings for -project, then exits.");
+CommandLineOption g_optionNoVSCode("NoVSCode", "With -GenerateIdeDebugSettings: no VS Code.");
+CommandLineOption g_optionNoFollow("NoFollowCMakeTools",
+                                   "With -GenerateIdeDebugSettings: one entry per build "
+                                   "variant instead of the CMake Tools tab.");
+#if USING(CH_PLATFORM_WIN32)
+CommandLineOption g_optionNoSolution("NoVSSolution",
+                                     "With -GenerateIdeDebugSettings: no Visual Studio "
+                                     "solution settings.");
+CommandLineOption g_optionNoFolder("NoVSFolder",
+                                   "With -GenerateIdeDebugSettings: no Visual Studio Open "
+                                   "Folder settings.");
+#else
+CommandLineOption g_optionDebugger("Debugger",
+                                   "With -GenerateIdeDebugSettings: gdb or lldb.");
+#endif
+} // namespace
+
 
 /*
  */

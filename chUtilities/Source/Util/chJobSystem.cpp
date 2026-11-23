@@ -24,7 +24,8 @@ ConsoleVariable<int32> g_cvarWorkerThreads(
     "Jobs.WorkerThreads",
     0,
     "Worker threads of the job system; 0 is one per core but the one the main thread uses.",
-    "WorkerThreads");
+    "WorkerThreads",
+    ConsoleVariableBehavior::RequiresRestart);
 
 // More pieces than this in one parallelFor bring nothing but overhead.
 constexpr SIZE_T kMaxParallelPieces = 64;

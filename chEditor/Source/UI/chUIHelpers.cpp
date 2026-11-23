@@ -56,7 +56,8 @@ namespace {
 ConsoleVariable<bool> g_cvarFloatingWindows("Editor.FloatingWindows",
                                             false,
                                             "Lets panels leave the main window.",
-                                            "FloatingWindows");
+                                            "FloatingWindows",
+                                            ConsoleVariableBehavior::RequiresRestart);
 
 ConsoleVariable<String> g_cvarScriptEditor(
     "Editor.ScriptEditor",

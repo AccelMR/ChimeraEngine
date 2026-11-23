@@ -22,6 +22,7 @@ set(CH_GAME_DEV_PROJECT "${CMAKE_SOURCE_DIR}/Examples/BaseExample" CACHE PATH
     "Project chGame opens in a development build when no -project is given")
 option(CH_ENABLE_PROFILER "Build the profiler (CPU scopes, render stats); off for shipping" ON)
 option(CH_ENABLE_DEBUG_DRAW "Build the debug lines (DebugDraw and its pass); off for shipping" ON)
+option(CH_ENABLE_CONSOLE "Build the console (commands, CVars typed at run time); any build type" ON)
 
 # Graphics plugin a windowed application loads when -GraphicsAPI is not given. The engine
 # code never names a graphics API, so the build chooses it.

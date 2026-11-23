@@ -55,6 +55,22 @@ getRegistry()
   return *registry;
 }
 
+/**
+ * Created with new and never deleted, for the same reason as the variable registry.
+ */
+struct DataKeyRegistry
+{
+  Mutex mutex;
+  Vector<const ConfigDataKey*> keys;
+};
+
+NODISCARD DataKeyRegistry&
+getDataKeyRegistry()
+{
+  static DataKeyRegistry* registry = new DataKeyRegistry();
+  return *registry;
+}
+
 NODISCARD bool
 matchesName(const IConsoleVariable& variable, StringView name) noexcept
 {
@@ -104,10 +120,12 @@ applyToVariable(const VariableRegistry& registry, IConsoleVariable& variable)
  */
 IConsoleVariable::IConsoleVariable(StringView name,
                                    StringView help,
-                                   StringView commandLineAlias)
+                                   StringView commandLineAlias,
+                                   const ConsoleVariableBehaviorFlags behavior)
  : m_name(name),
    m_help(help),
-   m_commandLineAlias(commandLineAlias)
+   m_commandLineAlias(commandLineAlias),
+   m_behavior(behavior)
 {}
 
 /*
@@ -308,6 +326,61 @@ ConsoleVariables::applyStartupValues()
 
 /*
  */
+bool
+ConsoleVariables::isKnownConfigKey(StringView name)
+{
+  // Config files name a variable by its full name only; aliases are for the command line.
+  {
+    VariableRegistry& registry = getRegistry();
+    LockGuard<Mutex> lock(registry.mutex);
+    for (const IConsoleVariable* variable : registry.variables) {
+      if (StringUtils::equalsIgnoreCase(variable->getName(), name)) {
+        return true;
+      }
+    }
+  }
+  DataKeyRegistry& keys = getDataKeyRegistry();
+  LockGuard<Mutex> lock(keys.mutex);
+  for (const ConfigDataKey* key : keys.keys) {
+    if (key->matches(name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/*
+ */
+void
+ConsoleVariables::logHelp()
+{
+  CH_LOG_INFO(ConsoleVariableLog,
+              "Settings (Section.Key in Engine.ini, Game.ini or Editor.ini; "
+              "-Section.Key=Value or the alias on the command line):");
+  for (const IConsoleVariable* variable : getAll()) {
+    const String& alias = variable->getCommandLineAlias();
+    CH_LOG_INFO(ConsoleVariableLog, "  {0}{1}{2} = {3} ({4}{5}): {6}", variable->getName(),
+                alias.empty() ? "" : ", -", alias, variable->toString(),
+                variable->getTypeName(),
+                variable->requiresRestart() ? ", read at start" : "", variable->getHelp());
+  }
+
+  const Vector<const ConfigDataKey*> keys = ConfigDataKey::getAll();
+  if (!keys.empty()) {
+    CH_LOG_INFO(ConsoleVariableLog, "Config values that are not settings:");
+    for (const ConfigDataKey* key : keys) {
+      CH_LOG_INFO(ConsoleVariableLog, "  {0}: {1}", key->getName(), key->getHelp());
+    }
+  }
+
+  CH_LOG_INFO(ConsoleVariableLog, "Command line options:");
+  for (const CommandLineOption* option : CommandLineOption::getAll()) {
+    CH_LOG_INFO(ConsoleVariableLog, "  -{0}: {1}", option->getName(), option->getHelp());
+  }
+}
+
+/*
+ */
 void
 ConsoleVariables::add(IConsoleVariable& variable)
 {
@@ -336,6 +409,58 @@ ConsoleVariables::remove(IConsoleVariable& variable)
   VariableRegistry& registry = getRegistry();
   LockGuard<Mutex> lock(registry.mutex);
   Algorithm::removeFirst(registry.variables, &variable);
+}
+
+/*
+ */
+ConfigDataKey::ConfigDataKey(StringView name, StringView help)
+ : m_name(name),
+   m_help(help)
+{
+  DataKeyRegistry& registry = getDataKeyRegistry();
+  LockGuard<Mutex> lock(registry.mutex);
+  registry.keys.push_back(this);
+}
+
+/*
+ */
+ConfigDataKey::~ConfigDataKey()
+{
+  DataKeyRegistry& registry = getDataKeyRegistry();
+  LockGuard<Mutex> lock(registry.mutex);
+  Algorithm::removeFirst(registry.keys, this);
+}
+
+/*
+ */
+bool
+ConfigDataKey::matches(StringView name) const noexcept
+{
+  const StringView own = m_name;
+  if (own.size() >= 2 && own.ends_with(".*")) {
+    // The section with its dot, so "Package.*" never takes "Packager.X".
+    const StringView section = own.substr(0, own.size() - 1);
+    return name.size() > section.size() &&
+           StringUtils::equalsIgnoreCase(name.substr(0, section.size()), section);
+  }
+  return StringUtils::equalsIgnoreCase(own, name);
+}
+
+/*
+ */
+Vector<const ConfigDataKey*>
+ConfigDataKey::getAll()
+{
+  DataKeyRegistry& registry = getDataKeyRegistry();
+  Vector<const ConfigDataKey*> keys;
+  {
+    LockGuard<Mutex> lock(registry.mutex);
+    keys = registry.keys;
+  }
+  Algorithm::sort(keys, [](const ConfigDataKey* a, const ConfigDataKey* b) {
+    return a->getName() < b->getName();
+  });
+  return keys;
 }
 
 } // namespace chEngineSDK

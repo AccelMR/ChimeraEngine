@@ -34,13 +34,15 @@ ConsoleVariable<bool> g_cvarPoolAllocator("Script.PoolAllocator",
                                           true,
                                           "Small script objects (temporary vectors, strings, "
                                           "tables) come from pools instead of malloc. Read "
-                                          "when the script runtime starts.");
+                                          "when the script runtime starts.",
+                                          "", ConsoleVariableBehavior::RequiresRestart);
 
 ConsoleVariable<bool> g_cvarGenerationalGC("Script.GenerationalGC",
                                            true,
                                            "Generational garbage collection: objects that die "
                                            "young are freed in quick passes. Off uses Lua's "
-                                           "incremental collector.");
+                                           "incremental collector.",
+                                           "", ConsoleVariableBehavior::RequiresRestart);
 
 /*
  * Built on first use: plugins add theirs from loadPlugin, before any ScriptManager starts.

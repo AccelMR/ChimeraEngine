@@ -132,6 +132,12 @@ class CH_CORE_EXPORT BaseApplication : public Module<BaseApplication> {
   update(const float deltaTime) { CH_PARAMETER_UNUSED(deltaTime); }
 
  private:
+  /**
+   * What -help prints: every setting and option, with those of the enabled plugins.
+   */
+  static void
+  logHelp();
+
   bool m_running = true; ///< Flag to indicate if the application is running.
 };
 } // namespace chEngineSDK

@@ -8,6 +8,7 @@
 /************************************************************************/
 #include "chAlgorithm.h"
 #include "chCommandLine.h"
+#include "chConsole.h"
 #include "chConfigFile.h"
 #include "chConsoleVariable.h"
 #include "chFileSystem.h"
@@ -253,3 +254,147 @@ TEST_CASE("chUtilities - ConsoleVariable", "[Config]") {
     REQUIRE(ConsoleVariables::find("Test.Scoped") == nullptr);
   }
 }
+
+TEST_CASE("chUtilities - Config data keys and options", "[Config]") {
+  SECTION("variables, exact keys and whole sections") {
+    ConsoleVariable<int32> var("TestKeys.Setting", 1, "", "",
+                               ConsoleVariableBehavior::RequiresRestart);
+    ConfigDataKey exact("TestKeys.Remembered", "A value the editor keeps.");
+    ConfigDataKey section("TestData.*", "A section of values.");
+
+    REQUIRE(var.requiresRestart());
+    REQUIRE(var.getTypeName() == "int");
+    REQUIRE(ConsoleVariables::isKnownConfigKey("testkeys.setting"));
+    REQUIRE(ConsoleVariables::isKnownConfigKey("TestKeys.Remembered"));
+    REQUIRE(ConsoleVariables::isKnownConfigKey("TestData.Anything"));
+    REQUIRE_FALSE(ConsoleVariables::isKnownConfigKey("TestKeys.Setting2"));
+    REQUIRE_FALSE(ConsoleVariables::isKnownConfigKey("TestDataX.Anything"));
+    // The section alone names no value.
+    REQUIRE_FALSE(ConsoleVariables::isKnownConfigKey("TestData."));
+    REQUIRE(section.matches("testdata.Key"));
+    REQUIRE(Algorithm::contains(ConfigDataKey::getAll(), &exact));
+  }
+
+  SECTION("a destroyed data key leaves the registry") {
+    {
+      ConfigDataKey scoped("TestKeys.Scoped", "");
+      REQUIRE(ConsoleVariables::isKnownConfigKey("TestKeys.Scoped"));
+    }
+    REQUIRE_FALSE(ConsoleVariables::isKnownConfigKey("TestKeys.Scoped"));
+  }
+
+  SECTION("command line options") {
+    ConsoleVariable<int32> var("TestOptions.Value", 1, "", "OptionAlias");
+    CommandLineOption option("TestProjectOption", "A path.");
+    const ANSICHAR* argv[] = {"program", "-TestOptions.Value=2", "-optionalias=3",
+                              "-testprojectoption=x", "-Typo"};
+    CommandLine::parse(5, argv);
+
+    const Vector<String> names = CommandLine::getOptionNames();
+    REQUIRE(names.size() == 4);
+    REQUIRE(Algorithm::contains(names, String("typo")));
+    REQUIRE(CommandLine::isKnownOption("testoptions.value"));
+    REQUIRE(CommandLine::isKnownOption("OptionAlias"));
+    REQUIRE(CommandLine::isKnownOption("TESTPROJECTOPTION"));
+    REQUIRE_FALSE(CommandLine::isKnownOption("typo"));
+    REQUIRE(Algorithm::contains(CommandLineOption::getAll(), &option));
+
+    const ANSICHAR* empty[] = {"program"};
+    CommandLine::parse(1, empty);
+  }
+}
+
+#if USING(CH_CONSOLE)
+TEST_CASE("chUtilities - Console", "[Config]") {
+  SECTION("commands get their words and text") {
+    Vector<String> words;
+    String text;
+    ConsoleCommand command("testEcho", "<words>", "Keeps what it gets.",
+                           [&words, &text](const ConsoleArguments& arguments) {
+                             words.clear();
+                             for (SIZE_T i = 0; i < arguments.getCount(); ++i) {
+                               words.emplace_back(arguments.get(i));
+                             }
+                             text = arguments.text;
+                             REQUIRE(arguments.get(arguments.getCount()).empty());
+                           });
+
+    REQUIRE(Console::findCommand("TESTECHO") == &command);
+    REQUIRE(Console::execute("  testEcho one \"two words\"   three  "));
+    REQUIRE(words == Vector<String>{"one", "two words", "three"});
+    REQUIRE(text == "one \"two words\"   three");
+
+    REQUIRE(Console::execute("TestEcho"));
+    REQUIRE(words.empty());
+    REQUIRE(text.empty());
+  }
+
+  SECTION("a variable is shown and set with the console source") {
+    ConsoleVariable<int32> var("TestConsole.Count", 1, "A count.");
+    ConsoleVariable<String> name("TestConsole.Name", "a", "A name.");
+    REQUIRE(Console::execute("TestConsole.Count"));
+    REQUIRE(var.get() == 1);
+
+    REQUIRE(Console::execute("testconsole.count 5"));
+    REQUIRE(var.get() == 5);
+    REQUIRE(var.getSource() == ConsoleVariableSource::Console);
+
+    // A value that does not fit keeps the old one; the line still named something.
+    REQUIRE(Console::execute("TestConsole.Count five"));
+    REQUIRE(var.get() == 5);
+
+    REQUIRE(Console::execute("TestConsole.Name \"two words\""));
+    REQUIRE(name.get() == "two words");
+    REQUIRE(Console::execute("TestConsole.Name more words"));
+    REQUIRE(name.get() == "more words");
+  }
+
+  SECTION("unknown names and empty lines") {
+    REQUIRE_FALSE(Console::execute("   "));
+    REQUIRE_FALSE(Console::execute("TestConsole.Missing 3"));
+  }
+
+  SECTION("history keeps no line twice in a row") {
+    ConsoleCommand command("testNothing", "", "", [](const ConsoleArguments&) {});
+    REQUIRE(Console::execute("testNothing a"));
+    REQUIRE(Console::execute("testNothing a"));
+    REQUIRE(Console::execute("testNothing b"));
+    const Vector<String>& history = Console::getHistory();
+    REQUIRE(history.size() >= 2);
+    REQUIRE(history[history.size() - 1] == "testNothing b");
+    REQUIRE(history[history.size() - 2] == "testNothing a");
+    REQUIRE(history.size() <= Console::MAX_HISTORY);
+  }
+
+  SECTION("completion lists commands and variables by prefix") {
+    ConsoleCommand command("testCompleteCommand", "", "", [](const ConsoleArguments&) {});
+    ConsoleVariable<bool> var("TestComplete.Flag", false, "");
+    Vector<String> names;
+    Console::complete("testcomplete", names);
+    REQUIRE(names.size() == 2);
+    REQUIRE(Algorithm::contains(names, String("testCompleteCommand")));
+    REQUIRE(Algorithm::contains(names, String("TestComplete.Flag")));
+    Console::complete("TestCompleteX", names);
+    REQUIRE(names.empty());
+  }
+
+  SECTION("help and find run") {
+    ConsoleVariable<float> var("TestHelp.Speed", 2.0f, "How fast the test runs.");
+    REQUIRE(Console::findCommand("help"));
+    REQUIRE(Console::findCommand("find"));
+    REQUIRE(Console::execute("help"));
+    REQUIRE(Console::execute("help TestHelp.Speed"));
+    REQUIRE(Console::execute("help find"));
+    REQUIRE(Console::execute("find test runs"));
+    REQUIRE(Console::execute("find"));
+  }
+
+  SECTION("a destroyed command leaves the console") {
+    {
+      ConsoleCommand scoped("testScoped", "", "", [](const ConsoleArguments&) {});
+      REQUIRE(Console::findCommand("testScoped"));
+    }
+    REQUIRE_FALSE(Console::findCommand("testScoped"));
+  }
+}
+#endif // USING(CH_CONSOLE)

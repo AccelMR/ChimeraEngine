@@ -13,6 +13,7 @@
 #include "chAudioManager.h"
 #include "chCameraComponent.h"
 #include "chConsoleVariable.h"
+#include "chEngineConfig.h"
 #include "chEnginePaths.h"
 #include "chEnginePlugins.h"
 #include "chFont.h"
@@ -33,6 +34,9 @@ namespace chEngineSDK {
 CH_LOG_DECLARE_STATIC(GameApp, All);
 
 namespace {
+// A development build loads Editor.ini too, but the game has no editor settings to give it.
+ConfigDataKey g_dataEditorSettings("Editor.*", "Editor settings; the game does not read them.");
+
 ConsoleVariable<String> g_cvarStartupScene(
     "Game.StartupScene",
     "/Game/Maps/Main",
@@ -59,6 +63,8 @@ GameApplication::onPostInitialize()
   // Before the managers: plugins register the components scenes hold and the script
   // bindings the state is made with.
   EnginePlugins::loadEnabled();
+  // After the plugins, which register settings of their own.
+  EngineConfig::warnUnknownSettings();
 
   AudioManager::startUp();
   AssetManager::startUp();

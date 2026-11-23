@@ -16,6 +16,9 @@
 
 #include <charconv>
 
+#include "chAlgorithm.h"
+#include "chConsoleVariable.h"
+#include "chSTDThreading.h"
 #include "chStringUtils.h"
 
 #if USING(CH_PLATFORM_WIN32)
@@ -46,6 +49,23 @@ getData() noexcept
 {
   static CommandLineData data;
   return data;
+}
+
+/**
+ * Created with new and never deleted: options are globals of other modules, some destroyed
+ * after the statics of this file.
+ */
+struct OptionRegistry
+{
+  Mutex mutex;
+  Vector<const CommandLineOption*> options;
+};
+
+NODISCARD OptionRegistry&
+getOptionRegistry()
+{
+  static OptionRegistry* registry = new OptionRegistry();
+  return *registry;
 }
 
 } // namespace
@@ -174,6 +194,76 @@ const ANSICHAR* const*
 CommandLine::getArgv() noexcept
 {
   return getData().argv;
+}
+
+/*
+ */
+Vector<String>
+CommandLine::getOptionNames()
+{
+  const CommandLineData& data = getData();
+  Vector<String> names;
+  names.reserve(data.values.size() + data.flags.size());
+  for (const auto& [key, value] : data.values) {
+    names.push_back(key);
+  }
+  for (const String& flag : data.flags) {
+    names.push_back(flag);
+  }
+  Algorithm::sort(names);
+  return names;
+}
+
+/*
+ */
+bool
+CommandLine::isKnownOption(StringView name)
+{
+  if (ConsoleVariables::find(name)) {
+    return true;
+  }
+  OptionRegistry& registry = getOptionRegistry();
+  LockGuard<Mutex> lock(registry.mutex);
+  return Algorithm::containsIf(registry.options, [name](const CommandLineOption* option) {
+    return StringUtils::equalsIgnoreCase(option->getName(), name);
+  });
+}
+
+/*
+ */
+CommandLineOption::CommandLineOption(StringView name, StringView help)
+ : m_name(name),
+   m_help(help)
+{
+  OptionRegistry& registry = getOptionRegistry();
+  LockGuard<Mutex> lock(registry.mutex);
+  registry.options.push_back(this);
+}
+
+/*
+ */
+CommandLineOption::~CommandLineOption()
+{
+  OptionRegistry& registry = getOptionRegistry();
+  LockGuard<Mutex> lock(registry.mutex);
+  Algorithm::removeFirst(registry.options, this);
+}
+
+/*
+ */
+Vector<const CommandLineOption*>
+CommandLineOption::getAll()
+{
+  OptionRegistry& registry = getOptionRegistry();
+  Vector<const CommandLineOption*> options;
+  {
+    LockGuard<Mutex> lock(registry.mutex);
+    options = registry.options;
+  }
+  Algorithm::sort(options, [](const CommandLineOption* a, const CommandLineOption* b) {
+    return a->getName() < b->getName();
+  });
+  return options;
 }
 
 } // namespace chEngineSDK
