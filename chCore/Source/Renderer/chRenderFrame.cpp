@@ -8,6 +8,8 @@
 /************************************************************************/
 #include "chRenderFrame.h"
 
+#include "chScreenOverlay.h"
+
 #include "chMesh.h"
 #include "chPostProcessComponent.h"
 #include "chRenderCulling.h"
@@ -21,10 +23,19 @@ void
 RenderFrame::extract(const Scene& scene,
                      const Camera& camera,
                      const LinearColor& clearColor,
-                     const DebugDraw* extraLines)
+                     const DebugDraw* extraLines,
+                     const ScreenOverlay* overlay)
 {
   m_camera = camera;
   m_clearColor = clearColor;
+
+  m_overlaySprites.clear();
+  m_overlayGlyphRuns.clear();
+  if (overlay) {
+    const SpriteDraw& draw = overlay->getSpriteDraw();
+    m_overlaySprites.assign(draw.getSprites().begin(), draw.getSprites().end());
+    m_overlayGlyphRuns.assign(draw.getGlyphRuns().begin(), draw.getGlyphRuns().end());
+  }
 
   // Free slots are left out, so the renderer walks only what draws. The skin matrices are
   // copied too, because the component may change them while the frame is drawn.

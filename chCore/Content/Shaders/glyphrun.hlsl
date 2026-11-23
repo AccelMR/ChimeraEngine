@@ -1,6 +1,7 @@
 // Glyph runs as they are: each instance is a short text, and every six vertices of the draw
 // make the quad of one of its glyphs (see chGlyphRun.hlsli).
 
+#include "chColor.hlsli"
 #include "chGlyphRun.hlsli"
 
 // Must match GlyphRunPushConstants in chSpritePass.cpp.
@@ -13,6 +14,8 @@ struct PushConstants
   uint linearSamplerIndex;
   // Buffers made GpuOnly are bound as writable storage; the frame's own one is read only.
   uint bWritableBuffer;
+  // The screen overlay draws straight onto a target that stores encoded colors.
+  uint encodeOutput;
 };
 
 [[vk::push_constant]] ConstantBuffer<PushConstants> g_push : register(b0);
@@ -43,9 +46,13 @@ VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 float4
 PSMain(GlyphVSOutput input) : SV_Target0
 {
-  return shadeSprite(input.color,
-                     input.texCoord,
-                     input.textureAndFlags,
-                     g_push.pointSamplerIndex,
-                     g_push.linearSamplerIndex);
+  float4 color = shadeSprite(input.color,
+                             input.texCoord,
+                             input.textureAndFlags,
+                             g_push.pointSamplerIndex,
+                             g_push.linearSamplerIndex);
+  if (g_push.encodeOutput != 0) {
+    color.rgb = linearToSrgb(color.rgb);
+  }
+  return color;
 }

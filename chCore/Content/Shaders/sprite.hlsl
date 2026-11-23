@@ -1,6 +1,7 @@
 // Sprites as instanced quads. There is no vertex buffer: each vertex reads its sprite from a
 // storage buffer by the instance index and makes its corner from the vertex index.
 
+#include "chColor.hlsli"
 #include "chSpriteBatch.hlsli"
 
 // Must match GpuSpriteInstance in chSpriteItem.h.
@@ -46,9 +47,14 @@ VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 float4
 PSMain(SpriteVertexOutput input) : SV_Target0
 {
-  return shadeSprite(input.color,
-                     input.texCoord,
-                     input.textureAndFlags,
-                     g_push.pointSamplerIndex,
-                     g_push.linearSamplerIndex);
+  float4 color = shadeSprite(input.color,
+                             input.texCoord,
+                             input.textureAndFlags,
+                             g_push.pointSamplerIndex,
+                             g_push.linearSamplerIndex);
+  // The screen overlay draws straight onto a target that stores encoded colors.
+  if (g_push.encodeOutput != 0) {
+    color.rgb = linearToSrgb(color.rgb);
+  }
+  return color;
 }

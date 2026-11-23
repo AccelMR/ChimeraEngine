@@ -27,7 +27,7 @@
   uint materialParametersIndex;                                                               \
   uint materialParametersOffset;                                                              \
   float spriteTime;                                                                           \
-  uint _headerPad0;                                                                           \
+  uint encodeOutput;                                                                          \
   uint _headerPad1;                                                                           \
   uint _headerPad2;
 

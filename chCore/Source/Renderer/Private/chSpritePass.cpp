@@ -37,7 +37,9 @@ struct SpriteBatchHeader
   uint32 materialParametersIndex;
   uint32 materialParametersOffset;
   float spriteTime;
-  uint32 padding[3];
+  // 1 when the target stores encoded colors (the screen overlay on the swap chain).
+  uint32 encodeOutput;
+  uint32 padding[2];
 };
 static_assert(sizeof(SpriteBatchHeader) == 96, "The sprite batch header must be 96 bytes");
 
@@ -60,6 +62,7 @@ struct GlyphRunPushConstants
   uint32 linearSamplerIndex;
   // A GpuOnly buffer is bound as writable storage, the frame's own buffer as read only.
   uint32 bWritableBuffer;
+  uint32 encodeOutput;
 };
 
 // The header of chSpriteBatch.hlsli, then the batch's own bytes.
@@ -162,8 +165,10 @@ SpritePass::addPass(RenderGraph& graph,
                     Span<const GlyphRunBatch> glyphRunBatches,
                     Span<const CustomSpriteBatch> customBatches,
                     const LinearColor& clearColor,
-                    RGTextureHandle output)
+                    RGTextureHandle output,
+                    const SpritePassTarget target)
 {
+  const bool bOverlay = target == SpritePassTarget::EncodedOverlay;
   m_batcher.build(sprites,
                   camera.getFrustum(),
                   g_cvarSpriteYSort.get() ? camera.getUpVector() : camera.getForwardVector(),
@@ -197,7 +202,8 @@ SpritePass::addPass(RenderGraph& graph,
       .materialParametersIndex = m_materialBufferIndex,
       .materialParametersOffset = 0,
       .spriteTime = static_cast<float>(getTicks() - m_startTicks) * 0.000001f,
-      .padding = {0, 0, 0}};
+      .encodeOutput = bOverlay ? 1u : 0u,
+      .padding = {0, 0}};
   const SpritePushConstants spriteConstants{
       .header = header,
       .instanceBufferIndex = instanceBuffer ? instanceBuffer->getBindlessIndex() : 0,
@@ -229,7 +235,7 @@ SpritePass::addPass(RenderGraph& graph,
 
   graph.addPass("Sprites")
       .setOptional()
-      .writeColor(output, LoadOp::Clear, clearColor)
+      .writeColor(output, bOverlay ? LoadOp::Load : LoadOp::Clear, clearColor)
       .setExecute([this, pipelines, spriteConstants, glyphRunBufferIndex](
                       RenderPassContext& context) {
         ICommandList& commandList = context.getCommandList();
@@ -240,7 +246,8 @@ SpritePass::addPass(RenderGraph& graph,
                                     .firstRun = 0,
                                     .pointSamplerIndex = header.pointSamplerIndex,
                                     .linearSamplerIndex = header.linearSamplerIndex,
-                                    .bWritableBuffer = 0};
+                                    .bWritableBuffer = 0,
+                                    .encodeOutput = header.encodeOutput};
         CustomPushConstants custom{.header = header, .parameters = {}};
         SIZE_T customIndex = 0;
         SIZE_T materialIndex = 0;
