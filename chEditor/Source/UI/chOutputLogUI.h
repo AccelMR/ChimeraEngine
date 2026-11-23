@@ -17,6 +17,8 @@ struct ImVec2;
 
 namespace chEngineSDK {
 
+class ConsoleCommand;
+
 /**
  * Editor window that shows the engine log, filtered by verbosity, category and text.
  * The last entries are kept in a ring buffer and only the visible rows are drawn, so
@@ -176,6 +178,9 @@ class OutputLogUI
   HEvent m_logWrittenEvent;
 
 #if USING(CH_CONSOLE)
+  // "clear" typed in the editor clears this log.
+  UniquePtr<ConsoleCommand> m_clearCommand;
+
   struct Suggestion
   {
     String name;

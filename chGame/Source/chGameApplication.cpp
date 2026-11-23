@@ -17,6 +17,7 @@
 #include "chEnginePaths.h"
 #include "chEnginePlugins.h"
 #include "chFont.h"
+#include "chGameConsole.h"
 #include "chIGraphicsAPI.h"
 #include "chISwapChain.h"
 #include "chLinearColor.h"
@@ -35,7 +36,8 @@ CH_LOG_DECLARE_STATIC(GameApp, All);
 
 namespace {
 // A development build loads Editor.ini too, but the game has no editor settings to give it.
-ConfigDataKey g_dataEditorSettings("Editor.*", "Editor settings; the game does not read them.");
+ConfigDataKey g_dataEditorSettings("Editor.*",
+                                   "Editor settings; the game does not read them.");
 
 ConsoleVariable<String> g_cvarStartupScene(
     "Game.StartupScene",
@@ -78,6 +80,9 @@ GameApplication::onPostInitialize()
 
   SceneManager::startUp();
   m_sceneRenderer = chMakeUnique<SceneRenderer>();
+#if USING(CH_CONSOLE)
+  m_console = chMakeUnique<GameConsole>();
+#endif // USING(CH_CONSOLE)
 
   const ISwapChain& swapChain = *getSwapChain();
   m_camera = Camera(kDefaultCameraPosition, Vector3::ZERO,
@@ -141,6 +146,10 @@ GameApplication::destroyModules()
     IGraphicsAPI::instance().waitIdle();
   }
 
+#if USING(CH_CONSOLE)
+  // Before the input it listens to.
+  m_console.reset();
+#endif // USING(CH_CONSOLE)
   m_sceneRenderer.reset();
   m_scene.reset();
   if (SceneManager::isStarted()) {
@@ -213,7 +222,12 @@ GameApplication::update(const float deltaTime)
   audio.updateListener(m_camera, deltaTime);
   audio.update();
 
-  m_sceneRenderer->extract(*m_scene, m_camera, LinearColor::BLACK);
+  m_overlay.clear();
+#if USING(CH_CONSOLE)
+  m_console->update(deltaTime);
+  m_console->draw(m_overlay, width, height);
+#endif // USING(CH_CONSOLE)
+  m_sceneRenderer->extract(*m_scene, m_camera, LinearColor::BLACK, nullptr, &m_overlay);
 }
 
 /*

@@ -77,6 +77,11 @@ OutputLogUI::OutputLogUI()
 {
   m_entries.reserve(m_maxLogEntries);
   m_filteredSequences.reserve(m_maxLogEntries);
+#if USING(CH_CONSOLE)
+  m_clearCommand = chMakeUnique<ConsoleCommand>(
+      "clear", "", "Clears the lines of the console it is typed in.",
+      [this](const ConsoleArguments&) { clearLog(); });
+#endif // USING(CH_CONSOLE)
   CH_LOG_DEBUG(OutputLogUILog, "Creating OutputLogUI instance.");
 }
 
