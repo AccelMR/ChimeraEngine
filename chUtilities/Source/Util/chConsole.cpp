@@ -162,8 +162,8 @@ runHelp(const ConsoleArguments& arguments)
 
   CH_LOG_INFO(ConsoleLog, "Commands:");
   for (const ConsoleCommand* command : Console::getCommands()) {
-    CH_LOG_INFO(ConsoleLog, "  {0} {1}: {2}", command->getName(), command->getUsage(),
-                command->getHelp());
+    CH_LOG_INFO(ConsoleLog, "  {0} {1}: {2}{3}", command->getName(), command->getUsage(),
+                command->getHelp(), command->isCheat() ? " (cheat)" : "");
   }
   CH_LOG_INFO(ConsoleLog,
               "Settings: type a name to see it, a name and a value to set it, or find <text> "
@@ -223,11 +223,13 @@ ConsoleCommand g_commandFind("find",
 ConsoleCommand::ConsoleCommand(StringView name,
                                StringView usage,
                                StringView help,
-                               ConsoleCommandFunction function)
+                               ConsoleCommandFunction function,
+                               const bool bCheat)
  : m_name(name),
    m_usage(usage),
    m_help(help),
-   m_function(std::move(function))
+   m_function(std::move(function)),
+   m_bCheat(bCheat)
 {
   ConsoleData& data = getData();
   if (Console::findCommand(m_name)) {
@@ -273,6 +275,11 @@ Console::execute(StringView line)
   const StringView rest = StringUtils::trimView(line.substr(nameEnd));
 
   if (const ConsoleCommand* command = findCommand(name)) {
+    if (command->isCheat() && !areCheatsEnabled()) {
+      CH_LOG_WARNING(ConsoleLog, "{0} is a cheat, and cheats are off (Game.CheatsEnabled).",
+                     command->getName());
+      return true;
+    }
     StringView words[MAX_WORDS];
     const SIZE_T count = splitWords(rest, words);
     command->execute({.text = rest, .words = Span<const StringView>(words, count)});
@@ -343,6 +350,16 @@ Console::getCommands()
     return a->getName() < b->getName();
   });
   return commands;
+}
+
+/*
+ */
+bool
+Console::areCheatsEnabled()
+{
+  // Read by name: the engine module declares it, so this one never depends on it.
+  const IConsoleVariable* variable = ConsoleVariables::find("Game.CheatsEnabled");
+  return variable && variable->toString() == "true";
 }
 
 /*

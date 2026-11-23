@@ -13,6 +13,7 @@
 #include "chAssetManager.h"
 #include "chBaseApplication.h"
 #include "chConsole.h"
+#include "chConsoleVariable.h"
 #include "chScene.h"
 #include "chSceneAsset.h"
 #include "chSceneManager.h"
@@ -21,6 +22,12 @@
 
 namespace chEngineSDK {
 namespace {
+// On in development builds (with the editor), off in a packaged game unless a config or the
+// command line turns it on.
+ConsoleVariable<bool> g_cvarCheatsEnabled("Game.CheatsEnabled",
+                                          USING(CH_EDITOR),
+                                          "Lets console commands marked as cheats run.",
+                                          "Cheats");
 
 /**
  * The scene a command names by path or name; logs and gives null when there is none.

@@ -911,6 +911,12 @@ stopPlaying(EditorSceneState& state)
   rememberSelection(state);
   SceneManager& sceneManager = SceneManager::instance();
   sceneManager.unloadScene(*state.scene);
+#if USING(CH_CONSOLE)
+  // Their functions belong to the scripts of the game that stopped.
+  if (ScriptManager::isStarted()) {
+    ScriptManager::instance().removeConsoleCommands();
+  }
+#endif // USING(CH_CONSOLE)
   state.scene = std::move(state.editScene);
   if (!sceneManager.setActiveScene(state.scene)) {
     CH_LOG_ERROR(EditorSceneLog, "Could not make the scene active again.");

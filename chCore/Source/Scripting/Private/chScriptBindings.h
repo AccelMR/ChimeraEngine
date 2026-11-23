@@ -75,6 +75,12 @@ class ScriptBindings
   registerPostProcess(lua_State* state);
 
   /**
+   * The Console table: commands scripts add, running a console line, the cheat setting.
+   */
+  static void
+  registerConsole(lua_State* state);
+
+  /**
    * Pushes the handle of one part of gameObject (its transform, a component), kept in the
    * GameObject handle's user value userValue and made on first use, so the same part is
    * always the same Lua value and dies with the object.

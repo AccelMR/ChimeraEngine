@@ -61,12 +61,14 @@ class CH_UTILITY_EXPORT ConsoleCommand
 {
  public:
   /**
-   * usage lists the arguments, "<map> [onDone]", empty without any.
+   * usage lists the arguments, "<map> [onDone]", empty without any. A cheat only runs while
+   * the setting Game.CheatsEnabled is true.
    */
   ConsoleCommand(StringView name,
                  StringView usage,
                  StringView help,
-                 ConsoleCommandFunction function);
+                 ConsoleCommandFunction function,
+                 bool bCheat = false);
 
   ~ConsoleCommand();
 
@@ -96,11 +98,18 @@ class CH_UTILITY_EXPORT ConsoleCommand
     return m_help;
   }
 
+  NODISCARD FORCEINLINE bool
+  isCheat() const noexcept
+  {
+    return m_bCheat;
+  }
+
  private:
   String m_name;
   String m_usage;
   String m_help;
   ConsoleCommandFunction m_function;
+  bool m_bCheat = false;
 };
 
 /**
@@ -144,6 +153,12 @@ class CH_UTILITY_EXPORT Console
    */
   static void
   describeVariable(const IConsoleVariable& variable);
+
+  /**
+   * The setting Game.CheatsEnabled, which the engine declares; false while nothing does.
+   */
+  NODISCARD static bool
+  areCheatsEnabled();
 
   static constexpr SIZE_T MAX_HISTORY = 64;
   static constexpr SIZE_T MAX_WORDS = 32;

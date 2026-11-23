@@ -136,6 +136,30 @@ function GameManager:onStart()
                                      outlineWidth = 3, color = Color(0.6, 1, 0.6, 1) }
   self.stressHintStyle = Text.makeStyle{ size = 0.3, pivot = Vector2(0, 0), layer = 12,
                                          color = Color(0.6, 0.7, 0.9, 1) }
+  self:addCheats()
+end
+
+-- Console commands: the backquote opens the console in the game, and the editor's Output Log
+-- has a command line. They are cheats, so a packaged game runs them only with
+-- Game.CheatsEnabled on. Added again when the map opens again, which replaces them.
+function GameManager:addCheats()
+  Console.addCommand("god", function()
+    local player = Scene.find("Player")
+    local ship = player and player:getScript("PlayerShip")
+    if ship then
+      ship.god = not ship.god
+      print("God mode " .. (ship.god and "on" or "off"))
+    end
+  end, { help = "Turns the player's invincibility on and off.", cheat = true })
+
+  Console.addCommand("score", function(words)
+    local points = tonumber(words[1])
+    if not points then
+      print("score needs a number of points")
+      return
+    end
+    Game.score = math.floor(points)
+  end, { usage = "<points>", help = "Sets the score.", cheat = true })
 end
 
 -- P turns it on and off: stressNumbers numbers and stressParticles particles stay alive,

@@ -11,6 +11,9 @@
 
 #include "chAlgorithm.h"
 #include "chAssetManager.h"
+#include "chConsole.h"
+#include "chSceneManager.h"
+#include "chStringUtils.h"
 #include "chConsoleVariable.h"
 #include "chInputManager.h"
 #include "chScriptAllocator.h"
@@ -760,6 +763,10 @@ ScriptManager::ScriptManager(const bool bPoolAllocator)
  */
 ScriptManager::~ScriptManager()
 {
+#if USING(CH_CONSOLE)
+  // Their functions live in the state.
+  removeConsoleCommands();
+#endif // USING(CH_CONSOLE)
   // The capture's callback lives in this state, so it must go before the state does.
   if (m_input && !m_keyCapture.expired()) {
     m_input->cancelKeyCapture();
@@ -847,6 +854,7 @@ ScriptManager::openLibraries()
   ScriptBindings::registerText(m_state);
   ScriptBindings::registerAudio(m_state);
   ScriptBindings::registerPostProcess(m_state);
+  ScriptBindings::registerConsole(m_state);
   for (const ScriptBindingsFunction function : getPluginBindings()) {
     function(m_state);
   }
@@ -1036,6 +1044,10 @@ ScriptManager::updateClass(const ScriptAsset& script)
 void
 ScriptManager::reloadScripts()
 {
+#if USING(CH_CONSOLE)
+  // Scripts add them again when they start.
+  removeConsoleCommands();
+#endif // USING(CH_CONSOLE)
   while (!m_classes.empty()) {
     forgetClass(m_classes.begin()->first);
   }
@@ -1312,5 +1324,108 @@ ScriptManager::collectGarbage()
 {
   lua_gc(m_state, LUA_GCCOLLECT);
 }
+
+#if USING(CH_CONSOLE)
+/**
+ * A console command a script added: the command, and the function it calls.
+ */
+struct ScriptConsoleCommand
+{
+  UniquePtr<ConsoleCommand> command;
+  int32 function = ScriptClassInfo::NO_REFERENCE;
+};
+
+/*
+ */
+bool
+ScriptManager::addConsoleCommand(StringView name,
+                                 StringView usage,
+                                 StringView help,
+                                 const bool bCheat,
+                                 const int32 function)
+{
+  const auto refuse = [this, function, name](const ANSICHAR* reason) {
+    luaL_unref(m_state, LUA_REGISTRYINDEX, function);
+    CH_LOG_ERROR(ScriptLog, "Cannot add the console command '{0}': {1}", name, reason);
+    return false;
+  };
+  if (name.empty() || name.find_first_of(" \t") != StringView::npos) {
+    return refuse("a name has no spaces.");
+  }
+  for (const UniquePtr<ScriptConsoleCommand>& entry : m_consoleCommands) {
+    if (entry.get() == m_runningCommand &&
+        StringUtils::equalsIgnoreCase(entry->command->getName(), name)) {
+      return refuse("it is running now.");
+    }
+  }
+  static_cast<void>(removeConsoleCommand(name));
+  if (Console::findCommand(name)) {
+    return refuse("the engine has a command of that name.");
+  }
+
+  auto entry = chMakeUnique<ScriptConsoleCommand>();
+  ScriptConsoleCommand* const command = entry.get();
+  command->function = function;
+  command->command = chMakeUnique<ConsoleCommand>(
+      name, usage, help,
+      [this, command](const ConsoleArguments& arguments) {
+        // As a script of the active scene, so Scene.find and the like work.
+        Scene* const previousScene = m_currentScene;
+        ScriptConsoleCommand* const previousCommand = m_runningCommand;
+        const SPtr<Scene> active =
+            SceneManager::isStarted() ? SceneManager::instance().getActiveScene().lock()
+                                      : nullptr;
+        m_currentScene = active.get();
+        m_runningCommand = command;
+        beginCall(command->function);
+        lua_createtable(m_state, static_cast<int32>(arguments.getCount()), 0);
+        for (SIZE_T i = 0; i < arguments.getCount(); ++i) {
+          const StringView word = arguments.get(i);
+          lua_pushlstring(m_state, word.data(), word.size());
+          lua_rawseti(m_state, -2, static_cast<lua_Integer>(i + 1));
+        }
+        lua_pushlstring(m_state, arguments.text.data(), arguments.text.size());
+        static_cast<void>(endCall(2));
+        m_runningCommand = previousCommand;
+        m_currentScene = previousScene;
+      },
+      bCheat);
+  m_consoleCommands.push_back(std::move(entry));
+  return true;
+}
+
+/*
+ */
+bool
+ScriptManager::removeConsoleCommand(StringView name)
+{
+  for (SIZE_T i = 0; i < m_consoleCommands.size(); ++i) {
+    ScriptConsoleCommand& entry = *m_consoleCommands[i];
+    if (!StringUtils::equalsIgnoreCase(entry.command->getName(), name)) {
+      continue;
+    }
+    // Its own function would be destroyed while it runs.
+    if (&entry == m_runningCommand) {
+      CH_LOG_ERROR(ScriptLog, "The console command '{0}' cannot remove itself.", name);
+      return false;
+    }
+    luaL_unref(m_state, LUA_REGISTRYINDEX, entry.function);
+    m_consoleCommands.erase(m_consoleCommands.begin() + static_cast<int64>(i));
+    return true;
+  }
+  return false;
+}
+
+/*
+ */
+void
+ScriptManager::removeConsoleCommands()
+{
+  for (UniquePtr<ScriptConsoleCommand>& entry : m_consoleCommands) {
+    luaL_unref(m_state, LUA_REGISTRYINDEX, entry->function);
+  }
+  m_consoleCommands.clear();
+}
+#endif // USING(CH_CONSOLE)
 
 } // namespace chEngineSDK

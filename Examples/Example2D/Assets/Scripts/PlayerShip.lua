@@ -3,6 +3,7 @@
 -- draws its remaining lives in the top left corner.
 ---@class PlayerShip : Script
 ---@field speed number
+---@field god boolean? Set by the console command god; hits do nothing while on
 ---@field fireInterval number
 ---@field maxHealth integer
 ---@field halfWidth number
@@ -77,7 +78,8 @@ end
 
 -- A hit while flashing is ignored, so one burst does not take every life at once.
 function PlayerShip:damage(amount)
-  if self.health <= 0 or self.flash > 0 then
+  -- god is turned on by the console command of the same name (GameManager:addCheats).
+  if self.god or self.health <= 0 or self.flash > 0 then
     return
   end
   -- Damage arrives as a number; lives stay whole.
