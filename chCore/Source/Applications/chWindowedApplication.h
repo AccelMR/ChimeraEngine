@@ -87,6 +87,14 @@ class CH_CORE_EXPORT WindowedApplication : public BaseApplication
   onRender(ICommandList& commandList, const ISwapChain& swapChain) = 0;
 
   /**
+   * Called once per frame after the platform events were dispatched and before
+   * InputManager::updateActions, so a UI or another consumer can read the events first and
+   * turn off the action contexts the game must not see this frame.
+   */
+  virtual void
+  onInput() {}
+
+  /**
    * Runs after the frame was submitted and the main swap chain presented; other swap chains
    * acquired during the frame are presented here.
    */

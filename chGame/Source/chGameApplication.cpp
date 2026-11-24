@@ -17,6 +17,7 @@
 #include "chEnginePlugins.h"
 #include "chFont.h"
 #include "chIGraphicsAPI.h"
+#include "chInputManager.h"
 #include "chISwapChain.h"
 #include "chLinearColor.h"
 #include "chLogger.h"
@@ -26,6 +27,9 @@
 #include "chSceneManager.h"
 #include "chScriptManager.h"
 #include "chSceneRenderer.h"
+#include "chUIHudWidget.h"
+#include "chUIRenderer.h"
+#include "chUIViewport.h"
 #include "chUUID.h"
 
 namespace chEngineSDK {
@@ -41,6 +45,11 @@ ConsoleVariable<String> g_cvarStartupScene(
 
 // Where the view starts when the scene has no camera component.
 const Vector3 kDefaultCameraPosition(-5.0f, 0.0f, 0.0f);
+
+// The example projects keep their gameplay actions in the default context. The HUD turns
+// it off while it owns the input, so scripts do not read the click, wheel or keys the UI
+// consumed.
+constexpr StringView kGameplayContext = InputManager::DEFAULT_CONTEXT;
 } // namespace
 
 /*
@@ -72,6 +81,13 @@ GameApplication::onPostInitialize()
 
   SceneManager::startUp();
   m_sceneRenderer = chMakeUnique<SceneRenderer>();
+
+  m_uiRenderer = chMakeUnique<UIRenderer>();
+  m_uiViewport = chMakeUnique<UIViewport>();
+  updateUiSize();
+  UniquePtr<UIHudWidget> hud = chMakeUnique<UIHudWidget>();
+  m_hud = static_cast<UIHudWidget*>(m_uiViewport->addUserWidget(std::move(hud)));
+  CH_ASSERT(m_hud != nullptr);
 
   const ISwapChain& swapChain = *getSwapChain();
   m_camera = Camera(kDefaultCameraPosition, Vector3::ZERO,
@@ -110,10 +126,70 @@ GameApplication::openStartupScene()
 /*
  */
 void
+GameApplication::updateUiSize()
+{
+  if (!m_uiRenderer || !m_uiViewport) {
+    return;
+  }
+
+  const ISwapChain& swapChain = *getSwapChain();
+  const Vector2 size(static_cast<float>(swapChain.getWidth()),
+                     static_cast<float>(swapChain.getHeight()));
+  if (m_uiRenderer->getViewportSize() == size) {
+    return;
+  }
+
+  m_uiRenderer->setViewportSize(size);
+  m_uiViewport->setViewportSize(size);
+}
+
+/*
+ */
+void
+GameApplication::onInput()
+{
+  if (!m_uiViewport) {
+    return;
+  }
+
+  // The pointer is processed before the actions are evaluated, so the HUD can turn the
+  // gameplay context off before the scripts read it. Actions are processed in update(),
+  // after updateActions.
+  const InputState& state = InputManager::instance().getState();
+  const UIViewport::InputResult result =
+      m_uiViewport->processPointer(state.getMousePosition(),
+                                   state.isDown(InputKey::MouseLeft),
+                                   state.wasPressed(InputKey::MouseLeft),
+                                   state.wasReleased(InputKey::MouseLeft),
+                                   state.getMouseWheel());
+
+  // A captured pointer covers the press and the drag, the click covers the release, a
+  // handled wheel covers scrolling and bKeyboardCaptured covers typing in an editable box.
+  // Hover alone leaves gameplay alone, as UMG's GameAndUI mode does.
+  const bool bUiOwnsInput = result.bPointerCaptureActive || result.bPointerClicked ||
+                            result.bWheelHandled || result.bKeyboardCaptured;
+  if (bUiOwnsInput != m_bGameplayInputGated) {
+    m_bGameplayInputGated = bUiOwnsInput;
+    InputManager::instance().setContextEnabled(kGameplayContext, !bUiOwnsInput);
+  }
+}
+
+/*
+ */
+void
 GameApplication::destroyModules()
 {
   if (IGraphicsAPI::isStarted()) {
     IGraphicsAPI::instance().waitIdle();
+  }
+
+  // The UI holds fonts and GPU sprites, so it goes before the asset and font shutdown below.
+  m_uiViewport.reset();
+  m_uiRenderer.reset();
+  m_hud = nullptr;
+  if (m_bGameplayInputGated && InputManager::isStarted()) {
+    InputManager::instance().setContextEnabled(kGameplayContext, true);
+    m_bGameplayInputGated = false;
   }
 
   m_sceneRenderer.reset();
@@ -154,6 +230,13 @@ GameApplication::update(const float deltaTime)
   const ISwapChain& swapChain = *getSwapChain();
   const float width = static_cast<float>(swapChain.getWidth());
   const float height = static_cast<float>(swapChain.getHeight());
+  updateUiSize();
+  if (m_uiViewport) {
+    // The pointer was already routed in onInput(); the actions are read here, after
+    // updateActions evaluated this frame's keys.
+    m_uiViewport->processActions(InputManager::instance());
+    m_uiViewport->tick(deltaTime);
+  }
   // The game fills the window, so mouse positions are already in the game view.
   ScriptManager::instance().setGameView(Vector2::ZERO, Vector2(width, height));
   {
@@ -200,6 +283,10 @@ GameApplication::onRender(ICommandList& commandList, const ISwapChain& swapChain
                           swapChain.getCurrentTextureView(), ResourceState::Undefined,
                           ResourceState::Present);
   m_sceneRenderer->addScenePasses(backBuffer);
+
+  m_uiViewport->paint(m_uiRenderer->beginFrame());
+  m_uiRenderer->addPass(graph, backBuffer);
+
   m_sceneRenderer->execute(commandList);
 }
 

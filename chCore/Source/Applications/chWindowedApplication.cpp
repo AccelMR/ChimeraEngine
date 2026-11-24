@@ -121,6 +121,7 @@ WindowedApplication::run() {
       input.beginFrame();
       m_eventhandler->update();
       eventDispatcher.dispatchEvents(*m_eventhandler);
+      onInput();
       input.updateActions();
     }
     if (!m_running) {

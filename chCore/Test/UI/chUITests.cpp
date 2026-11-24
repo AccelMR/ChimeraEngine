@@ -918,11 +918,13 @@ TEST_CASE("chCore - UI viewport routes the pointer through button content", "[UI
 
   int32 clicks = 0;
   UIButton* button = static_cast<UIButton*>(root->addChild(
-      chMakeUnique<UIButton>(), chMakeUnique<UIFixedSlot>(UIRect{{50.0f, 50.0f}, {120.0f, 40.0f}})));
+      chMakeUnique<UIButton>(),
+      chMakeUnique<UIFixedSlot>(UIRect{{50.0f, 50.0f}, {120.0f, 40.0f}})));
   REQUIRE(button != nullptr);
   button->setOnClicked([&clicks]() { ++clicks; });
 
-  UITextBlock* label = static_cast<UITextBlock*>(button->setContent(chMakeUnique<UITextBlock>()));
+  UITextBlock* label =
+      static_cast<UITextBlock*>(button->setContent(chMakeUnique<UITextBlock>()));
   REQUIRE(label != nullptr);
   label->setText("Click");
   rawUser->refreshLayout();
@@ -1218,5 +1220,33 @@ TEST_CASE("chCore - UI viewport actions", "[UI]")
     const UIViewport::InputResult nextMove = frame(InputKey::Tab, true);
     REQUIRE(nextMove.bNavigationMoved);
     REQUIRE(viewport.getFocusedWidget() == left);
+  }
+
+  SECTION("Pointer and actions can be processed in separate stages")
+  {
+    InputManager input;
+    ConfigFile defaults;
+    defaults.parse("[UISubmit]\nKeys=Space\n");
+    input.loadBindings(defaults, ConfigFile());
+
+    UIViewport::ActionBindings bindings;
+    bindings.submit = input.findAction("UISubmit");
+    REQUIRE(bindings.submit != InputManager::INVALID_ACTION);
+    viewport.setActionBindings(bindings);
+
+    // The pointer stage runs before updateActions and never reads the actions.
+    const UIViewport::InputResult pointer =
+        viewport.processPointer({0.0f, 0.0f}, false, false, false, Vector2::ZERO);
+    REQUIRE(pointer.bPointerOverUI);
+    REQUIRE_FALSE(pointer.bSubmitDelivered);
+
+    input.beginFrame();
+    input.processEvent(
+        DisplayEvent(KeyEvent{.key = InputKey::Space, .bDown = true, .modifiers = {}}));
+    input.updateActions();
+
+    const UIViewport::InputResult actions = viewport.processActions(input);
+    REQUIRE(actions.bSubmitDelivered);
+    REQUIRE(leftCounters.submits == 1);
   }
 }

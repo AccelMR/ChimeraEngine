@@ -179,7 +179,8 @@ class CH_CORE_EXPORT UIViewport
   /**
    * Processes the pointer as above and reads the configured actions from input, firing
    * submit, cancel and focus navigation. Call it once per frame after the input actions
-   * are updated.
+   * are updated. A frame loop that has to own the input before the game reads it can call
+   * processPointer earlier and processActions(const InputManager&) after updateActions.
    *
    * @return The combined pointer, wheel and action result.
    */
@@ -187,7 +188,8 @@ class CH_CORE_EXPORT UIViewport
   processInput(const InputManager& input);
 
   /**
-   * Routes one frame of pointer state directly, for tests and custom backends. The wheel
+   * Routes one frame of pointer state directly, for a frame loop that processes the
+   * pointer before the actions are evaluated, and for tests and custom backends. The wheel
    * is in steps, y away from the user.
    *
    * @return What the pointer and wheel did this frame.
@@ -208,6 +210,15 @@ class CH_CORE_EXPORT UIViewport
    */
   InputResult
   processActions(const ActionState& actions);
+
+  /**
+   * Reads the configured actions from input and processes them as above. Call it after
+   * updateActions, after the pointer was already processed this frame.
+   *
+   * @return Which actions were delivered and whether focus moved.
+   */
+  InputResult
+  processActions(const InputManager& input);
 
   FORCEINLINE void
   setActionBindings(const ActionBindings& bindings) noexcept

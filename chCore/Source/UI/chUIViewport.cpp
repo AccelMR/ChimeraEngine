@@ -212,6 +212,19 @@ UIViewport::processInput(const InputManager& input)
 {
   InputResult result = processInput(input.getState());
 
+  const InputResult actionResult = processActions(input);
+  result.bSubmitDelivered = actionResult.bSubmitDelivered;
+  result.bCancelDelivered = actionResult.bCancelDelivered;
+  result.bNavigationMoved = actionResult.bNavigationMoved;
+  result.bKeyboardCaptured = actionResult.bKeyboardCaptured;
+  return result;
+}
+
+/*
+ */
+UIViewport::InputResult
+UIViewport::processActions(const InputManager& input)
+{
   ActionState actions;
   actions.bSubmit = input.wasActionPressed(m_actionBindings.submit);
   actions.bCancel = input.wasActionPressed(m_actionBindings.cancel);
@@ -221,13 +234,7 @@ UIViewport::processInput(const InputManager& input)
   actions.bNavigateRight = input.wasActionPressed(m_actionBindings.navigateRight);
   actions.bNext = input.wasActionPressed(m_actionBindings.next);
   actions.bPrevious = input.wasActionPressed(m_actionBindings.previous);
-
-  const InputResult actionResult = processActions(actions);
-  result.bSubmitDelivered = actionResult.bSubmitDelivered;
-  result.bCancelDelivered = actionResult.bCancelDelivered;
-  result.bNavigationMoved = actionResult.bNavigationMoved;
-  result.bKeyboardCaptured = actionResult.bKeyboardCaptured;
-  return result;
+  return processActions(actions);
 }
 
 /*

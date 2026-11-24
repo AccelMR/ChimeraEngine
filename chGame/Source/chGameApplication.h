@@ -16,6 +16,9 @@
 namespace chEngineSDK {
 class Scene;
 class SceneRenderer;
+class UIRenderer;
+class UIViewport;
+class UIHudWidget;
 
 /**
  * Exists to play a project without the editor: it opens the project's startup scene, runs
@@ -37,6 +40,9 @@ class GameApplication : public WindowedApplication
   destroyModules() override;
 
   void
+  onInput() override;
+
+  void
   fixedUpdate(const float deltaTime) override;
 
   void
@@ -51,6 +57,16 @@ class GameApplication : public WindowedApplication
  private:
   void
   openStartupScene();
+
+  void
+  updateUiSize();
+
+  UniquePtr<UIRenderer> m_uiRenderer;
+  UniquePtr<UIViewport> m_uiViewport;
+  // Owned by m_uiViewport; kept for the sample's state and future scripting.
+  UIHudWidget* m_hud = nullptr;
+  // True while the HUD owns the input and the gameplay context is turned off.
+  bool m_bGameplayInputGated = false;
 
   UniquePtr<SceneRenderer> m_sceneRenderer;
   // The scene manager owns a loaded scene; this keeps the one being played, also the empty
