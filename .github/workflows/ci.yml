@@ -1,0 +1,86 @@
+# Builds every push and runs the tests.
+#
+# Linux runs on a self-hosted runner (ci/linux-runner, a Docker container that keeps a
+# ccache between runs). Windows runs on GitHub's own runners, free for public repositories.
+#
+# There is no pull_request trigger on purpose: a pull request from a fork must never reach
+# the self-hosted runner. Keep "Require approval for all external contributors" on in the
+# repository settings (Actions > General) in case a pull request adds one.
+
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.preset }}
+    # Forks have no such runner; without this their pushes would wait forever.
+    if: github.repository == 'AccelMR/ChimeraEngine'
+    runs-on: [self-hosted, linux, x64, chimera]
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [linux-clang-debug, linux-clang-game]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }} --parallel
+
+      - name: Test
+        run: ctest --test-dir build/${{ matrix.preset }} --output-on-failure
+
+      - name: ccache statistics
+        if: always()
+        run: ccache --show-stats || true
+
+  windows:
+    name: Windows ${{ matrix.preset }} ${{ matrix.config }}
+    runs-on: windows-2022
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - preset: windows-msvc
+            config: Debug
+            binaryDir: build/vs
+          - preset: windows-msvc-game
+            config: Release
+            binaryDir: build/windows-msvc-game
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install the Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: latest
+          install_runtime: false
+          cache: true
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build
+        run: cmake --build ${{ matrix.binaryDir }} --config ${{ matrix.config }} --parallel
+
+      - name: Test
+        run: ctest --test-dir ${{ matrix.binaryDir }} -C ${{ matrix.config }} --output-on-failure
