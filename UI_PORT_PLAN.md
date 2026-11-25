@@ -1,9 +1,10 @@
 # Chimera UI Port — Design and Plan
 
-Status: **point 6 (HUD sample) implemented and tested.** Next: point 8 (remaining widgets).
+Status: **point 8 (remaining widgets) implemented and tested.** Next: point 9 (serialization + asset).
 
-Verified: `chCoreTest` builds and passes — 270,226 assertions in 106 test cases; the
-fourteen UI cases hold 396 assertions. `chGame` builds with the HUD wired in.
+Verified: `chCoreTest` builds and passes — 271,608 assertions in 124 test cases; the
+twenty-one UI cases hold 592 assertions. `chGame` builds with the HUD and text input wired
+in.
 
 This is the shared memory of the port. It records the decisions, the class model, and
 the order the work is done in, so the design does not have to be rebuilt from chat.
@@ -55,9 +56,8 @@ What is replaced:
 - **Input:** pointer and wheel come from `InputState`; navigation/submit/cancel use
   `InputActionId`. `UIViewport::processInput`/`processPointer`/`processActions` return an
   `InputResult` so the game layer knows which pointer, wheel, action and keyboard input
-  the UI consumed this frame. Text editing needs a new `TextInputEvent` plus
-  `SDL_StartTextInput`/`SDL_StopTextInput`; it stays deferred until `UIEditableTextBox`
-  (point 8).
+  the UI consumed this frame. Text editing uses `TextInputEvent` plus
+  `SDL_StartTextInput`/`SDL_StopTextInput`, implemented in point 8.
 - **Scope:** screen-space UI first. World-space `UIWidgetComponent` later.
 
 ## Class map
@@ -125,7 +125,8 @@ UIWidget
   `Stop`, `Custom`, plus `Next`/`Previous` document order. Pointer hover, capture, click
   and wheel dispatch are implemented.
 - `paint(UIDrawList&)` is implemented; widgets draw through the draw list and `UIRenderer`
-  adds the overlay pass.
+  adds the overlay pass. `paintHierarchy` skips a clipped subtree whose rectangle lies
+  entirely outside its clip, which is the phase-1 scroll-box culling.
 
 ## Basic widgets as implemented
 
@@ -137,10 +138,38 @@ UIWidget
   when no font is set, is not focusable, and defaults to `SelfHitTestInvisible`.
 - `UIImage` draws a `TextureAsset` region with a filter, flips, tint and blend mode; a null
   texture draws the tint alone. It is not focusable and defaults to
-  `SelfHitTestInvisible`.
+  `SelfHitTestInvisible`. Its desired size is the source rectangle when set, otherwise the
+  texture size.
 - `UIButton` derives from `UIContentWidget`, is focusable, paints normal/hovered/pressed/
   disabled colors and calls `onClicked` on click or submit. `UIViewport` drives its pointer
-  hooks, and display content inside it passes the pointer through.
+  hooks, and display content inside it passes the pointer through. A button asks for its
+  content's desired size, so an Auto box row does not collapse it.
+
+## Remaining widgets as implemented
+
+- `UIBoxSlot` carries padding, the Auto/Fill rule, a fill weight and cross-axis alignment.
+  `UIVerticalBox`/`UIVerticalBoxSlot` and `UIHorizontalBox`/`UIHorizontalBoxSlot` lay out
+  their children themselves: Auto rows ask for `getDesiredSize()`, Fill rows divide the
+  remaining space by weight, Collapsed children take none, and each child's desired size
+  plus padding feeds the box's own `getDesiredSize()`.
+- `UIOverlay`/`UIOverlaySlot` gives every child the same padded rectangle, aligns non-Fill
+  axes, paints in add order (the last child wins the hit) and asks for the largest child.
+- `UIBorder` paints an optional brush and places its content inside the padding. Its desired
+  size is the content plus the padding.
+- `UISizeBox` overrides width and/or height for its content and clamps the arranged content
+  to the room it actually has. A zero override leaves that axis to the content.
+- `UICheckBox` is focusable, draws a box and its content, and toggles on click or submit.
+  `onCheckStateChanged` fires only on a real change; a disabled box does not toggle.
+- `UISlider` is focusable and maps pointer presses, drags and clicks to a value, snapped to
+  the step and clamped to the range. The wheel and arrow navigation step it; the callback
+  fires only when the value moves. Vertical sliders grow towards the top.
+- `UIEditableTextBox` is focusable and edits one UTF-8 line: typed text, caret movement,
+  Backspace/Delete/Home/End, max length, read-only, password display and text-changed/
+  committed callbacks. Selection, clipboard and multi-line editing remain open.
+- `UIScrollBox`/`UIScrollBoxSlot` stacks children, clamps the scroll offset to the content
+  extent and consumes wheel steps while the content is taller than the view. Children carry
+  the box's clip rectangle, so hit-testing ignores what scrolled out and painting skips a
+  child that is entirely outside.
 
 ## HUD sample as implemented
 
@@ -157,8 +186,12 @@ UIWidget
 - `onRender` paints the viewport into the UI draw list and adds the overlay pass after the
   scene passes.
 - While the HUD owns input (captured pointer, the click that ends it, a handled wheel step,
-  or a focused text editor), the default gameplay context is disabled. Hover alone does not
-  gate gameplay, as in UMG's `GameAndUI` mode.
+  a focused text editor or an editing key it consumed), the default gameplay context is
+  disabled. Hover alone does not gate gameplay, as in UMG's `GameAndUI` mode.
+- `GameApplication` subscribes to `EventDispatcherManager::OnTextInput` and forwards the
+  characters to `UIViewport::processTextInput`. It routes the editing keys before the
+  actions and turns `InputManager::setTextInputEnabled` on only while a text field has
+  focus; teardown disconnects and disables it.
 
 ## Layout model
 
@@ -178,8 +211,13 @@ pos    = parentPosition + ref + position - alignment * size
 - `alignment` is UMG's name for the SFMX `pivot`.
 - Box slots own padding, fill/auto size and child alignment; the box itself only
   stacks its children.
-- `UIScrollBox` will need per-clip-group scissor support; phase 1 culls fully
-  outside children and defers real clipping.
+- A content widget asks for its content's desired size; border and size box add their
+  padding or overrides, and check box adds its box and spacing. Auto box rows therefore
+  size buttons, labels, images and controls instead of collapsing them.
+- `UIScrollBox` sets a clip rectangle on every child (intersected with an ancestor clip).
+  Hit-testing ignores points outside it and `paintHierarchy` skips a subtree that is
+  entirely outside; partially visible children still paint until real scissor clipping
+  lands.
 
 ## Rendering model
 
@@ -219,19 +257,21 @@ pos    = parentPosition + ref + position - alignment * size
   `processActions(InputManager)`. `processInput(InputManager)` still does both for callers
   that run after the actions are evaluated.
 - `GameApplication` disables the default gameplay context while `InputResult` reports a
-  captured pointer, a click, a handled wheel step or a captured keyboard. The context is
-  re-enabled on the first frame the HUD no longer owns the input.
-- `bKeyboardCaptured` is true while the focused widget reports `isTextEditor()`; text
-  input itself is deferred to point 8.
+  captured pointer, a click, a handled wheel step or a captured keyboard, and while an
+  editing key was consumed. The context is re-enabled on the first frame the HUD no longer
+  owns the input.
+- `bKeyboardCaptured` is true while the focused widget reports `isTextEditor()` and is
+  enabled and visible. `processTextEditingKeys` routes Backspace/Delete/Left/Right/Home/End
+  to it; `processTextInput` routes the platform's typed characters.
 - Visibility replaces the SFMX `blocksInput` flag:
   - `Visible` is hit-tested and blocks widgets below.
   - `SelfHitTestInvisible` is not hit itself but its children are.
   - `HitTestInvisible` blocks neither itself nor its children.
   - `Hidden`/`Collapsed` are not hit-tested.
-- Text: point 8 adds `TextInputEvent` to `chDisplayEvent.h` with a fixed UTF-8 buffer so
-  it stays trivially copyable, `EventDispatcherManager::OnTextInput`, and SDL
-  `SDL_EVENT_TEXT_INPUT` mapping. While an editable text box is focused, the UI reads the
-  text and gameplay actions are suppressed through `bKeyboardCaptured`.
+- Text: `TextInputEvent` in `chDisplayEvent.h` carries a fixed UTF-8 buffer so it stays
+  trivially copyable. `EventDispatcherManager::OnTextInput` forwards it and the SDL handle
+  maps `SDL_EVENT_TEXT_INPUT`. The platform text input is enabled only while a text field
+  has focus, so gameplay keys and typing do not overlap.
 
 ## Documents and assets
 
@@ -260,8 +300,8 @@ pos    = parentPosition + ref + position - alignment * size
 7. [x] **Tests** — slot math, tree ownership, hit-test/visibility, focus/navigation,
    button click, wheel consumption, input result and HUD input staging. Coverage landed
    with each point.
-8. [ ] **Remaining widgets** — boxes, overlay, border, size box, check box, slider,
-   editable text box, scroll box.
+8. [x] **Remaining widgets** — boxes, overlay, border, size box, check box, slider,
+   editable text box, scroll box, plus text-input routing in `GameApplication`.
 9. [ ] **Serialization + asset** — `UIDocument`, `UIDocumentAsset`, registry,
    references, `Game.ini` load.
 10. [ ] **Scripting** — `UI.get`, show/hide, text, value, click callbacks.
@@ -279,6 +319,18 @@ Current:
 - `chCore/Source/UI/chUIPanelWidget.h/.cpp`
 - `chCore/Source/UI/chUIPanelSlot.h/.cpp`
 - `chCore/Source/UI/chUIContentWidget.h/.cpp`
+- `chCore/Source/UI/chUIBoxSlot.h/.cpp`
+- `chCore/Source/UI/chUIVerticalBox.h/.cpp`
+- `chCore/Source/UI/chUIHorizontalBox.h/.cpp`
+- `chCore/Source/UI/chUIOverlay.h/.cpp`
+- `chCore/Source/UI/chUIOverlaySlot.h/.cpp`
+- `chCore/Source/UI/chUIScrollBox.h/.cpp`
+- `chCore/Source/UI/chUIScrollBoxSlot.h`
+- `chCore/Source/UI/chUIBorder.h/.cpp`
+- `chCore/Source/UI/chUISizeBox.h/.cpp`
+- `chCore/Source/UI/chUICheckBox.h/.cpp`
+- `chCore/Source/UI/chUISlider.h/.cpp`
+- `chCore/Source/UI/chUIEditableTextBox.h/.cpp`
 - `chCore/Source/UI/chUIDrawList.h/.cpp`
 - `chCore/Source/UI/chUIRenderer.h/.cpp`
 - `chCore/Source/UI/chUICanvasPanel.h/.cpp`
@@ -286,7 +338,12 @@ Current:
 - `chCore/Source/UI/chUITextBlock.h/.cpp`
 - `chCore/Source/UI/chUIImage.h/.cpp`
 - `chCore/Source/UI/chUIButton.h/.cpp`
+- `chCore/Source/ScreenSystem/chDisplayEvent.h` (`TextInputEvent`)
+- `chCore/Source/ScreenSystem/chEventDispatcherManager.h/.cpp` (`OnTextInput`)
+- `chCore/Source/Platform/SDL/chDisplayEventHandleSDL3.cpp` (text input mapping)
+- `chCore/Source/Input/chInputManager.h/.cpp` (`setTextInputEnabled`)
 - `chCore/Test/UI/chUITests.cpp`
+- `chCore/Test/UI/chUIWidgetTests.cpp`
 - `chCore/Source/Applications/chWindowedApplication.h/.cpp` (the `onInput` hook)
 - `chGame/Source/chUIHudWidget.h/.cpp`
 - `chGame/Source/chGameApplication.h/.cpp`
@@ -312,10 +369,15 @@ edit. `Private/` folders are not on the public include path.
   backgrounds does not yet.
 - Button padding: the content fills the button; add a content margin when UMG-style
   padding is needed.
-- Auto size: no slot sizes a widget from its desired size yet; `UITextBlock::getDesiredSize`
-  is ready for the boxes and size box in point 8.
-- Clipping: group sprites by clip rect in `SpriteBatcher`, or a clip rect per
-  instance. Not needed until `UIScrollBox`.
+- Auto size: boxes and wrappers now ask for desired sizes. A custom widget that draws
+  text or a texture must override `getDesiredSize` for an Auto row to see it.
+- Clipping: the scroll box clips hit-testing and culls fully-outside children, but a
+  partially visible child still paints outside the view. Real scissor clipping needs a clip
+  rect per batch or per sprite in `SpriteBatcher`.
+- Text editing: selection, clipboard, multi-line, undo and IME composition are not
+  implemented; the field edits one UTF-8 line.
+- Scroll presentation: there is no scroll bar, smoothing or inertia yet; the wheel moves
+  the offset by `getScrollStep()`.
 - Colour space: the encoded-output variant is the chosen path; confirm with the
   renderer owner if the back buffer format ever becomes sRGB.
 - World-space UI: `UIWidgetComponent` after screen-space UI works.

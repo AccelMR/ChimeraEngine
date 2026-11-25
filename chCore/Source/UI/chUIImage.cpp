@@ -8,6 +8,7 @@
 /************************************************************************/
 #include "chUIImage.h"
 
+#include "chTextureAsset.h"
 #include "chUIDrawList.h"
 
 namespace chEngineSDK {
@@ -21,6 +22,23 @@ UIImage::UIImage()
 }
 
 UIImage::~UIImage() = default;
+
+/*
+ */
+Vector2
+UIImage::getDesiredSize() const
+{
+  // A source rectangle crops the texture, so it is the size the image asks for, even before
+  // the texture is bound.
+  if (m_sourceSize.x > 0.0f && m_sourceSize.y > 0.0f) {
+    return m_sourceSize;
+  }
+  if (m_texture != nullptr) {
+    return {static_cast<float>(m_texture->getWidth()),
+            static_cast<float>(m_texture->getHeight())};
+  }
+  return UIWidget::getDesiredSize();
+}
 
 /*
  */

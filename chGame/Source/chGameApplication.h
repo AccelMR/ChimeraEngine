@@ -65,6 +65,8 @@ class GameApplication : public WindowedApplication
   UniquePtr<UIViewport> m_uiViewport;
   // Owned by m_uiViewport; kept for the sample's state and future scripting.
   UIHudWidget* m_hud = nullptr;
+  // Platform text input while a UI text field has focus.
+  HEvent m_textInputEvent;
   // True while the HUD owns the input and the gameplay context is turned off.
   bool m_bGameplayInputGated = false;
 

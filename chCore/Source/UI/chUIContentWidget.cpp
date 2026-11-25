@@ -31,6 +31,15 @@ UIContentWidget::~UIContentWidget()
 
 /*
  */
+Vector2
+UIContentWidget::getDesiredSize() const
+{
+  // With no content there is nothing to ask; keep the arranged size the base returns.
+  return m_content ? m_content->getDesiredSize() : UIWidget::getDesiredSize();
+}
+
+/*
+ */
 UIWidget*
 UIContentWidget::getChildAt(SIZE_T index) const noexcept
 {

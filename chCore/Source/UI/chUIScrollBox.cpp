@@ -96,6 +96,14 @@ UIScrollBox::arrangeChildren()
 {
   const UIGeometry& parent = getGeometry();
 
+  // The view is the box's own rectangle, narrowed by a clip inherited from an ancestor
+  // scroll box or canvas. Children carry it so hit-testing and painting can skip the parts
+  // that scroll out of sight.
+  UIRect viewClip = parent.toRect();
+  if (parent.bClipped) {
+    viewClip = viewClip.intersection(parent.clipRect);
+  }
+
   m_contentHeight = 0.0f;
   for (SIZE_T index = 0; index < getChildCount(); ++index) {
     const UIWidget* child = getChildAt(index);
@@ -124,6 +132,8 @@ UIScrollBox::arrangeChildren()
       UIGeometry collapsed = parent;
       collapsed.position = {parent.position.x, cursor};
       collapsed.size = Vector2::ZERO;
+      collapsed.bClipped = true;
+      collapsed.clipRect = viewClip;
       child->arrange(collapsed);
       continue;
     }
@@ -149,6 +159,8 @@ UIScrollBox::arrangeChildren()
     UIGeometry childGeometry = parent;
     childGeometry.position = {x, cursor + padding.top};
     childGeometry.size = {width, Math::max(0.0f, desired.y)};
+    childGeometry.bClipped = true;
+    childGeometry.clipRect = viewClip;
     child->arrange(childGeometry);
 
     cursor += rowHeight;

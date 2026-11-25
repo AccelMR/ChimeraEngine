@@ -385,6 +385,12 @@ UIWidget::paintHierarchy(UIDrawList& drawList) const
   if (!isVisible()) {
     return;
   }
+  // A clipped widget that lies entirely outside its clip has nothing to show, and neither
+  // do its children: skip the whole subtree. Partial overlap still paints until the
+  // renderer learns scissor rectangles.
+  if (m_geometry.bClipped && !m_geometry.toRect().overlaps(m_geometry.clipRect)) {
+    return;
+  }
 
   paint(drawList);
 

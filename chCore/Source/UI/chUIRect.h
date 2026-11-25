@@ -113,6 +113,25 @@ struct UIRect
     return {{position.x + margin.left, position.y + margin.top},
             {width > 0.0f ? width : 0.0f, height > 0.0f ? height : 0.0f}};
   }
+
+  /**
+   * The shared area of two rectangles, zero-sized when they do not overlap. Used to build
+   * the clip a scroll box hands its children.
+   */
+  NODISCARD FORCEINLINE UIRect
+  intersection(const UIRect& other) const noexcept
+  {
+    const float minX = position.x > other.position.x ? position.x : other.position.x;
+    const float minY = position.y > other.position.y ? position.y : other.position.y;
+    const float maxX = position.x + size.x < other.position.x + other.size.x
+                           ? position.x + size.x
+                           : other.position.x + other.size.x;
+    const float maxY = position.y + size.y < other.position.y + other.size.y
+                           ? position.y + size.y
+                           : other.position.y + other.size.y;
+    return {{minX, minY},
+            {maxX > minX ? maxX - minX : 0.0f, maxY > minY ? maxY - minY : 0.0f}};
+  }
 };
 
 /**

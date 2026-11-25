@@ -71,6 +71,12 @@ class CH_CORE_EXPORT UIContentWidget : public UIWidget
     return m_contentSlot.get();
   }
 
+  /**
+   * A wrapper is as large as its content, so an Auto box row does not collapse a button.
+   */
+  NODISCARD Vector2
+  getDesiredSize() const override;
+
  protected:
   void
   arrangeChildren() override;

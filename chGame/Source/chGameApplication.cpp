@@ -15,6 +15,7 @@
 #include "chConsoleVariable.h"
 #include "chEnginePaths.h"
 #include "chEnginePlugins.h"
+#include "chEventDispatcherManager.h"
 #include "chFont.h"
 #include "chIGraphicsAPI.h"
 #include "chInputManager.h"
@@ -88,6 +89,15 @@ GameApplication::onPostInitialize()
   UniquePtr<UIHudWidget> hud = chMakeUnique<UIHudWidget>();
   m_hud = static_cast<UIHudWidget*>(m_uiViewport->addUserWidget(std::move(hud)));
   CH_ASSERT(m_hud != nullptr);
+
+  // The platform only sends typed characters while text input is enabled; the viewport
+  // decides whether the focused widget is a field and the frame loop toggles the state.
+  m_textInputEvent = EventDispatcherManager::instance().OnTextInput.connect(
+      [this](StringView text) {
+        if (m_uiViewport) {
+          m_uiViewport->processTextInput(text);
+        }
+      });
 
   const ISwapChain& swapChain = *getSwapChain();
   m_camera = Camera(kDefaultCameraPosition, Vector3::ZERO,
@@ -163,11 +173,21 @@ GameApplication::onInput()
                                    state.wasReleased(InputKey::MouseLeft),
                                    state.getMouseWheel());
 
+  // Editing keys go to the focused field before the actions run, so an arrow moves the
+  // caret instead of the focus. The platform text input follows the focus.
+  const bool bTextEditingHandled = m_uiViewport->processTextEditingKeys(state);
+  const bool bTextInputWanted = m_uiViewport->hasTextEditorFocus();
+  if (InputManager::instance().isTextInputEnabled() != bTextInputWanted) {
+    InputManager::instance().setTextInputEnabled(bTextInputWanted);
+  }
+
   // A captured pointer covers the press and the drag, the click covers the release, a
-  // handled wheel covers scrolling and bKeyboardCaptured covers typing in an editable box.
-  // Hover alone leaves gameplay alone, as UMG's GameAndUI mode does.
+  // handled wheel covers scrolling, bKeyboardCaptured covers typing in an editable box and
+  // bTextEditingHandled covers the keys that edited it. Hover alone leaves gameplay alone,
+  // as UMG's GameAndUI mode does.
   const bool bUiOwnsInput = result.bPointerCaptureActive || result.bPointerClicked ||
-                            result.bWheelHandled || result.bKeyboardCaptured;
+                            result.bWheelHandled || result.bKeyboardCaptured ||
+                            bTextEditingHandled;
   if (bUiOwnsInput != m_bGameplayInputGated) {
     m_bGameplayInputGated = bUiOwnsInput;
     InputManager::instance().setContextEnabled(kGameplayContext, !bUiOwnsInput);
@@ -184,6 +204,10 @@ GameApplication::destroyModules()
   }
 
   // The UI holds fonts and GPU sprites, so it goes before the asset and font shutdown below.
+  m_textInputEvent.disconnect();
+  if (InputManager::isStarted()) {
+    InputManager::instance().setTextInputEnabled(false);
+  }
   m_uiViewport.reset();
   m_uiRenderer.reset();
   m_hud = nullptr;

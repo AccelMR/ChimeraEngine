@@ -20,8 +20,9 @@ namespace chEngineSDK {
  * scrolls the box while the content is taller than the view; the offset is clamped to the
  * content extent, so the last child always ends at the bottom edge.
  *
- * Clipping is not implemented yet: a child that scrolls past the edge still paints, and
- * the layout relies on a document placing the box where that is acceptable.
+ * Children are clipped to the box: hit-testing ignores the part outside the view and
+ * painting skips a child that is entirely outside. Real scissor clipping for partially
+ * visible children is still deferred to the renderer.
  */
 class CH_CORE_EXPORT UIScrollBox : public UIPanelWidget
 {

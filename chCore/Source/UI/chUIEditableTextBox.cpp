@@ -52,7 +52,7 @@ countCodepoints(StringView text) noexcept
   SIZE_T count = 0;
   SIZE_T position = 0;
   while (position < text.size()) {
-    UTF8::decodeNext(text, position);
+    (void)UTF8::decodeNext(text, position);
     ++count;
   }
   return count;
@@ -64,7 +64,7 @@ truncateToCodepoints(StringView text, SIZE_T maximum) noexcept
   SIZE_T count = 0;
   SIZE_T position = 0;
   while (position < text.size() && count < maximum) {
-    UTF8::decodeNext(text, position);
+    (void)UTF8::decodeNext(text, position);
     ++count;
   }
   return position;
@@ -495,7 +495,7 @@ UIEditableTextBox::getDisplayText() const
   display.reserve(m_text.size());
   SIZE_T position = 0;
   while (position < m_text.size()) {
-    UTF8::decodeNext(m_text, position);
+    (void)UTF8::decodeNext(m_text, position);
     display += '*';
   }
   return display;

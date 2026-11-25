@@ -131,6 +131,12 @@ class CH_CORE_EXPORT UIImage : public UIWidget
     m_blendMode = blendMode;
   }
 
+  /**
+   * The source rectangle, the texture size, or the arranged size while neither is set.
+   */
+  NODISCARD Vector2
+  getDesiredSize() const override;
+
   void
   paint(UIDrawList& drawList) const override;
 
