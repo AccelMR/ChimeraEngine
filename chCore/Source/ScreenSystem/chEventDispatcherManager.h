@@ -40,6 +40,11 @@ class CH_CORE_EXPORT EventDispatcherManager : public Module<EventDispatcherManag
   const Event<void()> OnClose;
   const Event<void(uint32, uint32)> OnResize;
   const Event<void(bool)> OnFocusChanged;
+  /**
+   * UTF-8 text the player typed, fired once per platform text event. Only delivered while
+   * text input is started (InputManager::setTextInputEnabled).
+   */
+  const Event<void(StringView)> OnTextInput;
 };
 
 } // namespace chEngineSDK

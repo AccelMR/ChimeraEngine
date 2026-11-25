@@ -35,6 +35,14 @@ UIWidget::arrangeChildren()
 
 /*
  */
+Vector2
+UIWidget::getDesiredSize() const
+{
+  return m_geometry.size;
+}
+
+/*
+ */
 UIWidget*
 UIWidget::getChildAt(SIZE_T index) const noexcept
 {
@@ -207,6 +215,14 @@ UIWidget::onPointerDown(const Vector2& localPosition)
 /*
  */
 void
+UIWidget::onPointerMove(const Vector2& localPosition)
+{
+  CH_PARAMETER_UNUSED(localPosition);
+}
+
+/*
+ */
+void
 UIWidget::onPointerUp(const Vector2& localPosition)
 {
   CH_PARAMETER_UNUSED(localPosition);
@@ -255,6 +271,33 @@ UIWidget::onSubmit()
 void
 UIWidget::onCancel()
 {
+}
+
+/*
+ */
+bool
+UIWidget::onNavigation(UINavigation direction)
+{
+  CH_PARAMETER_UNUSED(direction);
+  return false;
+}
+
+/*
+ */
+void
+UIWidget::onTextInput(StringView text)
+{
+  CH_PARAMETER_UNUSED(text);
+}
+
+/*
+ */
+bool
+UIWidget::onTextEditingKey(InputKey key, bool bControl)
+{
+  CH_PARAMETER_UNUSED(key);
+  CH_PARAMETER_UNUSED(bControl);
+  return false;
 }
 
 /*

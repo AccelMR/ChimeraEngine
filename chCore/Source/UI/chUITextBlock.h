@@ -155,7 +155,7 @@ class CH_CORE_EXPORT UITextBlock : public UIWidget
    * Width and height the text needs with the current settings, margin included.
    */
   NODISCARD Vector2
-  getDesiredSize() const;
+  getDesiredSize() const override;
 
   // -- Widget -----------------------------------------------------------------
 

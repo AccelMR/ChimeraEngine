@@ -173,6 +173,10 @@ void
 InputManager::onShutDown()
 {
   m_keyCapture = nullptr;
+  if (m_window && m_bTextInputEnabled) {
+    InputPlatform::setTextInputEnabled(*m_window, false);
+    m_bTextInputEnabled = false;
+  }
   if (m_window && m_appliedCursorMode != CursorMode::Normal) {
     InputPlatform::setCursorMode(*m_window, CursorMode::Normal);
   }
@@ -856,11 +860,30 @@ InputManager::setCursorMode(CursorMode mode)
 /*
  */
 void
+InputManager::setTextInputEnabled(bool enabled)
+{
+  if (m_bTextInputEnabled == enabled) {
+    return;
+  }
+
+  m_bTextInputEnabled = enabled;
+  if (m_window != nullptr) {
+    InputPlatform::setTextInputEnabled(*m_window, enabled);
+  }
+}
+
+/*
+ */
+void
 InputManager::setWindow(DisplaySurface* window)
 {
   m_window = window;
   m_appliedCursorMode = CursorMode::Normal;
   applyCursorMode();
+  // A field may already have focus when the window is set, so apply the current state.
+  if (m_window != nullptr && m_bTextInputEnabled) {
+    InputPlatform::setTextInputEnabled(*m_window, true);
+  }
 }
 
 /*

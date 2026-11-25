@@ -300,6 +300,19 @@ class CH_CORE_EXPORT InputManager : public Module<InputManager>
   }
 
   /**
+   * Starts or stops the platform's text input. A game turns it on while a UI text field has
+   * focus and off again when it loses it; the text itself arrives as TextInputEvent.
+   */
+  void
+  setTextInputEnabled(bool enabled);
+
+  NODISCARD FORCEINLINE bool
+  isTextInputEnabled() const noexcept
+  {
+    return m_bTextInputEnabled;
+  }
+
+  /**
    * The window whose cursor setCursorMode changes; null before it exists and after it
    * closes.
    */
@@ -414,6 +427,7 @@ class CH_CORE_EXPORT InputManager : public Module<InputManager>
   CursorMode m_appliedCursorMode = CursorMode::Normal;
   bool m_bGameInputEnabled = true;
   bool m_bInFixedStep = false;
+  bool m_bTextInputEnabled = false;
 };
 
 } // namespace chEngineSDK

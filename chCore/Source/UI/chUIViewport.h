@@ -220,6 +220,32 @@ class CH_CORE_EXPORT UIViewport
   InputResult
   processActions(const InputManager& input);
 
+  // -- Text editing -----------------------------------------------------------
+
+  /**
+   * True while the focused widget edits text, so the game must leave it the keyboard and
+   * the platform should keep text input started.
+   */
+  NODISCARD bool
+  hasTextEditorFocus() const noexcept;
+
+  /**
+   * Gives typed text to the focused editor. Does nothing when no editor has focus.
+   *
+   * @return True when the editor took the text.
+   */
+  bool
+  processTextInput(StringView text);
+
+  /**
+   * Reads Backspace, Delete, the arrows, Home and End from state and gives the ones that
+   * are pressed this frame to the focused editor, with the control state.
+   *
+   * @return True when at least one key was delivered.
+   */
+  bool
+  processTextEditingKeys(const InputState& state);
+
   FORCEINLINE void
   setActionBindings(const ActionBindings& bindings) noexcept
   {
@@ -322,6 +348,7 @@ class CH_CORE_EXPORT UIViewport
   Vector<UniquePtr<UIUserWidget>> m_userWidgets;
   Vector2 m_viewportSize = Vector2::ZERO;
   Vector2 m_pointerPosition = Vector2::ZERO;
+  Vector2 m_previousPointerPosition = Vector2::ZERO;
   UIWidget* m_focused = nullptr;
   UIWidget* m_hovered = nullptr;
   UIWidget* m_captured = nullptr;

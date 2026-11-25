@@ -52,9 +52,10 @@ class CH_CORE_EXPORT UIPanelWidget : public UIWidget
 
   /**
    * Adds a child with a default slot that fills the panel. Returns the child, or nullptr
-   * when it is null or still owned by another parent.
+   * when it is null or still owned by another parent. Panels with a layout of their own
+   * override this to create their slot type.
    */
-  UIWidget*
+  virtual UIWidget*
   addChild(UniquePtr<UIWidget> child);
 
   /**

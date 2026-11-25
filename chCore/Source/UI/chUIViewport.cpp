@@ -247,6 +247,7 @@ UIViewport::processPointer(const Vector2& position,
                            const Vector2& wheel)
 {
   InputResult result;
+  m_previousPointerPosition = m_pointerPosition;
   m_pointerPosition = position;
   UIWidget* hit = hitTest(position);
   result.bPointerOverUI = hit != nullptr;
@@ -284,6 +285,15 @@ UIViewport::processPointer(const Vector2& position,
     }
   }
 
+  // A drag follows the pointer even after it left the captured widget; a plain hover move
+  // reaches the widget under the pointer, which is what tooltips and hover states use.
+  if (m_captured != nullptr && bDown) {
+    m_captured->onPointerMove(m_captured->toLocalPoint(position));
+  }
+  else if (hit != nullptr && hit != m_captured && position != m_previousPointerPosition) {
+    hit->onPointerMove(hit->toLocalPoint(position));
+  }
+
   if (hit != nullptr && wheel != Vector2::ZERO) {
     // The wheel bubbles from the widget under the pointer to its ancestors until one
     // consumes it, so a scroll box still sees it when a label or a button is on top.
@@ -318,18 +328,27 @@ UIViewport::processActions(const ActionState& actions)
     result.bCancelDelivered = true;
   }
 
-  // One navigation step per frame; a direction wins over Next/Previous.
+  // One navigation step per frame; a direction wins over Next/Previous. The focused
+  // widget sees the direction first, so a slider can use the arrows without losing focus.
   if (actions.bNavigateUp) {
-    result.bNavigationMoved = moveFocus(UINavigation::Up);
+    if (!(m_focused != nullptr && m_focused->onNavigation(UINavigation::Up))) {
+      result.bNavigationMoved = moveFocus(UINavigation::Up);
+    }
   }
   else if (actions.bNavigateDown) {
-    result.bNavigationMoved = moveFocus(UINavigation::Down);
+    if (!(m_focused != nullptr && m_focused->onNavigation(UINavigation::Down))) {
+      result.bNavigationMoved = moveFocus(UINavigation::Down);
+    }
   }
   else if (actions.bNavigateLeft) {
-    result.bNavigationMoved = moveFocus(UINavigation::Left);
+    if (!(m_focused != nullptr && m_focused->onNavigation(UINavigation::Left))) {
+      result.bNavigationMoved = moveFocus(UINavigation::Left);
+    }
   }
   else if (actions.bNavigateRight) {
-    result.bNavigationMoved = moveFocus(UINavigation::Right);
+    if (!(m_focused != nullptr && m_focused->onNavigation(UINavigation::Right))) {
+      result.bNavigationMoved = moveFocus(UINavigation::Right);
+    }
   }
   else if (actions.bNext) {
     result.bNavigationMoved = moveFocus(UINavigation::Next);
@@ -340,6 +359,51 @@ UIViewport::processActions(const ActionState& actions)
 
   result.bKeyboardCaptured = m_focused != nullptr && m_focused->isTextEditor();
   return result;
+}
+
+/*
+ */
+bool
+UIViewport::hasTextEditorFocus() const noexcept
+{
+  return m_focused != nullptr && m_focused->isEnabled() && m_focused->isVisible() &&
+         m_focused->isTextEditor();
+}
+
+/*
+ */
+bool
+UIViewport::processTextInput(StringView text)
+{
+  if (text.empty() || !hasTextEditorFocus()) {
+    return false;
+  }
+
+  m_focused->onTextInput(text);
+  return true;
+}
+
+/*
+ */
+bool
+UIViewport::processTextEditingKeys(const InputState& state)
+{
+  if (!hasTextEditorFocus()) {
+    return false;
+  }
+
+  const bool bControl = state.isDown(InputKey::LeftControl) ||
+                        state.isDown(InputKey::RightControl);
+  constexpr InputKey kEditingKeys[] = {InputKey::Backspace, InputKey::Delete,
+                                       InputKey::Left,      InputKey::Right,
+                                       InputKey::Home,      InputKey::End};
+  bool bHandled = false;
+  for (InputKey key : kEditingKeys) {
+    if (state.wasPressed(key)) {
+      bHandled = m_focused->onTextEditingKey(key, bControl) || bHandled;
+    }
+  }
+  return bHandled;
 }
 
 /*

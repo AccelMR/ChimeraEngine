@@ -27,6 +27,12 @@ class InputPlatform
   static void
   setCursorMode(DisplaySurface& window, CursorMode mode);
 
+  /**
+   * Starts or stops the platform's text input, so the player can type into a UI field.
+   */
+  static void
+  setTextInputEnabled(DisplaySurface& window, bool enabled);
+
   static bool
   rumbleGamepad(uint32 slot, float lowFrequency, float highFrequency, uint32 milliseconds);
 

@@ -35,6 +35,53 @@ enum class UIVisibility : uint8
 };
 
 /**
+ * Direction a slider or a scroll box flows in. Saved in UI documents, so the values are
+ * fixed.
+ */
+enum class UIOrientation : uint8
+{
+  Horizontal = 0,
+  Vertical = 1,
+  COUNT
+};
+
+/**
+ * How a box slot sizes its child, as UMG's ESlateSizeRule. Auto asks the child for its
+ * desired size; Fill gives it a share of the space the other children leave.
+ */
+enum class UISizeRule : uint8
+{
+  Auto = 0,
+  Fill = 1,
+  COUNT
+};
+
+/**
+ * Where a child sits across an overlay, border or size box, as UMG's EHorizontalAlignment.
+ * Fill takes the whole space; the others use the child's desired size.
+ */
+enum class UIHorizontalAlignment : uint8
+{
+  Left = 0,
+  Center = 1,
+  Right = 2,
+  Fill = 3,
+  COUNT
+};
+
+/**
+ * The vertical counterpart of UIHorizontalAlignment.
+ */
+enum class UIVerticalAlignment : uint8
+{
+  Top = 0,
+  Center = 1,
+  Bottom = 2,
+  Fill = 3,
+  COUNT
+};
+
+/**
  * One direction focus can move in. Saved in UI documents, so the values are fixed.
  */
 enum class UINavigation : uint8
@@ -101,6 +148,54 @@ getUIVisibilityName(UIVisibility visibility) noexcept
     case UIVisibility::HitTestInvisible: return "HitTestInvisible";
     case UIVisibility::SelfHitTestInvisible: return "SelfHitTestInvisible";
     case UIVisibility::COUNT: break;
+  }
+  return "Unknown";
+}
+
+NODISCARD FORCEINLINE const ANSICHAR*
+getUIOrientationName(UIOrientation orientation) noexcept
+{
+  switch (orientation) {
+    case UIOrientation::Horizontal: return "Horizontal";
+    case UIOrientation::Vertical: return "Vertical";
+    case UIOrientation::COUNT: break;
+  }
+  return "Unknown";
+}
+
+NODISCARD FORCEINLINE const ANSICHAR*
+getUISizeRuleName(UISizeRule rule) noexcept
+{
+  switch (rule) {
+    case UISizeRule::Auto: return "Auto";
+    case UISizeRule::Fill: return "Fill";
+    case UISizeRule::COUNT: break;
+  }
+  return "Unknown";
+}
+
+NODISCARD FORCEINLINE const ANSICHAR*
+getUIHorizontalAlignmentName(UIHorizontalAlignment alignment) noexcept
+{
+  switch (alignment) {
+    case UIHorizontalAlignment::Left: return "Left";
+    case UIHorizontalAlignment::Center: return "Center";
+    case UIHorizontalAlignment::Right: return "Right";
+    case UIHorizontalAlignment::Fill: return "Fill";
+    case UIHorizontalAlignment::COUNT: break;
+  }
+  return "Unknown";
+}
+
+NODISCARD FORCEINLINE const ANSICHAR*
+getUIVerticalAlignmentName(UIVerticalAlignment alignment) noexcept
+{
+  switch (alignment) {
+    case UIVerticalAlignment::Top: return "Top";
+    case UIVerticalAlignment::Center: return "Center";
+    case UIVerticalAlignment::Bottom: return "Bottom";
+    case UIVerticalAlignment::Fill: return "Fill";
+    case UIVerticalAlignment::COUNT: break;
   }
   return "Unknown";
 }

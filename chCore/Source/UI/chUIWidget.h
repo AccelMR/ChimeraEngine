@@ -10,6 +10,7 @@
 
 #include "chPrerequisitesCore.h"
 
+#include "chInputKey.h"
 #include "chLinearColor.h"
 #include "chUIRect.h"
 #include "chUITypes.h"
@@ -227,6 +228,14 @@ class CH_CORE_EXPORT UIWidget
   virtual void
   arrange(const UIGeometry& geometry);
 
+  /**
+   * Size the widget asks a box or overlay slot for in its Auto or non-Fill mode. The base
+   * widget asks for the rectangle it was last arranged with; controls override it with the
+   * size of their text or content.
+   */
+  NODISCARD virtual Vector2
+  getDesiredSize() const;
+
   // -- Hierarchy --------------------------------------------------------------
 
   NODISCARD FORCEINLINE UIWidget*
@@ -348,6 +357,13 @@ class CH_CORE_EXPORT UIWidget
   virtual void
   onPointerDown(const Vector2& localPosition);
 
+  /**
+   * Pointer movement while the widget holds the capture, and while it is under a pointer
+   * that is not pressing. Sliders and scroll bars use it to follow a drag.
+   */
+  virtual void
+  onPointerMove(const Vector2& localPosition);
+
   virtual void
   onPointerUp(const Vector2& localPosition);
 
@@ -373,6 +389,28 @@ class CH_CORE_EXPORT UIWidget
 
   virtual void
   onCancel();
+
+  /**
+   * Offers a navigation action to the focused widget before the viewport moves focus.
+   * Sliders consume the directions that change their value and return true; the base
+   * widget returns false and lets focus move.
+   */
+  NODISCARD virtual bool
+  onNavigation(UINavigation direction);
+
+  /**
+   * Types text into the focused editor. Only UIEditableTextBox uses it; the base widget
+   * ignores it.
+   */
+  virtual void
+  onTextInput(StringView text);
+
+  /**
+   * Handles one editing key on the focused editor and returns true when it changed the
+   * text. The viewport reads Backspace, Delete, Left, Right, Home and End this way.
+   */
+  NODISCARD virtual bool
+  onTextEditingKey(InputKey key, bool bControl);
 
   /**
    * Whether the widget edits text, so navigation must leave the arrow keys to it.

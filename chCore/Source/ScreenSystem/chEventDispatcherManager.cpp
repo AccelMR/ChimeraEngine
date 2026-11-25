@@ -34,6 +34,11 @@ EventDispatcherManager::dispatchEvents(const DisplayEventHandle& eventHandler)
       if (const FocusEvent* focus = std::get_if<FocusEvent>(&event)) {
         OnFocusChanged(focus->bFocused);
       }
+      // Typed text is not device state: it goes straight to the listeners, one event per
+      // run of characters the platform reports.
+      if (const TextInputEvent* text = std::get_if<TextInputEvent>(&event)) {
+        OnTextInput(StringView(text->text, text->length));
+      }
       if (input) {
         input->processEvent(event);
       }

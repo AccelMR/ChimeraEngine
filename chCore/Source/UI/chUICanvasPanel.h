@@ -39,7 +39,7 @@ class CH_CORE_EXPORT UICanvasPanel : public UIPanelWidget
    * Adds a child with a canvas slot at the panel's top-left and the slot's default size.
    */
   UIWidget*
-  addChild(UniquePtr<UIWidget> child);
+  addChild(UniquePtr<UIWidget> child) override;
 
   /**
    * Adds a child placed at rect, in the panel's space, with no anchors and no alignment.

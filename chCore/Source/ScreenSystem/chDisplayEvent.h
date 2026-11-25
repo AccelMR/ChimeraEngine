@@ -105,6 +105,18 @@ struct MouseWheelEvent {
 };
 
 /**
+ * UTF-8 text the player typed, as the platform reports it once text input is started. The
+ * bytes are kept in the event itself so a frame's events stay trivially copyable.
+ */
+struct TextInputEvent {
+  // Enough for the longest run SDL sends in one event, a UTF-8 sequence per character.
+  static constexpr SIZE_T MAX_TEXT_BYTES = 32;
+
+  ANSICHAR text[MAX_TEXT_BYTES] = {};
+  uint8 length = 0;
+};
+
+/**
  * slot is the gamepad's place in InputState, kept while it stays connected.
  */
 struct GamepadConnectionEvent {
@@ -133,7 +145,8 @@ struct GamepadAxisEvent {
  */
 using DisplayEvent =
     Variant<CloseEvent, ResizeEvent, FocusEvent, KeyEvent, MouseButtonEvent, MouseMoveEvent,
-            MouseWheelEvent, GamepadConnectionEvent, GamepadButtonEvent, GamepadAxisEvent>;
+            MouseWheelEvent, TextInputEvent, GamepadConnectionEvent, GamepadButtonEvent,
+            GamepadAxisEvent>;
 
 static_assert(std::is_trivially_copyable_v<DisplayEvent>);
 

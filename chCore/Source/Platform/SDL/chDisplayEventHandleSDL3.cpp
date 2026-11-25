@@ -345,6 +345,24 @@ DisplayEventHandle::update()
                                             .deltaY = event.wheel.y * direction});
     } break;
 
+    case SDL_EVENT_TEXT_INPUT: {
+      TextInputEvent input{};
+      const char* text = event.text.text;
+      if (text != nullptr) {
+        SIZE_T length = SDL_strlen(text);
+        if (length > TextInputEvent::MAX_TEXT_BYTES) {
+          length = TextInputEvent::MAX_TEXT_BYTES;
+        }
+        for (SIZE_T i = 0; i < length; ++i) {
+          input.text[i] = text[i];
+        }
+        input.length = static_cast<uint8>(length);
+      }
+      if (input.length > 0) {
+        m_events.emplace_back(input);
+      }
+    } break;
+
     case SDL_EVENT_GAMEPAD_ADDED: {
       if (findGamepadSlot(event.gdevice.which) != InputState::NO_GAMEPAD) {
         break;
@@ -431,6 +449,23 @@ InputPlatform::setCursorMode(DisplaySurface& window, CursorMode mode)
   }
   else {
     SDL_HideCursor();
+  }
+}
+
+/*
+ */
+void
+InputPlatform::setTextInputEnabled(DisplaySurface& window, bool enabled)
+{
+  SDL_Window* handle = window.getPlatformHandler();
+  if (!handle) {
+    return;
+  }
+  if (enabled) {
+    SDL_StartTextInput(handle);
+  }
+  else {
+    SDL_StopTextInput(handle);
   }
 }
 
