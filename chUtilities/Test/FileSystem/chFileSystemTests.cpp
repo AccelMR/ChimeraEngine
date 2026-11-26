@@ -23,6 +23,19 @@
 using namespace chEngineSDK;
 
 namespace {
+// Path keeps the text it was given, so the reference must keep it too. On Windows
+// generic_string() only turns the native separators into '/'; libstdc++ also joins
+// repeated separators there, so elsewhere the native text ('/' already) is used.
+String
+toReferenceText(const std::filesystem::path& path)
+{
+#if USING(CH_PLATFORM_WIN32)
+  return path.generic_string();
+#else
+  return path.string();
+#endif
+}
+
 void
 writeWatchedFile(const Path& file, const ANSICHAR* text)
 {
@@ -155,15 +168,15 @@ TEST_CASE("chUtilities - Path matches std::filesystem", "[FileSystem]") {
     INFO("path: \"" << text << "\"");
     const Path path(text);
     const fs::path expected(text);
-    CHECK(path.getFileName() == expected.filename().generic_string());
-    CHECK(path.getFileName(false) == expected.stem().generic_string());
-    CHECK(path.getExtension() == expected.extension().generic_string());
-    CHECK(path.getDirectory().toString() == expected.parent_path().generic_string());
+    CHECK(path.getFileName() == toReferenceText(expected.filename()));
+    CHECK(path.getFileName(false) == toReferenceText(expected.stem()));
+    CHECK(path.getExtension() == toReferenceText(expected.extension()));
+    CHECK(path.getDirectory().toString() == toReferenceText(expected.parent_path()));
     CHECK(path.isRelative() == expected.is_relative());
 
     for (const String& other : cases) {
       INFO("joined with: \"" << other << "\"");
-      const String joined = (expected / other).generic_string();
+      const String joined = toReferenceText(expected / other);
       CHECK(path.join(Path(other)).toString() == joined);
       CHECK((path / other).toString() == joined);
 
