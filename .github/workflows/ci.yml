@@ -57,7 +57,7 @@ jobs:
       # A cache entry cannot be overwritten, so each run saves a new one and the next run
       # takes the newest whose key starts with the prefix.
       - name: Restore ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .ccache
           key: ccache-${{ matrix.preset }}-${{ github.run_id }}

@@ -21,6 +21,7 @@
 
 using namespace chEngineSDK;
 
+#if USING(CH_CONSOLE)
 namespace {
 // A number the script left in a global.
 double
@@ -33,6 +34,7 @@ readGlobalNumber(ScriptManager& scripts, const ANSICHAR* name)
   return value;
 }
 } // namespace
+#endif // USING(CH_CONSOLE)
 
 TEST_CASE("chCore - Script console", "[Scripting]")
 {
