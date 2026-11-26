@@ -1,11 +1,5 @@
-# Builds every push and runs the tests.
-#
-# Linux runs on a self-hosted runner (ci/linux-runner, a Docker container that keeps a
-# ccache between runs). Windows runs on GitHub's own runners, free for public repositories.
-#
-# There is no pull_request trigger on purpose: a pull request from a fork must never reach
-# the self-hosted runner. Keep "Require approval for all external contributors" on in the
-# repository settings (Actions > General) in case a pull request adds one.
+# Builds every push and runs the tests, on GitHub's own runners (free for public
+# repositories). Linux keeps a ccache between runs through actions/cache.
 
 name: CI
 
@@ -24,18 +18,50 @@ permissions:
 jobs:
   linux:
     name: Linux ${{ matrix.preset }}
-    # Forks have no such runner; without this their pushes would wait forever.
-    if: github.repository == 'AccelMR/ChimeraEngine'
-    runs-on: [self-hosted, linux, x64, chimera]
-    timeout-minutes: 120
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
         preset: [linux-clang-debug, linux-clang-game]
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 2G
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
     steps:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
+
+      # The development packages SDL3 needs to build with X11, Wayland and audio.
+      # clang 18 already comes with the image.
+      - name: Install packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build ccache pkg-config \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev \
+            libxss-dev libxtst-dev libxkbcommon-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl-dev libgl-dev libgles-dev libdrm-dev libgbm-dev \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev
+
+      - name: Install the Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: latest
+          install_runtime: false
+          cache: true
+
+      # A cache entry cannot be overwritten, so each run saves a new one and the next run
+      # takes the newest whose key starts with the prefix.
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-${{ matrix.preset }}-${{ github.run_id }}
+          restore-keys: ccache-${{ matrix.preset }}-
 
       - name: Configure
         run: cmake --preset ${{ matrix.preset }}
