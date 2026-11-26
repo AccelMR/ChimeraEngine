@@ -36,6 +36,7 @@
 #include "chScriptAsset.h"
 #include "chShaderAsset.h"
 #include "chSpriteMaterialAsset.h"
+#include "chUIDocumentAsset.h"
 
 
 namespace chEngineSDK {
@@ -67,6 +68,7 @@ AssetManager::initialize() {
   m_assetRegister->registerAssetCreator<AudioClipAsset>();
   m_assetRegister->registerAssetCreator<ShaderAsset>();
   m_assetRegister->registerAssetCreator<SpriteMaterialAsset>();
+  m_assetRegister->registerAssetCreator<UIDocumentAsset>();
 }
 
 /*

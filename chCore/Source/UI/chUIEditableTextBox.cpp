@@ -8,7 +8,9 @@
 /************************************************************************/
 #include "chUIEditableTextBox.h"
 
+#include "chAssetManager.h"
 #include "chFont.h"
+#include "chFontAsset.h"
 #include "chMath.h"
 #include "chUIDrawList.h"
 #include "chUnicode.h"
@@ -16,6 +18,28 @@
 namespace chEngineSDK {
 
 namespace {
+
+/**
+ * The UUID of the font asset that holds font, or null when it is the default font, a font
+ * made in code or the assets are not running.
+ */
+NODISCARD UUID
+findFontAssetId(const Font* font)
+{
+  if (font == nullptr || !AssetManager::isStarted()) {
+    return UUID::null();
+  }
+
+  Vector<SPtr<IAsset>> fonts;
+  AssetManager::instance().getAssetsOfType(AssetTypeTraits<FontAsset>::getTypeId(), fonts);
+  for (const SPtr<IAsset>& asset : fonts) {
+    const SPtr<FontAsset> fontAsset = asset ? asset->as<FontAsset>() : nullptr;
+    if (fontAsset && fontAsset->getFont().get() == font) {
+      return fontAsset->getUUID();
+    }
+  }
+  return UUID::null();
+}
 
 constexpr float kCaretBlinkSeconds = 0.5f;
 constexpr float kCaretWidth = 1.5f;
@@ -142,9 +166,32 @@ UIEditableTextBox::getFont() const
 /*
  */
 void
+UIEditableTextBox::setFontId(const UUID& fontId)
+{
+  m_fontId = fontId;
+  m_font = nullptr;
+
+  if (!fontId.isNull() && AssetManager::isStarted()) {
+    const SPtr<IAsset> asset = AssetManager::instance().getAsset(fontId);
+    const SPtr<FontAsset> fontAsset = asset ? asset->as<FontAsset>() : nullptr;
+    if (fontAsset) {
+      if (!fontAsset->isLoaded()) {
+        AssetManager::instance().syncLoadAsset(fontAsset);
+      }
+      m_font = fontAsset->getFont().get();
+    }
+  }
+
+  invalidateLayout();
+}
+
+/*
+ */
+void
 UIEditableTextBox::setFont(Font* font) noexcept
 {
   m_font = font;
+  m_fontId = findFontAssetId(font);
   invalidateLayout();
 }
 

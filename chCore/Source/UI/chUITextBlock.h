@@ -14,6 +14,7 @@
 #include "chTextLayout.h"
 #include "chUIRect.h"
 #include "chUIWidget.h"
+#include "chUUID.h"
 
 namespace chEngineSDK {
 class Font;
@@ -58,6 +59,26 @@ class CH_CORE_EXPORT UITextBlock : public UIWidget
   NODISCARD Font*
   getFont() const;
 
+  /**
+   * Font asset this text uses, kept so a document can save the reference. Null when the
+   * text uses the default font or a font that is not an asset.
+   */
+  NODISCARD FORCEINLINE const UUID&
+  getFontId() const noexcept
+  {
+    return m_fontId;
+  }
+
+  /**
+   * Uses the font asset with that UUID. An id with no loaded asset is kept, so saving keeps
+   * the reference, and the text draws with the default font.
+   */
+  void
+  setFontId(const UUID& fontId);
+
+  /**
+   * Uses font and keeps the UUID of the asset that holds it, when there is one.
+   */
   void
   setFont(Font* font) noexcept;
 
@@ -177,6 +198,7 @@ class CH_CORE_EXPORT UITextBlock : public UIWidget
 
   String m_text;
   Font* m_font = nullptr;
+  UUID m_fontId = UUID::null();
   float m_fontSize = 16.0f;
   TextAlign m_align = TextAlign::Left;
   float m_lineSpacing = 1.0f;

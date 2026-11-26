@@ -50,6 +50,16 @@ class CH_CORE_EXPORT UIBoxSlot : public UIPanelSlot
     return m_orientation;
   }
 
+  /**
+   * Only a plain UIBoxSlot changes orientation; the box slot types keep the one of the box
+   * that made them.
+   */
+  FORCEINLINE void
+  setOrientation(UIOrientation orientation) noexcept
+  {
+    m_orientation = orientation;
+  }
+
   // -- Padding ----------------------------------------------------------------
 
   NODISCARD FORCEINLINE const UIMargin&

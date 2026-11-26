@@ -1,10 +1,11 @@
 # Chimera UI Port — Design and Plan
 
-Status: **point 8 (remaining widgets) implemented and tested.** Next: point 9 (serialization + asset).
+Status: **point 9 (serialization + asset) implemented and tested.** Next: point 10
+(scripting).
 
-Verified: `chCoreTest` builds and passes — 271,608 assertions in 124 test cases; the
-twenty-one UI cases hold 592 assertions. `chGame` builds with the HUD and text input wired
-in.
+Verified: `chCoreTest` builds and passes — 271,792 assertions in 129 test cases; the
+twenty-six UI cases hold 776 assertions. `chGame` builds with the HUD document loading and
+text input wired in.
 
 This is the shared memory of the port. It records the decisions, the class model, and
 the order the work is done in, so the design does not have to be rebuilt from chat.
@@ -48,8 +49,10 @@ What is replaced:
   to `SelfHitTestInvisible`, so their children still receive input but empty space falls
   through. A blocking backdrop opts into `Visible` explicitly. This is what lets a label
   or image used as button content pass hover, press and click to the button.
-- **Documents:** a new `UIDocumentAsset` (`.chAss`) stores the serialized widget tree.
-  `createUserWidget()` builds an independent tree from the saved bytes.
+- **Documents:** `UIDocument` is the versioned widget-tree format; `UIDocumentRegistry`
+  maps `getTypeName()` to a factory, property codec, reference walker and child attach
+  point for every widget and slot class. `UIDocumentAsset` (`.chAss`) stores those bytes
+  plus the font/texture UUIDs; `createUserWidget()` builds an independent tree from them.
 - **Rendering:** `UIRenderer` owns an orthographic screen-space `Camera` and a
   `SpriteDraw`; `UIDrawList` converts UI top-left coordinates into the renderer's YZ
   plane. The overlay pass loads the back buffer instead of clearing it.
@@ -275,13 +278,28 @@ pos    = parentPosition + ref + position - alignment * size
 
 ## Documents and assets
 
+- `UIDocument` writes a version, the root flag and then every widget depth first. A widget
+  stores its class name, the common fields (`name`, enabled, focusable, visibility, color,
+  render transform and the six navigation links), its class fields, and the class of the
+  slot its parent gave it. The root has no slot.
+- `UIDocumentRegistry` is the single place that knows the concrete widget and slot
+  classes. Each widget entry has a factory, property writer/reader, reference walker and
+  child attach function; each slot entry has a factory and property writer/reader. The
+  built-in types are registered on first use, and `registerWidget`/`registerSlot` let a
+  game add its own before saving.
 - `UIDocumentAsset : IAsset` stores the serialized tree as bytes plus the referenced
-  font/texture UUIDs.
-- `createUserWidget()` returns a `UniquePtr<UIUserWidget>` with a fresh tree.
+  font/texture UUIDs. `setContent` serializes and collects the references; `serialize` and
+  `deserialize` store the bytes after the asset header; `collectReferences` feeds them to
+  the asset file so packaging follows UI documents.
+- Text widgets keep the `UUID` of the `FontAsset` they use (`getFontId`/`setFontId`);
+  setting a `Font*` finds its asset when the assets are running. `UIImage` contributes the
+  `TextureAsset` UUID. Both are resolved through `AssetManager` when the document loads.
+- `createUserWidget()` returns a `UniquePtr<UIUserWidget>` with a fresh tree. Every call
+  reads the bytes again, so two screens made from one document never share widgets.
 - Registered in `AssetManager::initialize()` next to the other asset creators.
-- `collectReferences` walks the tree so packaging follows UI documents.
-- Point 9 makes `GameApplication` load the HUD document from `Game.ini`; the point 6
-  sample still builds its HUD in code.
+- `GameApplication` reads `Game.HudDocument` from `Game.ini`. A document loads through
+  `AssetManager` and falls back to the point 6 `UIHudWidget` when the key is empty, the
+  asset is missing or the document cannot be read.
 
 ## Milestones
 
@@ -302,7 +320,7 @@ pos    = parentPosition + ref + position - alignment * size
    with each point.
 8. [x] **Remaining widgets** — boxes, overlay, border, size box, check box, slider,
    editable text box, scroll box, plus text-input routing in `GameApplication`.
-9. [ ] **Serialization + asset** — `UIDocument`, `UIDocumentAsset`, registry,
+9. [x] **Serialization + asset** — `UIDocument`, `UIDocumentAsset`, registry,
    references, `Game.ini` load.
 10. [ ] **Scripting** — `UI.get`, show/hide, text, value, click callbacks.
 
@@ -338,20 +356,18 @@ Current:
 - `chCore/Source/UI/chUITextBlock.h/.cpp`
 - `chCore/Source/UI/chUIImage.h/.cpp`
 - `chCore/Source/UI/chUIButton.h/.cpp`
+- `chCore/Source/UI/chUIDocument.h/.cpp`
+- `chCore/Source/UI/chUIDocumentAsset.h/.cpp`
 - `chCore/Source/ScreenSystem/chDisplayEvent.h` (`TextInputEvent`)
 - `chCore/Source/ScreenSystem/chEventDispatcherManager.h/.cpp` (`OnTextInput`)
 - `chCore/Source/Platform/SDL/chDisplayEventHandleSDL3.cpp` (text input mapping)
 - `chCore/Source/Input/chInputManager.h/.cpp` (`setTextInputEnabled`)
 - `chCore/Test/UI/chUITests.cpp`
 - `chCore/Test/UI/chUIWidgetTests.cpp`
+- `chCore/Test/UI/chUIDocumentTests.cpp`
 - `chCore/Source/Applications/chWindowedApplication.h/.cpp` (the `onInput` hook)
 - `chGame/Source/chUIHudWidget.h/.cpp`
 - `chGame/Source/chGameApplication.h/.cpp`
-
-Planned:
-
-- `chCore/Source/UI/chUIDocument.h/.cpp`
-- `chCore/Source/UI/chUIDocumentAsset.h/.cpp`
 
 `ch_collect_sources` globs `Source/**/*.cpp|h`, so new files need no `CMakeLists.txt`
 edit. `Private/` folders are not on the public include path.
@@ -361,8 +377,9 @@ edit. `Private/` folders are not on the public include path.
 - Input gating: the HUD disables the whole default context, so a drag or wheel also stops
   keyboard movement for that frame. A real game can split gameplay into per-device
   contexts or add a proper input-mode layer.
-- HUD documents: the sample HUD is built in code; point 9 replaces it with a
-  `UIDocumentAsset` loaded from `Game.ini`.
+- HUD documents: `Game.HudDocument` loads a saved document, but there is no editor
+  authoring or preview yet; the sample HUD remains the fallback when no document is set.
+  The registry lets a game register its own widget and slot classes before saving.
 - Widget events: `UIWidget` uses virtual hooks only for now. If scripting or game code
   needs subscriptions without subclassing, add `Event<>` members in point 10.
 - Render transforms: hit-testing applies them, painting text, images and button

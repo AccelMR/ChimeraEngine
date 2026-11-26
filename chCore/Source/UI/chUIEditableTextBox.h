@@ -14,6 +14,7 @@
 #include "chTextLayout.h"
 #include "chUIRect.h"
 #include "chUIWidget.h"
+#include "chUUID.h"
 
 namespace chEngineSDK {
 class Font;
@@ -65,6 +66,26 @@ class CH_CORE_EXPORT UIEditableTextBox : public UIWidget
   NODISCARD Font*
   getFont() const;
 
+  /**
+   * Font asset this field uses, kept so a document can save the reference. Null when the
+   * field uses the default font or a font that is not an asset.
+   */
+  NODISCARD FORCEINLINE const UUID&
+  getFontId() const noexcept
+  {
+    return m_fontId;
+  }
+
+  /**
+   * Uses the font asset with that UUID. An id with no loaded asset is kept, so saving keeps
+   * the reference, and the field draws with the default font.
+   */
+  void
+  setFontId(const UUID& fontId);
+
+  /**
+   * Uses font and keeps the UUID of the asset that holds it, when there is one.
+   */
   void
   setFont(Font* font) noexcept;
 
@@ -284,6 +305,7 @@ class CH_CORE_EXPORT UIEditableTextBox : public UIWidget
   String m_text;
   String m_hintText;
   Font* m_font = nullptr;
+  UUID m_fontId = UUID::null();
   float m_fontSize = 16.0f;
   UIMargin m_padding{6.0f, 4.0f, 6.0f, 4.0f};
   int32 m_maxLength = 0;

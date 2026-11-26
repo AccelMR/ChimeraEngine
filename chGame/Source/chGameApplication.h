@@ -18,7 +18,7 @@ class Scene;
 class SceneRenderer;
 class UIRenderer;
 class UIViewport;
-class UIHudWidget;
+class UIUserWidget;
 
 /**
  * Exists to play a project without the editor: it opens the project's startup scene, runs
@@ -63,8 +63,8 @@ class GameApplication : public WindowedApplication
 
   UniquePtr<UIRenderer> m_uiRenderer;
   UniquePtr<UIViewport> m_uiViewport;
-  // Owned by m_uiViewport; kept for the sample's state and future scripting.
-  UIHudWidget* m_hud = nullptr;
+  // Owned by m_uiViewport; the sample HUD or the document Game.HudDocument names.
+  UIUserWidget* m_hud = nullptr;
   // Platform text input while a UI text field has focus.
   HEvent m_textInputEvent;
   // True while the HUD owns the input and the gameplay context is turned off.

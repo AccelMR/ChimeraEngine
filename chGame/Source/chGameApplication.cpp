@@ -28,8 +28,10 @@
 #include "chSceneManager.h"
 #include "chScriptManager.h"
 #include "chSceneRenderer.h"
+#include "chUIDocumentAsset.h"
 #include "chUIHudWidget.h"
 #include "chUIRenderer.h"
+#include "chUIUserWidget.h"
 #include "chUIViewport.h"
 #include "chUUID.h"
 
@@ -43,6 +45,13 @@ ConsoleVariable<String> g_cvarStartupScene(
     "/Game/Maps/Main",
     "Scene the game opens: a virtual path such as /Game/Maps/Main, or a scene name.",
     "Scene");
+
+ConsoleVariable<String> g_cvarHudDocument(
+    "Game.HudDocument",
+    "",
+    "UI document drawn over the scene: a virtual path such as /Game/UI/Hud, or a document "
+    "name. Empty uses the sample HUD built in code.",
+    "UI");
 
 // Where the view starts when the scene has no camera component.
 const Vector3 kDefaultCameraPosition(-5.0f, 0.0f, 0.0f);
@@ -86,8 +95,29 @@ GameApplication::onPostInitialize()
   m_uiRenderer = chMakeUnique<UIRenderer>();
   m_uiViewport = chMakeUnique<UIViewport>();
   updateUiSize();
-  UniquePtr<UIHudWidget> hud = chMakeUnique<UIHudWidget>();
-  m_hud = static_cast<UIHudWidget*>(m_uiViewport->addUserWidget(std::move(hud)));
+
+  // A project replaces the sample HUD by naming its document in Config/Game.ini. A missing
+  // or broken document falls back to the sample, so a game still opens with a usable UI.
+  UniquePtr<UIUserWidget> hud;
+  const String& hudDocument = g_cvarHudDocument.get();
+  if (!hudDocument.empty()) {
+    const SPtr<IAsset> asset = AssetManager::instance().findAsset(
+        AssetTypeTraits<UIDocumentAsset>::getTypeId(), hudDocument);
+    const SPtr<UIDocumentAsset> document = asset ? asset->as<UIDocumentAsset>() : nullptr;
+    if (document && AssetManager::instance().syncLoadAsset(document)) {
+      hud = document->createUserWidget();
+    }
+    if (!hud) {
+      CH_LOG_ERROR(GameApp,
+                   "Could not open the HUD document {0}. Set Game.HudDocument in the "
+                   "project's Config/Game.ini. Using the sample HUD.",
+                   hudDocument);
+    }
+  }
+  if (!hud) {
+    hud = chMakeUnique<UIHudWidget>();
+  }
+  m_hud = m_uiViewport->addUserWidget(std::move(hud));
   CH_ASSERT(m_hud != nullptr);
 
   // The platform only sends typed characters while text input is enabled; the viewport
