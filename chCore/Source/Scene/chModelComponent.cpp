@@ -267,7 +267,7 @@ ModelComponent::getWorldBounds(AABox& outBounds) const
   Scene& scene = *getOwner()->getScene();
   outBounds = scene.getRenderItem(m_parts[0].renderItemId).worldBounds.getBox();
   for (const MeshPart& part : Span<const MeshPart>(m_parts).subspan(1)) {
-    outBounds += scene.getRenderItem(part.renderItemId).worldBounds.getBox();
+    outBounds.growToIncludeBox(scene.getRenderItem(part.renderItemId).worldBounds.getBox());
   }
   return true;
 }
@@ -461,7 +461,7 @@ ModelComponent::updateRenderItems()
         bFirst = false;
       }
       else {
-        bounds += box;
+        bounds.growToIncludeBox(box);
       }
     }
     item.worldBounds = bFirst ? part.mesh->getBounds().getTransformed(part.localMatrix *

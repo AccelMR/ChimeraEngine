@@ -71,14 +71,14 @@ class AABox
   /**
    * Grows the box to hold point.
    */
-  FORCEINLINE constexpr AABox&
-  operator+=(const Vector3& point) noexcept;
+  FORCEINLINE constexpr void
+  growToInclude(const Vector3& point) noexcept;
 
   /**
    * Grows the box to hold other.
    */
-  FORCEINLINE constexpr AABox&
-  operator+=(const AABox& other) noexcept;
+  FORCEINLINE constexpr void
+  growToIncludeBox(const AABox& other) noexcept;
 
   NODISCARD CH_UTILITY_EXPORT String
   toString() const;
@@ -123,7 +123,7 @@ AABox::AABox(const Vector<Vector3>& points) noexcept
   minPoint = points[0];
   maxPoint = points[0];
   for (const Vector3& point : points) {
-    *this += point;
+    growToInclude(point);
   }
 }
 
@@ -170,8 +170,8 @@ AABox::shiftBy(const Vector3& offset) noexcept
 
 /*
  */
-FORCEINLINE constexpr AABox&
-AABox::operator+=(const Vector3& point) noexcept
+FORCEINLINE constexpr void
+AABox::growToInclude(const Vector3& point) noexcept
 {
   minPoint.x = Math::min(minPoint.x, point.x);
   minPoint.y = Math::min(minPoint.y, point.y);
@@ -179,15 +179,14 @@ AABox::operator+=(const Vector3& point) noexcept
   maxPoint.x = Math::max(maxPoint.x, point.x);
   maxPoint.y = Math::max(maxPoint.y, point.y);
   maxPoint.z = Math::max(maxPoint.z, point.z);
-  return *this;
 }
 
 /*
  */
-FORCEINLINE constexpr AABox&
-AABox::operator+=(const AABox& other) noexcept
+FORCEINLINE constexpr void
+AABox::growToIncludeBox(const AABox& other) noexcept
 {
-  *this += other.minPoint;
-  return *this += other.maxPoint;
+  growToInclude(other.minPoint);
+  growToInclude(other.maxPoint);
 }
 } // namespace chEngineSDK

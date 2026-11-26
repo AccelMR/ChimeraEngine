@@ -103,7 +103,7 @@ Mesh::getBounds() const
   const Vector3 firstPoint = readPosition(0);
   AABox box(firstPoint, firstPoint);
   for (uint32 i = 1; i < m_vertexCount; ++i) {
-    box += readPosition(i);
+    box.growToInclude(readPosition(i));
   }
 
   const Vector3 center = box.getCenter();
@@ -385,7 +385,7 @@ Mesh::getSkinBoneBounds() const
         m_skinBoneBounds.push_back({.bone = bone, .box = AABox(bonePosition, bonePosition)});
       }
       else {
-        m_skinBoneBounds[boundsOfBone[bone]].box += bonePosition;
+        m_skinBoneBounds[boundsOfBone[bone]].box.growToInclude(bonePosition);
       }
     }
   }

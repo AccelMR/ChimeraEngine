@@ -340,7 +340,7 @@ TextComponent::getWorldBounds(AABox& outBounds) const
   bool bHasBounds = false;
   const auto add = [&outBounds, &bHasBounds](const Vector3& minimum, const Vector3& maximum) {
     if (bHasBounds) {
-      outBounds += AABox(minimum, maximum);
+      outBounds.growToIncludeBox(AABox(minimum, maximum));
     }
     else {
       outBounds = AABox(minimum, maximum);

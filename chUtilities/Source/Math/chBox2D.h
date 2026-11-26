@@ -63,8 +63,8 @@ class Box2D
   /**
    * Grows the rectangle to hold point.
    */
-  FORCEINLINE constexpr Box2D&
-  operator+=(const Vector2& point) noexcept;
+  FORCEINLINE constexpr void
+  growToInclude(const Vector2& point) noexcept;
 
   NODISCARD CH_UTILITY_EXPORT String
   toString() const;
@@ -109,7 +109,7 @@ Box2D::Box2D(const Vector<Vector2>& points) noexcept
   minPoint = points[0];
   maxPoint = points[0];
   for (const Vector2& point : points) {
-    *this += point;
+    growToInclude(point);
   }
 }
 
@@ -150,13 +150,12 @@ Box2D::clamp(const Box2D& other) noexcept
 
 /*
  */
-FORCEINLINE constexpr Box2D&
-Box2D::operator+=(const Vector2& point) noexcept
+FORCEINLINE constexpr void
+Box2D::growToInclude(const Vector2& point) noexcept
 {
   minPoint.x = Math::min(minPoint.x, point.x);
   minPoint.y = Math::min(minPoint.y, point.y);
   maxPoint.x = Math::max(maxPoint.x, point.x);
   maxPoint.y = Math::max(maxPoint.y, point.y);
-  return *this;
 }
 } // namespace chEngineSDK

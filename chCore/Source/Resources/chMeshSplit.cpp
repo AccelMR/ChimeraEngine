@@ -106,7 +106,7 @@ joinOverlappingPieces(Vector<uint32>& parents, Vector<AABox>& boxes)
         const uint32 rootB = roots[b];
         if (parents[rootB] == rootB && ShapeOverlap::boxBox(boxes[rootA], boxes[rootB])) {
           parents[rootB] = rootA;
-          boxes[rootA] += boxes[rootB];
+          boxes[rootA].growToIncludeBox(boxes[rootB]);
           bJoined = true;
         }
       }
@@ -199,7 +199,7 @@ MeshSplit::splitParts(const SPtr<Mesh>& mesh)
     const uint32 piece = pieceOfSet[set];
     pieceOfTriangle[t] = piece;
     for (uint32 corner = 0; corner < 3; ++corner) {
-      boxes[piece] += positions[indices[t * 3 + corner]];
+      boxes[piece].growToInclude(positions[indices[t * 3 + corner]]);
     }
   }
   if (boxes.size() < 2) {

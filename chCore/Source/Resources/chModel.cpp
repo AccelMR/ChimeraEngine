@@ -222,7 +222,7 @@ Model::calculateBounds() const
         bFirst = false;
       }
       else {
-        bounds += meshBounds;
+        bounds.growToIncludeBox(meshBounds);
       }
     }
   }

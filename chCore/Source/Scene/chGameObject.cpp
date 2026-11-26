@@ -109,7 +109,7 @@ GameObject::getHierarchyWorldBounds(AABox& outBounds) const
   bool bFound = false;
   const auto addBounds = [&outBounds, &bFound](const AABox& bounds) {
     if (bFound) {
-      outBounds += bounds;
+      outBounds.growToIncludeBox(bounds);
     }
     else {
       outBounds = bounds;

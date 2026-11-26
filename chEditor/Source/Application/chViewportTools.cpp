@@ -1030,7 +1030,7 @@ ViewportTools::focusSelection()
       objectBounds = AABox(position - extent, position + extent);
     }
     if (bHasBounds) {
-      bounds += objectBounds;
+      bounds.growToIncludeBox(objectBounds);
     }
     else {
       bounds = objectBounds;
