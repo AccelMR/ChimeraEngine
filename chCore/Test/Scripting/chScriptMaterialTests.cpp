@@ -47,7 +47,8 @@ TEST_CASE("chCore - Script materials", "[Scripting]")
   otherShape.setMaterial(parent);
 
   const SPtr<Model> model = createTriangleModel();
-  model->addMaterialSlot({.name = "Body"});
+  model->addMaterialSlot(
+      {.name = "Body", .materialId = chEngineSDK::UUID::null(), .material = nullptr});
   model->setSlotMaterial(0, parent);
   const SPtr<GameObject> statue = scene.createGameObject("Statue");
   ModelComponent& modelComponent =

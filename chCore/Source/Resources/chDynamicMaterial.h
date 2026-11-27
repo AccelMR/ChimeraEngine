@@ -22,7 +22,7 @@ namespace chEngineSDK {
  * it, follows the parent's edits like an instance asset, and is shared by SPtr between the
  * components that draw with it. It lives only in memory.
  */
-class CH_CORE_EXPORT DynamicMaterial : public IMaterialListener
+class CH_CORE_EXPORT DynamicMaterial final : public IMaterialListener
 {
  public:
   explicit DynamicMaterial(const SPtr<MaterialInterfaceAsset>& parent = nullptr);
