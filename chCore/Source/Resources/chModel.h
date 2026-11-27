@@ -17,7 +17,7 @@
 #include "chVector3.h"
 
 namespace chEngineSDK {
-class MaterialAsset;
+class MaterialInterfaceAsset;
 class Skeleton;
 class SkeletonAsset;
 
@@ -29,7 +29,7 @@ struct ModelMaterialSlot
   String name;
   // Kept even when the asset is missing, so saving the model again does not lose it.
   UUID materialId = UUID::null();
-  SPtr<MaterialAsset> material;
+  SPtr<MaterialInterfaceAsset> material;
 };
 
 /**
@@ -100,7 +100,7 @@ class CH_CORE_EXPORT Model
    * Sets the loaded asset of a slot whose UUID is already known.
    */
   void
-  setSlotMaterial(uint32 slot, const SPtr<MaterialAsset>& material);
+  setSlotMaterial(uint32 slot, const SPtr<MaterialInterfaceAsset>& material);
 
   /**
    * The skeleton whose bones the nodes name with setNodeBone. The UUID is kept even when

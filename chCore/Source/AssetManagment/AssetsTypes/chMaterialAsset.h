@@ -11,29 +11,26 @@
 
 #include "chPrerequisitesCore.h"
 
-#include "chIAsset.h"
-#include "chMaterial.h"
+#include "chMaterialInterfaceAsset.h"
 #include "chTypeTraits.h"
 
 namespace chEngineSDK {
 
 /**
- * Exists to save a Material and share it between models. The material is kept by value and
- * never replaced (loading and unloading change its contents), so render items can point at
- * it for as long as the asset lives.
+ * Exists to save a Material and share it between models. Editing it changes every object
+ * that uses it and every instance made from it (call notifyMaterialChanged after an edit).
  */
-class CH_CORE_EXPORT MaterialAsset : public IAsset
+class CH_CORE_EXPORT MaterialAsset : public MaterialInterfaceAsset
 {
  public:
   MaterialAsset() = delete;
-  MaterialAsset(const AssetMetadata& metadata) : IAsset(metadata) {}
-  ~MaterialAsset() = default;
+  MaterialAsset(const AssetMetadata& metadata) : MaterialInterfaceAsset(metadata) {}
+  ~MaterialAsset() override = default;
+
+  using MaterialInterfaceAsset::getMaterial;
 
   NODISCARD FORCEINLINE Material&
   getMaterial() noexcept { return m_material; }
-
-  NODISCARD FORCEINLINE const Material&
-  getMaterial() const noexcept { return m_material; }
 
  protected:
   bool
@@ -47,9 +44,6 @@ class CH_CORE_EXPORT MaterialAsset : public IAsset
 
   void
   collectReferences(Vector<UUID>& outReferences) const override;
-
- private:
-  Material m_material;
 };
 DECLARE_ASSET_TYPE(MaterialAsset);
 

@@ -13,7 +13,7 @@
 #include "chAssetManager.h"
 #include "chFileStream.h"
 #include "chLogger.h"
-#include "chMaterialAsset.h"
+#include "chMaterialInterfaceAsset.h"
 #include "chModel.h"
 #include "chModelSerializer.h"
 #include "chSkeleton.h"
@@ -89,7 +89,7 @@ ModelAsset::resolveReferences()
       continue;
     }
     const SPtr<IAsset> asset = assetManager.getAsset(materialId);
-    const SPtr<MaterialAsset> material = asset ? asset->as<MaterialAsset>() : nullptr;
+    const SPtr<MaterialInterfaceAsset> material = MaterialInterfaceAsset::fromAsset(asset);
     if (material) {
       m_model->setSlotMaterial(slot, material);
     }

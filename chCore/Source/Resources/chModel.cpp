@@ -96,7 +96,7 @@ Model::addMaterialSlot(ModelMaterialSlot slot)
 /*
  */
 void
-Model::setSlotMaterial(uint32 slot, const SPtr<MaterialAsset>& material)
+Model::setSlotMaterial(uint32 slot, const SPtr<MaterialInterfaceAsset>& material)
 {
   if (slot < m_materialSlots.size()) {
     m_materialSlots[slot].material = material;

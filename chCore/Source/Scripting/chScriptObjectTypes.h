@@ -65,6 +65,21 @@ struct ScriptSpriteMaterial
 CH_SCRIPT_VALUE_TYPE(ScriptSpriteMaterial, "SpriteMaterial");
 
 /**
+ * Exists so scripts hold a material or material instance asset as a plain value
+ * (Material.find gives one; Model:setMaterial and Material.createInstance take it). Only
+ * the asset's UUID is kept, so it never keeps the asset loaded.
+ */
+struct ScriptMaterial
+{
+  NODISCARD bool
+  operator==(const ScriptMaterial& other) const { return material == other.material; }
+
+  UUID material;
+};
+
+CH_SCRIPT_VALUE_TYPE(ScriptMaterial, "Material");
+
+/**
  * Exists so scripts hold a sprite atlas as a plain value (Atlas.find gives one;
  * Sprites.makeStyle, Sprite:setAtlas and SpriteAnimator:setAtlas take it). Only the asset's
  * UUID is kept.

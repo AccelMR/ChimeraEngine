@@ -13,7 +13,8 @@
 #include "chBox.h"
 #include "chFileStream.h"
 #include "chGameObject.h"
-#include "chMaterialAsset.h"
+#include "chDynamicMaterial.h"
+#include "chMaterialInterfaceAsset.h"
 #include "chMesh.h"
 #include "chScene.h"
 #include "chSceneManager.h"
@@ -80,14 +81,13 @@ findOrCreateMesh(const ShapeDesc& shape)
  * Null when there is no such asset or it is of another type. Without an AssetManager
  * (tests) nothing is found.
  */
-NODISCARD SPtr<MaterialAsset>
+NODISCARD SPtr<MaterialInterfaceAsset>
 findMaterial(const UUID& id)
 {
   if (id.isNull() || !AssetManager::isStarted()) {
     return nullptr;
   }
-  const SPtr<IAsset> asset = AssetManager::instance().getAsset(id);
-  return asset ? asset->as<MaterialAsset>() : nullptr;
+  return MaterialInterfaceAsset::fromAsset(AssetManager::instance().getAsset(id));
 }
 } // namespace
 
@@ -121,11 +121,40 @@ ShapeComponent::getMesh()
 /*
  */
 void
-ShapeComponent::setMaterial(const SPtr<MaterialAsset>& material)
+ShapeComponent::setMaterial(const SPtr<MaterialInterfaceAsset>& material)
 {
   m_material = material;
   m_materialId = material ? material->getUUID() : UUID::null();
+  m_dynamicMaterial.reset();
+  m_bOwnsDynamicMaterial = false;
   updateRenderItem();
+}
+
+/*
+ */
+void
+ShapeComponent::setDynamicMaterial(const SPtr<DynamicMaterial>& material)
+{
+  m_dynamicMaterial = material;
+  m_bOwnsDynamicMaterial = false;
+  updateRenderItem();
+}
+
+/*
+ */
+DynamicMaterial&
+ShapeComponent::getOwnDynamicMaterial()
+{
+  if (!m_bOwnsDynamicMaterial) {
+    SPtr<DynamicMaterial> material = chMakeShared<DynamicMaterial>(m_material);
+    if (m_dynamicMaterial) {
+      material->copyFrom(*m_dynamicMaterial);
+    }
+    m_dynamicMaterial = std::move(material);
+    m_bOwnsDynamicMaterial = true;
+    updateRenderItem();
+  }
+  return *m_dynamicMaterial;
 }
 
 /*
@@ -179,7 +208,7 @@ ShapeComponent::deserialize(DataStream& stream)
             .rings = data.rings,
             .subdivisions = data.subdivisions});
 
-  const SPtr<MaterialAsset> material = findMaterial(data.material);
+  const SPtr<MaterialInterfaceAsset> material = findMaterial(data.material);
   setMaterial(material);
   m_materialId = data.material;
   if (!material && !data.material.isNull()) {
@@ -237,7 +266,12 @@ ShapeComponent::updateRenderItem()
   item.worldMatrix = getOwner()->getTransform().getWorldMatrix();
   item.worldBounds = m_mesh->getBounds().getTransformed(item.worldMatrix);
   item.mesh = m_mesh.get();
-  item.material = m_material ? &m_material->getMaterial() : nullptr;
+  if (m_dynamicMaterial) {
+    item.material = &m_dynamicMaterial->getMaterial();
+  }
+  else {
+    item.material = m_material ? &m_material->getMaterial() : nullptr;
+  }
 }
 
 } // namespace chEngineSDK

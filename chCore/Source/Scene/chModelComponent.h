@@ -19,7 +19,8 @@
 
 namespace chEngineSDK {
 class Material;
-class MaterialAsset;
+class DynamicMaterial;
+class MaterialInterfaceAsset;
 class ModelAsset;
 
 /**
@@ -95,21 +96,42 @@ class CH_CORE_EXPORT ModelComponent : public Component
 
   /**
    * Replaces the model's material of that slot on this object only; null goes back to it.
-   * Ignored for a slot the drawn meshes do not use.
+   * Ignored for a slot the drawn meshes do not use. Drops the slot's dynamic material.
    */
   void
-  setMaterial(uint32 slot, const SPtr<MaterialAsset>& material);
+  setMaterial(uint32 slot, const SPtr<MaterialInterfaceAsset>& material);
+
+  /**
+   * Draws the slot with a material made at run time, which may be shared with other
+   * objects; null goes back to the slot's asset. Not saved.
+   */
+  void
+  setDynamicMaterial(uint32 slot, const SPtr<DynamicMaterial>& material);
+
+  /**
+   * Null when the slot draws with its asset.
+   */
+  NODISCARD const SPtr<DynamicMaterial>&
+  getDynamicMaterial(uint32 slot) const;
+
+  /**
+   * A dynamic material only this object uses, made the first time from the slot's material
+   * (a copy when the slot had a shared dynamic one), so changing it changes no other object.
+   * Null for a slot the drawn meshes do not use.
+   */
+  DynamicMaterial*
+  getOwnDynamicMaterial(uint32 slot);
 
   /**
    * Null when the slot uses the model's material.
    */
-  NODISCARD const SPtr<MaterialAsset>&
+  NODISCARD const SPtr<MaterialInterfaceAsset>&
   getMaterialOverride(uint32 slot) const;
 
   /**
    * The override, else the model's material; null when neither exists.
    */
-  NODISCARD const SPtr<MaterialAsset>&
+  NODISCARD const SPtr<MaterialInterfaceAsset>&
   getMaterial(uint32 slot) const;
 
   /**
@@ -206,6 +228,12 @@ class CH_CORE_EXPORT ModelComponent : public Component
   getRenderMaterial(uint32 slot) const;
 
   /**
+   * Points the render items of the slot at its material again.
+   */
+  void
+  updateSlotRenderItems(uint32 slot);
+
+  /**
    * Index in m_usedSlots, or ALL when the slot is not used.
    */
   NODISCARD uint32
@@ -220,7 +248,11 @@ class CH_CORE_EXPORT ModelComponent : public Component
   Vector3 m_pivot = Vector3::ZERO;
   Vector<uint32> m_usedSlots;
   // One per used slot; null uses the model's material.
-  Vector<SPtr<MaterialAsset>> m_materialOverrides;
+  Vector<SPtr<MaterialInterfaceAsset>> m_materialOverrides;
+  // One per used slot; null draws with the asset.
+  Vector<SPtr<DynamicMaterial>> m_dynamicMaterials;
+  // One per used slot; 1 when the dynamic material was made for this object alone.
+  Vector<uint8> m_ownsDynamicMaterial;
   Vector<MeshPart> m_parts;
 
   // Owned by whoever animates the model; one per node, or empty at rest.

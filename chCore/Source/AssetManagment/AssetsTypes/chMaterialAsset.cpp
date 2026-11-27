@@ -52,6 +52,7 @@ MaterialAsset::deserialize(SPtr<DataStream> stream)
     }
     m_material.setTexture(slot, textureId, texture);
   }
+  notifyMaterialChanged();
   return true;
 }
 
@@ -60,7 +61,8 @@ MaterialAsset::deserialize(SPtr<DataStream> stream)
 void
 MaterialAsset::clearAssetData()
 {
-  m_material = Material();
+  m_material.resetValues();
+  notifyMaterialChanged();
 }
 
 /*

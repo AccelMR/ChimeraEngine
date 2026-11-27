@@ -10,7 +10,7 @@
 #include "chModelExpand.h"
 
 #include "chGameObject.h"
-#include "chMaterialAsset.h"
+#include "chMaterialInterfaceAsset.h"
 #include "chMatrixHelpers.h"
 #include "chMesh.h"
 #include "chModel.h"
@@ -29,7 +29,7 @@ struct ExpandSource
   SPtr<ModelAsset> modelAsset;
   SPtr<Model> model;
   // One per material slot of the model; null uses the model's material.
-  Vector<SPtr<MaterialAsset>> overrides;
+  Vector<SPtr<MaterialInterfaceAsset>> overrides;
   bool bEnabled = true;
 };
 

@@ -13,6 +13,7 @@
 #include "chIBuffer.h"
 #include "chIGraphicsAPI.h"
 #include "chITexture.h"
+#include "chMath.h"
 #include "chTextureAsset.h"
 
 namespace chEngineSDK {
@@ -58,6 +59,62 @@ struct MaterialFileData
 };
 static_assert(sizeof(MaterialFileData) == 56 + sizeof(UUID) * kTextureCount,
               "MaterialFileData must have no padding");
+
+// Same order as kParameters.
+enum class ParameterId : uint32
+{
+  BaseColor,
+  Metallic,
+  Roughness,
+  Emissive,
+  NormalScale,
+  OcclusionStrength,
+  AlphaMode,
+  AlphaCutoff,
+  TwoSided,
+
+  COUNT
+};
+
+constexpr MaterialParameterInfo kParameters[] = {
+    {.name = "baseColor", .type = MaterialParameterType::Color},
+    {.name = "metallic", .type = MaterialParameterType::Float},
+    {.name = "roughness", .type = MaterialParameterType::Float},
+    {.name = "emissive", .type = MaterialParameterType::Color},
+    {.name = "normalScale", .type = MaterialParameterType::Float},
+    {.name = "occlusionStrength", .type = MaterialParameterType::Float},
+    {.name = "alphaMode", .type = MaterialParameterType::AlphaMode},
+    {.name = "alphaCutoff", .type = MaterialParameterType::Float},
+    {.name = "twoSided", .type = MaterialParameterType::Bool},
+};
+static_assert(sizeof(kParameters) / sizeof(kParameters[0]) ==
+              static_cast<SIZE_T>(ParameterId::COUNT));
+
+// Same order as MaterialTexture.
+constexpr const ANSICHAR* kTextureNames[] = {
+    "baseColorTexture", "metallicRoughnessTexture", "normalTexture", "emissiveTexture",
+    "occlusionTexture",
+};
+static_assert(sizeof(kTextureNames) / sizeof(kTextureNames[0]) == kTextureCount);
+
+NODISCARD bool
+isFinite(const Vector4& value)
+{
+  return Math::isFinite(value.x) && Math::isFinite(value.y) && Math::isFinite(value.z) &&
+         Math::isFinite(value.w);
+}
+
+NODISCARD Vector4
+toVector(const LinearColor& color)
+{
+  return Vector4(color.r, color.g, color.b, color.a);
+}
+
+NODISCARD LinearColor
+toColor(const Vector4& value)
+{
+  return LinearColor(value.x, value.y, value.z, value.w);
+}
 } // namespace
 
 /*
@@ -161,6 +218,193 @@ Material::setTexture(MaterialTexture slot,
   textureSlot.asset = texture;
   textureSlot.gpuTexture = texture ? texture->getTexture().get() : nullptr;
   m_bConstantsDirty = true;
+}
+
+/*
+ */
+void
+Material::resetValues()
+{
+  m_baseColorFactor = LinearColor(1.0f, 1.0f, 1.0f, 1.0f);
+  m_emissiveFactor = LinearColor(0.0f, 0.0f, 0.0f, 1.0f);
+  m_metallicFactor = 0.0f;
+  m_roughnessFactor = 0.5f;
+  m_normalScale = 1.0f;
+  m_occlusionStrength = 1.0f;
+  m_alphaCutoff = 0.5f;
+  m_alphaMode = MaterialAlphaMode::Opaque;
+  m_bTwoSided = false;
+  for (TextureSlot& textureSlot : m_textures) {
+    textureSlot = TextureSlot();
+  }
+  m_bConstantsDirty = true;
+}
+
+/*
+ */
+void
+Material::copyValuesFrom(const Material& other)
+{
+  if (&other == this) {
+    return;
+  }
+  m_baseColorFactor = other.m_baseColorFactor;
+  m_emissiveFactor = other.m_emissiveFactor;
+  m_metallicFactor = other.m_metallicFactor;
+  m_roughnessFactor = other.m_roughnessFactor;
+  m_normalScale = other.m_normalScale;
+  m_occlusionStrength = other.m_occlusionStrength;
+  m_alphaCutoff = other.m_alphaCutoff;
+  m_alphaMode = other.m_alphaMode;
+  m_bTwoSided = other.m_bTwoSided;
+  for (uint32 i = 0; i < kTextureCount; ++i) {
+    m_textures[i] = other.m_textures[i];
+  }
+  m_bConstantsDirty = true;
+}
+
+/*
+ */
+bool
+Material::setValue(const StringView name, const Vector4& value)
+{
+  if (!isValidValue(name, value)) {
+    return false;
+  }
+  switch (static_cast<ParameterId>(findParameter(name))) {
+    case ParameterId::BaseColor:
+      setBaseColorFactor(toColor(value));
+      return true;
+    case ParameterId::Metallic:
+      setMetallicFactor(value.x);
+      return true;
+    case ParameterId::Roughness:
+      setRoughnessFactor(value.x);
+      return true;
+    case ParameterId::NormalScale:
+      setNormalScale(value.x);
+      return true;
+    case ParameterId::OcclusionStrength:
+      setOcclusionStrength(value.x);
+      return true;
+    case ParameterId::Emissive:
+      setEmissiveFactor(toColor(value));
+      return true;
+    case ParameterId::AlphaMode:
+      setAlphaMode(static_cast<MaterialAlphaMode>(static_cast<uint32>(value.x)));
+      return true;
+    case ParameterId::AlphaCutoff:
+      setAlphaCutoff(value.x);
+      return true;
+    case ParameterId::TwoSided:
+      setTwoSided(value.x != 0.0f);
+      return true;
+    case ParameterId::COUNT:
+      break;
+  }
+  return false;
+}
+
+/*
+ */
+bool
+Material::getValue(const StringView name, Vector4& outValue) const
+{
+  const uint32 parameter = findParameter(name);
+  if (parameter == NOT_FOUND) {
+    return false;
+  }
+  switch (static_cast<ParameterId>(parameter)) {
+    case ParameterId::BaseColor:
+      outValue = toVector(m_baseColorFactor);
+      return true;
+    case ParameterId::Metallic:
+      outValue = Vector4(m_metallicFactor, 0.0f, 0.0f, 0.0f);
+      return true;
+    case ParameterId::Roughness:
+      outValue = Vector4(m_roughnessFactor, 0.0f, 0.0f, 0.0f);
+      return true;
+    case ParameterId::NormalScale:
+      outValue = Vector4(m_normalScale, 0.0f, 0.0f, 0.0f);
+      return true;
+    case ParameterId::OcclusionStrength:
+      outValue = Vector4(m_occlusionStrength, 0.0f, 0.0f, 0.0f);
+      return true;
+    case ParameterId::Emissive:
+      outValue = toVector(m_emissiveFactor);
+      return true;
+    case ParameterId::AlphaMode:
+      outValue = Vector4(static_cast<float>(m_alphaMode), 0.0f, 0.0f, 0.0f);
+      return true;
+    case ParameterId::AlphaCutoff:
+      outValue = Vector4(m_alphaCutoff, 0.0f, 0.0f, 0.0f);
+      return true;
+    case ParameterId::TwoSided:
+      outValue = Vector4(m_bTwoSided ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+      return true;
+    case ParameterId::COUNT:
+      break;
+  }
+  return false;
+}
+
+/*
+ */
+bool
+Material::isValidValue(const StringView name, const Vector4& value) noexcept
+{
+  const uint32 parameter = findParameter(name);
+  if (parameter == NOT_FOUND || !isFinite(value)) {
+    return false;
+  }
+  if (static_cast<ParameterId>(parameter) == ParameterId::AlphaMode) {
+    // Checked as a float: a negative or huge value cannot become a uint32.
+    return value.x >= 0.0f && value.x < static_cast<float>(MaterialAlphaMode::COUNT) &&
+           Math::floor(value.x) == value.x;
+  }
+  return true;
+}
+
+/*
+ */
+Span<const MaterialParameterInfo>
+Material::getParameters() noexcept
+{
+  return kParameters;
+}
+
+/*
+ */
+uint32
+Material::findParameter(const StringView name) noexcept
+{
+  for (uint32 i = 0; i < static_cast<uint32>(ParameterId::COUNT); ++i) {
+    if (name == kParameters[i].name) {
+      return i;
+    }
+  }
+  return NOT_FOUND;
+}
+
+/*
+ */
+const ANSICHAR*
+Material::getTextureName(const MaterialTexture slot) noexcept
+{
+  return slot < MaterialTexture::COUNT ? kTextureNames[static_cast<uint32>(slot)] : "";
+}
+
+/*
+ */
+MaterialTexture
+Material::findTexture(const StringView name) noexcept
+{
+  for (uint32 i = 0; i < kTextureCount; ++i) {
+    if (name == kTextureNames[i]) {
+      return static_cast<MaterialTexture>(i);
+    }
+  }
+  return MaterialTexture::COUNT;
 }
 
 /*

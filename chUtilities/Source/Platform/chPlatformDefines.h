@@ -23,9 +23,9 @@
  */
 /************************************************************************/
 #define CH_VERSION_MAJOR 0
-#define CH_VERSION_MINOR 2
+#define CH_VERSION_MINOR 3
 #define CH_VERSION_PATCH 0
-#define CH_VERSION_BUILD 1
+#define CH_VERSION_BUILD 0
 
 #define CH_STRINGIFY(x) #x
 #define CH_TOSTRING(x) CH_STRINGIFY(x)

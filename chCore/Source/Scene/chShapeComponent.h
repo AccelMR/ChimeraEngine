@@ -17,7 +17,8 @@
 #include "chUUID.h"
 
 namespace chEngineSDK {
-class MaterialAsset;
+class DynamicMaterial;
+class MaterialInterfaceAsset;
 
 /**
  * Exists to put a simple shape in a scene without an asset file: it keeps the shape's sizes
@@ -48,12 +49,29 @@ class CH_CORE_EXPORT ShapeComponent : public Component
   getMesh();
 
   /**
-   * Null draws with the renderer's default material.
+   * Null draws with the renderer's default material. Drops the dynamic material.
    */
   void
-  setMaterial(const SPtr<MaterialAsset>& material);
+  setMaterial(const SPtr<MaterialInterfaceAsset>& material);
 
-  NODISCARD FORCEINLINE const SPtr<MaterialAsset>&
+  /**
+   * Draws with a material made at run time, which may be shared with other objects; null
+   * goes back to the asset. Not saved.
+   */
+  void
+  setDynamicMaterial(const SPtr<DynamicMaterial>& material);
+
+  NODISCARD FORCEINLINE const SPtr<DynamicMaterial>&
+  getDynamicMaterial() const noexcept { return m_dynamicMaterial; }
+
+  /**
+   * A dynamic material only this object uses, made the first time from the material (a copy
+   * when it had a shared dynamic one), so changing it changes no other object.
+   */
+  DynamicMaterial&
+  getOwnDynamicMaterial();
+
+  NODISCARD FORCEINLINE const SPtr<MaterialInterfaceAsset>&
   getMaterial() const noexcept { return m_material; }
 
   /**
@@ -92,8 +110,10 @@ class CH_CORE_EXPORT ShapeComponent : public Component
 
   ShapeDesc m_shape;
   SPtr<Mesh> m_mesh;
-  SPtr<MaterialAsset> m_material;
+  SPtr<MaterialInterfaceAsset> m_material;
   UUID m_materialId = UUID::null();
+  SPtr<DynamicMaterial> m_dynamicMaterial;
+  bool m_bOwnsDynamicMaterial = false;
   uint32 m_renderItemId = 0;
 };
 

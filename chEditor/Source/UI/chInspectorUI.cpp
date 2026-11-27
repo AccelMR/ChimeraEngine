@@ -29,7 +29,7 @@
 #include "chLightComponent.h"
 #include "chLogger.h"
 #include "chMaterialEditorUI.h"
-#include "chMaterialAsset.h"
+#include "chMaterialInterfaceAsset.h"
 #include "chModel.h"
 #include "chModelComponent.h"
 #include "chPrefabAsset.h"
@@ -466,7 +466,7 @@ InspectorUI::renderShapeComponent(ShapeComponent& shapeComponent)
   }
 
   // Dropping a material sets it on this shape only; editing it changes the shared asset.
-  const SPtr<MaterialAsset>& material = shapeComponent.getMaterial();
+  const SPtr<MaterialInterfaceAsset>& material = shapeComponent.getMaterial();
   const ANSICHAR* materialName = "None (drop a material)";
   if (material) {
     materialName = material->getName();
@@ -476,7 +476,7 @@ InspectorUI::renderShapeComponent(ShapeComponent& shapeComponent)
   }
   ImGui::Button(materialName, ImVec2(-FLT_MIN, 0.0f));
   if (ImGui::BeginDragDropTarget()) {
-    if (SPtr<MaterialAsset> dropped = AssetDragDrop::acceptMaterial()) {
+    if (SPtr<MaterialInterfaceAsset> dropped = AssetDragDrop::acceptMaterial()) {
       EditorScene::recordChange(gameObject, "Set Material");
       shapeComponent.setMaterial(dropped);
     }
@@ -1324,12 +1324,12 @@ InspectorUI::renderMaterialSlot(ModelComponent& modelComponent, uint32 slot)
   }
 
   // Dropping a material replaces it on this object only.
-  const SPtr<MaterialAsset>& material = modelComponent.getMaterial(slot);
+  const SPtr<MaterialInterfaceAsset>& material = modelComponent.getMaterial(slot);
   const bool bOverride = modelComponent.getMaterialOverride(slot) != nullptr;
   ImGui::Button(material ? material->getName() : "None (drop a material)",
                 ImVec2(-FLT_MIN, 0.0f));
   if (ImGui::BeginDragDropTarget()) {
-    if (SPtr<MaterialAsset> dropped = AssetDragDrop::acceptMaterial()) {
+    if (SPtr<MaterialInterfaceAsset> dropped = AssetDragDrop::acceptMaterial()) {
       EditorScene::recordChange(*modelComponent.getOwner(), "Set Material");
       modelComponent.setMaterial(slot, dropped);
     }

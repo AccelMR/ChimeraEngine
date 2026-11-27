@@ -14,6 +14,7 @@
 #include "chUUID.h"
 
 namespace chEngineSDK {
+class MaterialInterfaceAsset;
 class TextureAsset;
 
 /**
@@ -278,6 +279,12 @@ class ContentAssetUI
    */
   SPtr<IAsset>
   createSpriteAtlas(const SPtr<TextureAsset>& texture);
+
+  /**
+   * A new instance of parent next to it (in the current folder without one), saved at once.
+   */
+  SPtr<IAsset>
+  createMaterialInstance(const SPtr<MaterialInterfaceAsset>& parent);
 
   /**
    * Refreshes the list and starts renaming an asset just made.

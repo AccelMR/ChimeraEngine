@@ -13,6 +13,7 @@
 
 #include "chLinearColor.h"
 #include "chUUID.h"
+#include "chVector4.h"
 
 namespace chEngineSDK {
 class TextureAsset;
@@ -46,6 +47,32 @@ enum class MaterialAlphaMode : uint32
   Mask = 1,
 
   COUNT
+};
+
+/**
+ * What a named material value holds, so editors and scripts know how to show and check it.
+ */
+enum class MaterialParameterType : uint32
+{
+  Float = 0,
+  // Red, green, blue and alpha.
+  Color = 1,
+  // x is 0 or 1.
+  Bool = 2,
+  // x is a MaterialAlphaMode.
+  AlphaMode = 3,
+
+  COUNT
+};
+
+/**
+ * One value of a material that can be read and written by name. Material instances store
+ * their overrides by these names, so the names must never change.
+ */
+struct MaterialParameterInfo
+{
+  const ANSICHAR* name;
+  MaterialParameterType type;
 };
 
 /**
@@ -165,6 +192,61 @@ class CH_CORE_EXPORT Material
   }
 
   /**
+   * Goes back to the default values and no textures. The GPU buffer is kept.
+   */
+  void
+  resetValues();
+
+  /**
+   * Copies every value and texture of other. The GPU buffer is kept.
+   */
+  void
+  copyValuesFrom(const Material& other);
+
+  /**
+   * Writes a value of getParameters() by name. False for an unknown name or a value that is
+   * not finite or out of its range (an alpha mode that does not exist).
+   */
+  bool
+  setValue(StringView name, const Vector4& value);
+
+  /**
+   * False for an unknown name.
+   */
+  NODISCARD bool
+  getValue(StringView name, Vector4& outValue) const;
+
+  /**
+   * True when setValue would take it.
+   */
+  NODISCARD static bool
+  isValidValue(StringView name, const Vector4& value) noexcept;
+
+  /**
+   * Every value that setValue and getValue take, in the order editors show them.
+   */
+  NODISCARD static Span<const MaterialParameterInfo>
+  getParameters() noexcept;
+
+  /**
+   * Index into getParameters(), or NOT_FOUND.
+   */
+  NODISCARD static uint32
+  findParameter(StringView name) noexcept;
+
+  /**
+   * Name of a texture slot as material instances store it ("baseColorTexture").
+   */
+  NODISCARD static const ANSICHAR*
+  getTextureName(MaterialTexture slot) noexcept;
+
+  /**
+   * MaterialTexture::COUNT for an unknown name.
+   */
+  NODISCARD static MaterialTexture
+  findTexture(StringView name) noexcept;
+
+  /**
    * GPU copy of the factors and texture indexes that shaders read by bindless index, made
    * on the first call and sent again after a change (the copy runs with the next frame
    * submit). Main thread only.
@@ -186,6 +268,7 @@ class CH_CORE_EXPORT Material
   deserialize(DataStream& stream);
 
   static constexpr uint32 SERIALIZATION_VERSION = 1;
+  static constexpr uint32 NOT_FOUND = 0xFFFFFFFF;
 
  private:
   struct TextureSlot

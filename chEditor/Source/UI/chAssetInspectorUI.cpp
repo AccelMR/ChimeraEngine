@@ -23,7 +23,7 @@
 #include "chITexture.h"
 #include "chImGuiRenderer.h"
 #include "chLogger.h"
-#include "chMaterialAsset.h"
+#include "chMaterialInterfaceAsset.h"
 #include "chMaterialEditorUI.h"
 #include "chMath.h"
 #include "chMesh.h"
@@ -890,7 +890,8 @@ renderAsset(const SPtr<IAsset>& asset)
       renderTexture(*texture->getTexture());
     }
   }
-  else if (const SPtr<MaterialAsset> material = asset->as<MaterialAsset>()) {
+  else if (const SPtr<MaterialInterfaceAsset> material =
+               MaterialInterfaceAsset::fromAsset(asset)) {
     MaterialEditorUI::render(material);
   }
   else if (const SPtr<SkeletonAsset> skeleton = asset->as<SkeletonAsset>()) {

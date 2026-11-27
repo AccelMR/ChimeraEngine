@@ -44,6 +44,14 @@ class AssetThumbnails
   static void
   regenerate(const IAsset& asset);
 
+  /**
+   * Draws again the thumbnails of every material instance whose chain of parents reaches
+   * material, so they show its edits. Instances that are not loaded are found through the
+   * references in their files, without loading them.
+   */
+  static void
+  regenerateInstancesOf(const IAsset& material);
+
   static void
   regenerateAll();
 

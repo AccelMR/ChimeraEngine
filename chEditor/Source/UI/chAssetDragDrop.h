@@ -14,7 +14,7 @@
 namespace chEngineSDK {
 class AnimationClipAsset;
 class AnimationGraphAsset;
-class MaterialAsset;
+class MaterialInterfaceAsset;
 class ModelAsset;
 class PrefabAsset;
 class ScriptAsset;
@@ -79,9 +79,9 @@ class AssetDragDrop
   acceptTexture();
 
   /**
-   * Same as acceptModel, for materials.
+   * Same as acceptModel, for materials and material instances.
    */
-  NODISCARD static SPtr<MaterialAsset>
+  NODISCARD static SPtr<MaterialInterfaceAsset>
   acceptMaterial();
 
   /**

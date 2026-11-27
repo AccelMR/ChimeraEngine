@@ -13,7 +13,8 @@
 #include "chAssetManager.h"
 #include "chFileStream.h"
 #include "chGameObject.h"
-#include "chMaterialAsset.h"
+#include "chDynamicMaterial.h"
+#include "chMaterialInterfaceAsset.h"
 #include "chMatrixHelpers.h"
 #include "chModel.h"
 #include "chModelAsset.h"
@@ -23,7 +24,8 @@
 namespace chEngineSDK {
 namespace {
 // Returned by reference for slots that do not exist.
-const SPtr<MaterialAsset> kNoMaterial;
+const SPtr<MaterialInterfaceAsset> kNoMaterial;
+const SPtr<DynamicMaterial> kNoDynamicMaterial;
 
 // Above the slots of any real model; only a broken file asks for more.
 constexpr uint32 kMaxOverrides = 65536;
@@ -170,6 +172,8 @@ ModelComponent::rebuildUsedSlots()
 {
   m_usedSlots.clear();
   m_materialOverrides.clear();
+  m_dynamicMaterials.clear();
+  m_ownsDynamicMaterial.clear();
   if (!m_model) {
     return;
   }
@@ -184,6 +188,8 @@ ModelComponent::rebuildUsedSlots()
                    });
   Algorithm::sort(m_usedSlots);
   m_materialOverrides.resize(m_usedSlots.size());
+  m_dynamicMaterials.resize(m_usedSlots.size());
+  m_ownsDynamicMaterial.resize(m_usedSlots.size(), 0);
 }
 
 /*
@@ -201,7 +207,7 @@ ModelComponent::findUsedSlot(uint32 slot) const
 /*
  */
 void
-ModelComponent::setMaterial(uint32 slot, const SPtr<MaterialAsset>& material)
+ModelComponent::setMaterial(uint32 slot, const SPtr<MaterialInterfaceAsset>& material)
 {
   const uint32 index = findUsedSlot(slot);
   if (index == ALL) {
@@ -209,10 +215,65 @@ ModelComponent::setMaterial(uint32 slot, const SPtr<MaterialAsset>& material)
   }
 
   m_materialOverrides[index] = material;
+  m_dynamicMaterials[index].reset();
+  m_ownsDynamicMaterial[index] = 0;
+  updateSlotRenderItems(slot);
+}
+
+/*
+ */
+void
+ModelComponent::setDynamicMaterial(uint32 slot, const SPtr<DynamicMaterial>& material)
+{
+  const uint32 index = findUsedSlot(slot);
+  if (index == ALL) {
+    return;
+  }
+  m_dynamicMaterials[index] = material;
+  m_ownsDynamicMaterial[index] = 0;
+  updateSlotRenderItems(slot);
+}
+
+/*
+ */
+const SPtr<DynamicMaterial>&
+ModelComponent::getDynamicMaterial(uint32 slot) const
+{
+  const uint32 index = findUsedSlot(slot);
+  return index != ALL ? m_dynamicMaterials[index] : kNoDynamicMaterial;
+}
+
+/*
+ */
+DynamicMaterial*
+ModelComponent::getOwnDynamicMaterial(uint32 slot)
+{
+  const uint32 index = findUsedSlot(slot);
+  if (index == ALL) {
+    return nullptr;
+  }
+  if (m_ownsDynamicMaterial[index]) {
+    return m_dynamicMaterials[index].get();
+  }
+
+  SPtr<DynamicMaterial> material = chMakeShared<DynamicMaterial>(getMaterial(slot));
+  if (m_dynamicMaterials[index]) {
+    material->copyFrom(*m_dynamicMaterials[index]);
+  }
+  m_dynamicMaterials[index] = std::move(material);
+  m_ownsDynamicMaterial[index] = 1;
+  updateSlotRenderItems(slot);
+  return m_dynamicMaterials[index].get();
+}
+
+/*
+ */
+void
+ModelComponent::updateSlotRenderItems(uint32 slot)
+{
   if (!isRegistered()) {
     return;
   }
-
   Scene& scene = *getOwner()->getScene();
   const Material* renderMaterial = getRenderMaterial(slot);
   for (const MeshPart& part : m_parts) {
@@ -224,7 +285,7 @@ ModelComponent::setMaterial(uint32 slot, const SPtr<MaterialAsset>& material)
 
 /*
  */
-const SPtr<MaterialAsset>&
+const SPtr<MaterialInterfaceAsset>&
 ModelComponent::getMaterialOverride(uint32 slot) const
 {
   const uint32 index = findUsedSlot(slot);
@@ -233,13 +294,13 @@ ModelComponent::getMaterialOverride(uint32 slot) const
 
 /*
  */
-const SPtr<MaterialAsset>&
+const SPtr<MaterialInterfaceAsset>&
 ModelComponent::getMaterial(uint32 slot) const
 {
   if (!m_model || slot >= m_model->getMaterialSlots().size()) {
     return kNoMaterial;
   }
-  const SPtr<MaterialAsset>& materialOverride = getMaterialOverride(slot);
+  const SPtr<MaterialInterfaceAsset>& materialOverride = getMaterialOverride(slot);
   if (materialOverride) {
     return materialOverride;
   }
@@ -251,7 +312,11 @@ ModelComponent::getMaterial(uint32 slot) const
 const Material*
 ModelComponent::getRenderMaterial(uint32 slot) const
 {
-  const SPtr<MaterialAsset>& material = getMaterial(slot);
+  const SPtr<DynamicMaterial>& dynamicMaterial = getDynamicMaterial(slot);
+  if (dynamicMaterial) {
+    return &dynamicMaterial->getMaterial();
+  }
+  const SPtr<MaterialInterfaceAsset>& material = getMaterial(slot);
   return material ? &material->getMaterial() : nullptr;
 }
 
@@ -314,7 +379,7 @@ void
 ModelComponent::serialize(DataStream& stream) const
 {
   uint32 overrideCount = 0;
-  for (const SPtr<MaterialAsset>& material : m_materialOverrides) {
+  for (const SPtr<MaterialInterfaceAsset>& material : m_materialOverrides) {
     overrideCount += material ? 1 : 0;
   }
 
@@ -361,7 +426,9 @@ ModelComponent::deserialize(DataStream& stream)
     if (stream.read(&materialOverride, sizeof(materialOverride)) != sizeof(materialOverride)) {
       return false;
     }
-    const SPtr<MaterialAsset> material = findAsset<MaterialAsset>(materialOverride.material);
+    const SPtr<MaterialInterfaceAsset> material = MaterialInterfaceAsset::fromAsset(
+        AssetManager::isStarted() ? AssetManager::instance().getAsset(materialOverride.material)
+                                  : nullptr);
     if (material) {
       setMaterial(materialOverride.slot, material);
     }
@@ -381,7 +448,7 @@ ModelComponent::collectReferences(Vector<UUID>& outReferences) const
   if (!m_modelAssetId.isNull()) {
     outReferences.push_back(m_modelAssetId);
   }
-  for (const SPtr<MaterialAsset>& material : m_materialOverrides) {
+  for (const SPtr<MaterialInterfaceAsset>& material : m_materialOverrides) {
     if (material) {
       outReferences.push_back(material->getUUID());
     }
