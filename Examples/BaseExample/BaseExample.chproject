@@ -1,6 +1,6 @@
 [Project]
 Name=BaseExample
-EngineVersion=0.2.0.1
+EngineVersion=0.3.0.0
 Description=Example project chGame opens in development builds
 
 [Modules]

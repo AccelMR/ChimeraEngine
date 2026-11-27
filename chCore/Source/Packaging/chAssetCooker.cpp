@@ -21,6 +21,7 @@
 #include "chLogger.h"
 #include "chMaterial.h"
 #include "chMaterialAsset.h"
+#include "chMaterialInstanceAsset.h"
 #include "chMath.h"
 #include "chTextureAsset.h"
 #include "chTextureMips.h"
@@ -178,23 +179,45 @@ void
 AssetCooker::collectNormalMapTextures(Span<const Path> assetFiles, Vector<UUID>& outTextures)
 {
   const UUID materialType = TypeTraits<MaterialAsset>::getTypeId();
+  const UUID instanceType = TypeTraits<MaterialInstanceAsset>::getTypeId();
   for (const Path& file : assetFiles) {
     if (file.getExtension() != EnginePaths::getEngineAssetExtension()) {
       continue;
     }
     const SPtr<DataStream> stream = FileSystem::openFile(file);
     AssetFileInfo info;
-    if (!stream || !AssetFile::readInfo(*stream, info) || info.assetType != materialType) {
+    if (!stream || !AssetFile::readInfo(*stream, info) ||
+        (info.assetType != materialType && info.assetType != instanceType)) {
       continue;
     }
     Vector<UUID> references;
-    Material material;
     if (!AssetFile::readReferences(*stream, references) ||
-        !AssetFile::readEditorData(*stream, nullptr) || !material.deserialize(*stream)) {
+        !AssetFile::readEditorData(*stream, nullptr)) {
       CH_LOG_WARNING(AssetCookerLog, "Could not read the material {0}.", file);
       continue;
     }
-    const UUID& normalTexture = material.getTextureId(MaterialTexture::Normal);
+
+    UUID normalTexture = UUID::null();
+    if (info.assetType == materialType) {
+      Material material;
+      if (!material.deserialize(*stream)) {
+        CH_LOG_WARNING(AssetCookerLog, "Could not read the material {0}.", file);
+        continue;
+      }
+      normalTexture = material.getTextureId(MaterialTexture::Normal);
+    }
+    else {
+      MaterialInstanceAssetHeader header;
+      MaterialOverrides overrides;
+      if (!AssetFile::readValue(*stream, header) ||
+          header.version != MaterialInstanceAssetHeader::VERSION ||
+          !overrides.deserialize(*stream, file.toString())) {
+        CH_LOG_WARNING(AssetCookerLog, "Could not read the material instance {0}.", file);
+        continue;
+      }
+      const MaterialTextureOverride* normal = overrides.findTexture(MaterialTexture::Normal);
+      normalTexture = normal ? normal->id : UUID::null();
+    }
     if (!normalTexture.isNull()) {
       outTextures.push_back(normalTexture);
     }

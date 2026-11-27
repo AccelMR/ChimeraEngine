@@ -22,7 +22,7 @@
 #include "chEditorSelection.h"
 #include "chGameObject.h"
 #include "chLogger.h"
-#include "chMaterialAsset.h"
+#include "chMaterialInterfaceAsset.h"
 #include "chModel.h"
 #include "chModelAsset.h"
 #include "chModelComponent.h"
@@ -114,7 +114,7 @@ getPayloadName(const IAsset& asset)
   if (asset.isTypeOf<TextureAsset>()) {
     return kTexturePayload;
   }
-  if (asset.isTypeOf<MaterialAsset>()) {
+  if (MaterialInterfaceAsset::isMaterialType(asset.getAssetTypeId())) {
     return kMaterialPayload;
   }
   if (asset.isTypeOf<PrefabAsset>()) {
@@ -151,7 +151,14 @@ acceptAsset(const ANSICHAR* payloadName)
 
   AssetManager& assetManager = AssetManager::instance();
   const SPtr<IAsset> asset = assetManager.getAsset(uuid);
-  if (!asset || !asset->isTypeOf<AssetType>()) {
+  bool bRightType = false;
+  if constexpr (std::is_same_v<AssetType, MaterialInterfaceAsset>) {
+    bRightType = asset && MaterialInterfaceAsset::isMaterialType(asset->getAssetTypeId());
+  }
+  else {
+    bRightType = asset && asset->isTypeOf<AssetType>();
+  }
+  if (!bRightType) {
     CH_LOG_WARNING(AssetDragDropLog, "The dropped asset no longer exists.");
     return nullptr;
   }
@@ -266,10 +273,10 @@ AssetDragDrop::acceptTexture()
 
 /*
  */
-SPtr<MaterialAsset>
+SPtr<MaterialInterfaceAsset>
 AssetDragDrop::acceptMaterial()
 {
-  return acceptAsset<MaterialAsset>(kMaterialPayload);
+  return acceptAsset<MaterialInterfaceAsset>(kMaterialPayload);
 }
 
 /*

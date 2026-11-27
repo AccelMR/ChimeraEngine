@@ -1,6 +1,6 @@
 [Project]
 Name=Example2D
-EngineVersion=0.2.0.1
+EngineVersion=0.3.0.0
 Description=A small 2D shooter that shows sprites, atlas animation, text, the 2D view and the chProjectiles and chParticles plugins
 
 [Plugins]

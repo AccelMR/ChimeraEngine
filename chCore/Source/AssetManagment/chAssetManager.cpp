@@ -33,6 +33,7 @@
 // Base asset types
 #include "chPrefabAsset.h"
 #include "chMaterialAsset.h"
+#include "chMaterialInstanceAsset.h"
 #include "chModelAsset.h"
 #include "chTextureAsset.h"
 #include "chSceneAsset.h"
@@ -77,6 +78,7 @@ AssetManager::initialize() {
   m_assetRegister->registerAssetCreator<ModelAsset>();
   m_assetRegister->registerAssetCreator<TextureAsset>();
   m_assetRegister->registerAssetCreator<MaterialAsset>();
+  m_assetRegister->registerAssetCreator<MaterialInstanceAsset>();
   m_assetRegister->registerAssetCreator<PrefabAsset>();
   m_assetRegister->registerAssetCreator<SceneAsset>();
   m_assetRegister->registerAssetCreator<SkeletonAsset>();

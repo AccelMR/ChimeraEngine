@@ -21,6 +21,7 @@
 #include "chModelAsset.h"
 #include "chPath.h"
 #include "chMaterialAsset.h"
+#include "chMaterialInstanceAsset.h"
 #include "chTextureAsset.h"
 #include "chPrefabAsset.h"
 #include "chSceneAsset.h"
@@ -192,6 +193,9 @@ UIHelpers::getIconFromAssetType(const SPtr<IAsset>& asset)
   }
   if (asset->isTypeOf<MaterialAsset>()) {
     return {AssetType::Material, ICON_FA_PALETTE};
+  }
+  if (asset->isTypeOf<MaterialInstanceAsset>()) {
+    return {AssetType::MaterialInstance, ICON_FA_FILL_DRIP};
   }
   if (asset->isTypeOf<PrefabAsset>()) {
     return {AssetType::Prefab, ICON_FA_CUBES};

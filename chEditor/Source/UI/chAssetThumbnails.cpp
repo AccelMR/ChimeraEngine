@@ -22,7 +22,7 @@
 #include "chImGuiRenderer.h"
 #include "chLightComponent.h"
 #include "chLogger.h"
-#include "chMaterialAsset.h"
+#include "chMaterialInterfaceAsset.h"
 #include "chMath.h"
 #include "chMesh.h"
 #include "chModelAsset.h"
@@ -260,7 +260,8 @@ createObject(ThumbnailsState& state, const SPtr<IAsset>& asset)
     object->addComponent<ModelComponent>(model);
     return object;
   }
-  if (const SPtr<MaterialAsset> material = asset->as<MaterialAsset>()) {
+  if (const SPtr<MaterialInterfaceAsset> material =
+          MaterialInterfaceAsset::fromAsset(asset)) {
     const SPtr<GameObject> object = scene.createGameObject(asset->getName());
     ShapeComponent& shape = object->addComponent<ShapeComponent>(kMaterialSphere);
     shape.setMaterial(material);
@@ -381,7 +382,8 @@ AssetThumbnails::get(const SPtr<IAsset>& asset)
 bool
 AssetThumbnails::canHaveThumbnail(const IAsset& asset)
 {
-  return asset.isTypeOf<ModelAsset>() || asset.isTypeOf<MaterialAsset>() ||
+  return asset.isTypeOf<ModelAsset>() ||
+         MaterialInterfaceAsset::isMaterialType(asset.getAssetTypeId()) ||
          asset.isTypeOf<PrefabAsset>() || asset.isTypeOf<TextureAsset>() ||
          asset.isTypeOf<SpriteAtlasAsset>();
 }

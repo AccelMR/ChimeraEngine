@@ -31,6 +31,7 @@ enum class AssetType
   Font,
   Audio,
   SpriteMaterial,
+  MaterialInstance,
   Unknown
 };
 

@@ -43,6 +43,7 @@
 
 #include "chPrefabAsset.h"
 #include "chMaterialAsset.h"
+#include "chMaterialInstanceAsset.h"
 #include "chSceneAsset.h"
 #include "chScriptAsset.h"
 
@@ -423,6 +424,7 @@ ContentAssetUI::passesTypeFilter(const SPtr<IAsset>& asset) const
   case AssetType::Texture:
     return showTextures;
   case AssetType::Material:
+  case AssetType::MaterialInstance:
     return showMaterials;
   default:
     return showOther;
@@ -811,6 +813,17 @@ ContentAssetUI::renderAssetContextMenu(const SPtr<IAsset>& asset)
     if (AnimationPreviewUI::canOpen(*asset) &&
         ImGui::MenuItem(ICON_FA_RUNNING "  Animation Preview")) {
       AnimationPreviewUI::open(asset);
+    }
+    ImGui::Separator();
+  }
+
+  if (const SPtr<MaterialInterfaceAsset> material = MaterialInterfaceAsset::fromAsset(asset)) {
+    if (ImGui::MenuItem(ICON_FA_FILL_DRIP "  Create Material Instance")) {
+      const SPtr<IAsset> instance = createMaterialInstance(material);
+      onAssetCreated(instance);
+      if (instance) {
+        AssetInspectorUI::open(instance);
+      }
     }
     ImGui::Separator();
   }
@@ -1944,6 +1957,38 @@ ContentAssetUI::createSpriteAtlas(const SPtr<TextureAsset>& texture)
 
 /*
  */
+SPtr<IAsset>
+ContentAssetUI::createMaterialInstance(const SPtr<MaterialInterfaceAsset>& parent)
+{
+  AssetManager& assetManager = AssetManager::instance();
+  if (parent && !parent->isLoaded() && !assetManager.syncLoadAsset(parent)) {
+    CH_LOG_ERROR(ContentAssetUILog, "Failed to load the material {0}.", parent->getName());
+    return nullptr;
+  }
+  const Path folder = parent ? Path(parent->getAssetPath()) : getCurrentFolderPath();
+  // An instance of an instance keeps the name of the material at the top of the chain.
+  StringView parentName = parent ? StringView(parent->getName()) : StringView("New");
+  if (parentName.starts_with("MI_") || parentName.starts_with("M_")) {
+    parentName.remove_prefix(parentName.find('_') + 1);
+  }
+  const String name =
+      assetManager.makeUniqueAssetName(folder, StringUtils::format("MI_{0}", parentName));
+  const SPtr<MaterialInstanceAsset> instance =
+      assetManager.createAsset<MaterialInstanceAsset>(name, folder).lock();
+  if (!instance) {
+    CH_LOG_ERROR(ContentAssetUILog, "Failed to create a material instance.");
+    return nullptr;
+  }
+  instance->setParent(parent);
+  if (!assetManager.saveAsset(instance)) {
+    CH_LOG_ERROR(ContentAssetUILog, "Failed to save the material instance {0}.", name);
+    return nullptr;
+  }
+  return instance;
+}
+
+/*
+ */
 void
 ContentAssetUI::renderEmptyAreaContextMenu()
 {
@@ -2003,6 +2048,13 @@ ContentAssetUI::renderEmptyAreaContextMenu()
       else {
         CH_LOG_ERROR(ContentAssetUILog, "Failed to create a material.");
         refreshAssets();
+      }
+    }
+    if (ImGui::MenuItem(ICON_FA_FILL_DRIP "  Material Instance")) {
+      const SPtr<IAsset> instance = createMaterialInstance(nullptr);
+      onAssetCreated(instance);
+      if (instance) {
+        AssetInspectorUI::open(instance);
       }
     }
     if (ImGui::MenuItem(ICON_FA_FILE_CODE "  Script")) {

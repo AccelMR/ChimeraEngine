@@ -69,6 +69,13 @@ class ScriptBindings
   registerAudio(lua_State* state);
 
   /**
+   * Material values, MaterialInstance (materials made at run time) and the Model and Shape
+   * handles of a GameObject, which change the materials an object draws with.
+   */
+  static void
+  registerMaterials(lua_State* state);
+
+  /**
    * The PostProcess handle of a GameObject: passes, weights and shader values.
    */
   static void
