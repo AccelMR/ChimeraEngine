@@ -369,6 +369,8 @@ MaterialEditorUI::render(const SPtr<MaterialInterfaceAsset>& materialAsset)
     CH_LOG_ERROR(MaterialEditorLog, "Failed to save material {0}", materialAsset->getName());
   }
   AssetThumbnails::regenerate(*materialAsset);
+  // Instances made from it read the values that changed, so they look different too.
+  AssetThumbnails::regenerateInstancesOf(*materialAsset);
 }
 
 } // namespace chEngineSDK

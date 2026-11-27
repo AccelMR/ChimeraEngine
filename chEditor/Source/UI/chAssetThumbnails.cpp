@@ -22,6 +22,7 @@
 #include "chImGuiRenderer.h"
 #include "chLightComponent.h"
 #include "chLogger.h"
+#include "chMaterialInstanceAsset.h"
 #include "chMaterialInterfaceAsset.h"
 #include "chMath.h"
 #include "chMesh.h"
@@ -359,6 +360,46 @@ prepareAsset(ThumbnailsState& state, const SPtr<IAsset>& asset)
   state.renderer->extract(*state.scene, state.camera, chUIHelpers::UIHelpers::rendererColor);
   return true;
 }
+
+/*
+ * The parent of a material instance, read from the asset when it is loaded and from the
+ * references of its file otherwise (the only material among them). Null for anything else.
+ */
+SPtr<IAsset>
+findInstanceParent(const AssetManager& assetManager, const IAsset& asset)
+{
+  if (!asset.isTypeOf<MaterialInstanceAsset>()) {
+    return nullptr;
+  }
+  if (asset.isLoaded()) {
+    const UUID& parentId = static_cast<const MaterialInstanceAsset&>(asset).getParentId();
+    return parentId.isNull() ? nullptr : assetManager.getAsset(parentId);
+  }
+  for (const UUID& reference : asset.getReferencedAssets()) {
+    SPtr<IAsset> referenced = assetManager.getAsset(reference);
+    if (referenced && MaterialInterfaceAsset::isMaterialType(referenced->getAssetTypeId())) {
+      return referenced;
+    }
+  }
+  return nullptr;
+}
+
+/*
+ * True when material is somewhere up the chain of parents of asset.
+ */
+bool
+descendsFrom(const AssetManager& assetManager, const IAsset& asset, const UUID& material)
+{
+  SPtr<IAsset> parent = findInstanceParent(assetManager, asset);
+  // The depth limit also ends a loop a broken file could hold.
+  for (uint32 depth = 0; parent && depth < MaterialInstanceAsset::MAX_DEPTH; ++depth) {
+    if (parent->getUUID() == material) {
+      return true;
+    }
+    parent = findInstanceParent(assetManager, *parent);
+  }
+  return false;
+}
 } // namespace
 
 /*
@@ -397,6 +438,25 @@ AssetThumbnails::regenerate(const IAsset& asset)
   auto it = state.thumbnails.find(asset.getUUID());
   if (it != state.thumbnails.end()) {
     enqueue(state, it->first, it->second);
+  }
+}
+
+/*
+ */
+void
+AssetThumbnails::regenerateInstancesOf(const IAsset& material)
+{
+  if (!AssetManager::isStarted()) {
+    return;
+  }
+  const AssetManager& assetManager = AssetManager::instance();
+  ThumbnailsState& state = getState();
+  // Only assets that already have a thumbnail can need a new one.
+  for (auto& [uuid, thumbnail] : state.thumbnails) {
+    const SPtr<IAsset> asset = assetManager.getAsset(uuid);
+    if (asset && descendsFrom(assetManager, *asset, material.getUUID())) {
+      enqueue(state, uuid, thumbnail);
+    }
   }
 }
 
