@@ -21,10 +21,12 @@
 #include "chDynamicLibManager.h"
 #include "chEnginePlugins.h"
 #include "chConsoleVariable.h"
+#include "chCrashHandler.h"
 #include "chEngineConfig.h"
 #include "chEnginePaths.h"
 #include "chException.h"
 #include "chFileSystem.h"
+#include "chIGraphicsAPI.h"
 #include "chJobSystem.h"
 #include "chLogger.h"
 #include "chPath.h"
@@ -140,6 +142,25 @@ prepareLogFile(const Path& directory, const String& fileName)
 }
 
 /*
+ * What a crash report says about the engine: the project and the graphics API.
+ */
+void
+appendEngineCrashInfo(CrashReportWriter& report)
+{
+  report.append("Project: ");
+  if (EnginePaths::hasProject()) {
+    report.appendLine(EnginePaths::getProjectFile().toString());
+  }
+  else {
+    report.appendLine("none");
+  }
+  if (IGraphicsAPI::isStarted()) {
+    report.append("Graphics API: ");
+    report.appendLine(IGraphicsAPI::instance().getAPIName());
+  }
+}
+
+/*
  * Deletes the oldest backups of this program past Log.MaxBackups. Their names hold the time
  * as text that sorts in time order, so a sort by name is a sort by age.
  */
@@ -193,6 +214,8 @@ BaseApplication::launch(int32 argc,
                         const LaunchInfo& info,
                         void (*startUpApplication)())
 {
+  // First, so even the start up leaves a report.
+  CrashHandler::install(Path(info.logFileName).getFileName(false));
   CommandLine::initialize(argc, argv);
   // Windowed programs start without a console; -log asks for one, before the first message.
   if (CommandLine::hasFlag("log") || CommandLine::hasFlag("help")) {
@@ -211,11 +234,16 @@ BaseApplication::launch(int32 argc,
     const Path& logDirectory = EnginePaths::getLogDirectory();
     const Path logFile = prepareLogFile(logDirectory, info.logFileName);
     logger.setFileOutput(true, logFile.toString());
+    // A real folder: the report is written without FileSystem.
+    CrashHandler::setReportDirectory(
+        FileSystem::absolutePath(EnginePaths::getSavedDirectory()).join(Path("Crashes")));
+    CH_PARAMETER_UNUSED(CrashHandler::addCallback(&appendEngineCrashInfo));
 
     // After the paths, because the project decides which config files exist.
     EngineConfig::initialize();
-    // After the config, which may change how many backups are kept.
+    // After the config, which may change how many backups and reports are kept.
     removeOldLogBackups(logDirectory, info.logFileName);
+    CrashHandler::removeOldReports();
     // After the config, which sets how many workers it starts.
     JobSystem::startUp();
 
@@ -267,6 +295,8 @@ BaseApplication::launch(int32 argc,
       exitCode = 1;
     }
   }
+  CrashHandler::removeCallback(&appendEngineCrashInfo);
+  CrashHandler::uninstall();
   return exitCode;
 }
 

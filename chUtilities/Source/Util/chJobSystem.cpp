@@ -12,6 +12,7 @@
 #include <chrono>
 
 #include "chConsoleVariable.h"
+#include "chCrashHandler.h"
 #include "chLogger.h"
 #include "chMath.h"
 #include "chSTDThreading.h"
@@ -202,6 +203,7 @@ void
 workerLoop(JobState& state, int32 threadIndex)
 {
   t_threadIndex = threadIndex;
+  CrashHandler::registerCurrentThread("JobWorker", threadIndex);
   while (true) {
     uint32 index = JobHandle::INVALID_INDEX;
     {

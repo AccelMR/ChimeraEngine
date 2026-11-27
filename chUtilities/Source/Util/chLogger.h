@@ -252,6 +252,21 @@ class CH_UTILITY_EXPORT Logger : public Module<Logger>
   static void
   disconnectLogListener(HEvent& handle);
 
+  /**
+   * For the crash handler: writes the line to the log file and the console and flushes the
+   * file, without allocating. Gives up and returns false when another thread keeps the
+   * Logger busy (the crashed one may hold it), or when there is no Logger.
+   */
+  static bool
+  flushForCrash(StringView line) noexcept;
+
+  /**
+   * The log file on disk, empty without file output. Read it only while no thread changes
+   * the file output.
+   */
+  NODISCARD const String&
+  getLogFilePath() const noexcept;
+
  protected:
   /**
    * @brief Constructor

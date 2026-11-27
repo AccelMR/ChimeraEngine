@@ -309,6 +309,8 @@ struct Logger::Impl
   bool consoleOutput = true;
   bool fileOutput = false;
   String logFilename;
+  // Where logFilename is on disk, for code that opens the file without FileSystem.
+  String logFilePath;
   SPtr<DataStream> logFile;
   RecursiveMutex mutex;
   Event<void(const SPtr<const LogBufferEntry>&)> logWrittenEvent;
@@ -566,6 +568,7 @@ Logger::setFileOutput(bool enabled, const String& filename)
     CH_LOG_ERROR(LoggerLog, "Failed to open log file: {0}", m_impl->logFilename);
     return;
   }
+  m_impl->logFilePath = FileSystem::absolutePath(Path(m_impl->logFilename)).toString();
 
   // The file is opened once the project folder is known, so what was logged before (start
   // up, finding the project) is written first and the file has the whole session.
@@ -606,6 +609,41 @@ Logger::disconnectLogListener(HEvent& handle)
   // listener is still running.
   RecursiveLock lock(instance().m_impl->mutex);
   handle.disconnect();
+}
+
+/*
+ */
+bool
+Logger::flushForCrash(StringView line) noexcept
+{
+  if (!isStarted()) {
+    return false;
+  }
+
+  Impl& impl = *instance().m_impl;
+  // Another thread may be in the middle of a log line; the crashed one never lets go.
+  static constexpr int32 kAttempts = 20;
+  for (int32 attempt = 0; attempt < kAttempts; ++attempt) {
+    if (impl.mutex.try_lock()) {
+      std::cerr.write(line.data(), static_cast<std::streamsize>(line.size()));
+      std::cerr.write("\n", 1);
+      std::cerr.flush();
+      impl.writeToFile(line, true);
+      impl.mutex.unlock();
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  return false;
+}
+
+/*
+ */
+const String&
+Logger::getLogFilePath() const noexcept
+{
+  static const String kNoFile;
+  return m_impl->fileOutput ? m_impl->logFilePath : kNoFile;
 }
 
 /*
