@@ -35,6 +35,13 @@ class PlatformSystem
    */
   NODISCARD static Path
   getUserDataDirectory(StringView organization, StringView application);
+
+  /**
+   * The crash handler's dialog: says where the report went and can open the folder. Allocates
+   * nothing of ours, since it runs on a crashed process.
+   */
+  static void
+  showCrashDialog(const ANSICHAR* applicationName, const ANSICHAR* folder);
 };
 
 } // namespace chEngineSDK

@@ -10,6 +10,7 @@
 #pragma once
 
 #include "chCrashHandler.h"
+#include "chPath.h"
 
 namespace chEngineSDK {
 namespace CrashDetail {
@@ -51,6 +52,16 @@ formatTime(ANSICHAR* buffer,
 
 NODISCARD const ANSICHAR*
 getApplicationName() noexcept;
+
+/**
+ * True when a dialog will show after the report (a function is set and Crash.ShowDialog is
+ * on), so the crashed thread waits for the user.
+ */
+NODISCARD bool
+hasDialog() noexcept;
+
+void
+showDialog(const ANSICHAR* folder) noexcept;
 
 /**
  * Name and index a thread registered with, false when it never did.

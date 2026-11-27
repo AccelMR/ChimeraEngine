@@ -45,3 +45,6 @@
 #else
 # define CH_CONSOLE NOT_IN_USE
 #endif
+
+// Last, because it needs everything above; it brings CH_CHECK to every file.
+#include "chCrashHandler.h"

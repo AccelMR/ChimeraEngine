@@ -169,6 +169,18 @@ TEST_CASE("chCore - Project packager", "[Packaging]")
                    .assetFiles = {mainScene},
                    .startupScene = "/Game/Maps/Main"};
 
+  SECTION("Symbols go next to the package, never into it")
+  {
+    PackageDesc withSymbols = desc;
+    withSymbols.symbolsDirectory = root.join(Path("Out/MyGame_Symbols"));
+    const PackageResult result = ProjectPackager::package(withSymbols);
+    REQUIRE(result.bSucceeded);
+    REQUIRE(result.binaryFileCount == 3);
+    REQUIRE(result.symbolFileCount == 1);
+    REQUIRE(FileSystem::isFile(withSymbols.symbolsDirectory.join(Path("chGame.pdb"))));
+    REQUIRE_FALSE(FileSystem::exists(output.join(Path("chGame.pdb"))));
+  }
+
   SECTION("The package holds what a game reads and nothing else")
   {
     const PackageResult result = ProjectPackager::package(desc);

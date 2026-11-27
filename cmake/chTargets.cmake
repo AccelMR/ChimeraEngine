@@ -70,6 +70,12 @@ function(ch_target_defaults TARGET_NAME FOLDER_NAME)
       # C4324: math types are aligned for SIMD on purpose, so structs holding them get
       #        padding.
       /wd4201 /wd4251 /wd4996 /wd4324)
+    # Release keeps its symbols in .pdb files next to the binaries, so crash reports name
+    # functions and lines; the code is the same (/OPT:REF and /OPT:ICF stay on, which /DEBUG
+    # would turn off). Package Project keeps them apart from the package.
+    target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Release>:/Zi>)
+    target_link_options(${TARGET_NAME} PRIVATE
+      $<$<CONFIG:Release>:/DEBUG> $<$<CONFIG:Release>:/OPT:REF> $<$<CONFIG:Release>:/OPT:ICF>)
   else()
     target_compile_options(${TARGET_NAME} PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()

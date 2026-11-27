@@ -99,6 +99,7 @@ constexpr const ANSICHAR* kBuildDirectoryKeys[] = {"ReleaseBuildDirectory",
 constexpr const ANSICHAR* kPackAssetsKeys[] = {"PackAssetsRelease", "PackAssetsDebug"};
 constexpr bool kPackAssetsDefaults[] = {true, false};
 constexpr const ANSICHAR* kKeepScriptLinesKey = "KeepScriptLines";
+constexpr const ANSICHAR* kKeepSymbolsKey = "KeepSymbols";
 
 // A finished package stays on screen this long, unless the mouse is over it.
 constexpr double kResultSeconds = 8.0;
@@ -133,6 +134,7 @@ struct DialogState
   // Follows the configuration until the user changes it, then remembers that choice.
   bool bPackAssets = true;
   bool bKeepScriptLines = true;
+  bool bKeepSymbols = true;
   // A build of that configuration; empty when none was found.
   Path gameBuild;
   // Why the folder chosen by hand was not taken.
@@ -173,6 +175,17 @@ getState()
 {
   static DialogState state;
   return state;
+}
+
+/**
+ * Next to the package, never inside it: "<Game>_Symbols".
+ */
+Path
+getSymbolsDirectory(const DialogState& state)
+{
+  String folderName = state.jobDirectory.getFileName();
+  folderName += "_Symbols";
+  return state.jobDirectory.getDirectory().join(Path(std::move(folderName)));
 }
 
 String
@@ -531,7 +544,9 @@ startPackage(DialogState& state, const Path& binaryDirectory, bool bDevelopment)
                    .textureCacheDirectory = EnginePaths::getProjectDirectory().join(
                        Path("Saved/Cooked/Textures")),
                    .bPackAssets = state.bPackAssets,
-                   .bStripScriptDebugInfo = !state.bKeepScriptLines};
+                   .bStripScriptDebugInfo = !state.bKeepScriptLines,
+                   .symbolsDirectory = state.bKeepSymbols ? getSymbolsDirectory(state)
+                                                          : Path()};
   desc.assetFiles.reserve(assets.size());
   for (const UUID& uuid : assets) {
     const SPtr<IAsset> asset = assetManager.getAsset(uuid);
@@ -642,6 +657,10 @@ renderJobWindow(DialogState& state)
         ImGui::PushStyleColor(ImGuiCol_Text, kSuccessColor);
         ImGui::TextWrapped(ICON_FA_CHECK_CIRCLE "  Done: %u assets and %u binary files.",
                            result.assetFileCount, result.binaryFileCount);
+        if (result.symbolFileCount > 0) {
+          ImGui::TextWrapped("Symbols (%u files) in %s", result.symbolFileCount,
+                             getSymbolsDirectory(state).toString().c_str());
+        }
         ImGui::PopStyleColor();
         const AssetCookStats& stats = result.cookStats;
         if (stats.textureBytesBefore > 0) {
@@ -824,6 +843,15 @@ renderAssetSection(DialogState& state)
                         "errors in the game still say file:line; without them the scripts "
                         "are smaller and harder to read back, and errors lose their file "
                         "and line.");
+#if USING(CH_PLATFORM_WIN32)
+  if (ImGui::Checkbox("Keep symbols apart", &state.bKeepSymbols)) {
+    remember(kKeepSymbolsKey, state.bKeepSymbols ? "true" : "false");
+  }
+  ImGui::SetItemTooltip("Copies the .pdb files of the game into a folder next to the package, "
+                        "never into it. Keep that folder for each version you ship: with it, "
+                        "a crash report or memory dump a player sends shows functions and "
+                        "lines.");
+#endif
   const TextureCompressionQuality current = getTextureQuality();
   const String currentName(TextureCooker::getQualityName(current));
   if (ImGui::BeginCombo("Compression quality", currentName.c_str())) {
@@ -938,6 +966,7 @@ PackageDialog::open()
   state.configuration = PackageConfiguration::Release;
   state.bPackAssets = getPackAssetsChoice(state.configuration);
   state.bKeepScriptLines = getRemembered(kKeepScriptLinesKey) != "false";
+  state.bKeepSymbols = getRemembered(kKeepSymbolsKey) != "false";
   state.gameBuild = findGameBuild(state.configuration);
   state.buildMessage.clear();
   const Path& editorFolder = EnginePaths::getPluginDirectory();

@@ -12,6 +12,9 @@ if(WIN32)
   target_compile_definitions(chUtilities PUBLIC NOMINMAX)
   # Memory dumps and call stacks of the crash handler.
   target_link_libraries(chUtilities PRIVATE dbghelp)
+else()
+  # dladdr names the frames of a crash report; older glibc keeps it in libdl.
+  target_link_libraries(chUtilities PRIVATE ${CMAKE_DL_LIBS})
 endif()
 
 # Each module keeps its tests in its Test folder.

@@ -47,6 +47,10 @@ ConsoleVariable<int32> g_cvarCrashMaxReports("Crash.MaxReports",
                                              "the program starts. 0 keeps all.",
                                              "",
                                              ConsoleVariableBehavior::RequiresRestart);
+ConsoleVariable<bool> g_cvarCrashShowDialog("Crash.ShowDialog",
+                                            true,
+                                            "Tells the user where the crash report went. Turn "
+                                            "it off for scripts and automatic tests.");
 
 struct ThreadEntry
 {
@@ -66,6 +70,8 @@ struct SharedState
   ThreadEntry threads[CrashHandler::MAX_THREADS];
   Atomic<uint32> threadCount{0};
   ANSICHAR fatalMessage[CrashDetail::MAX_MESSAGE_CHARS] = {};
+  ANSICHAR checkMessage[CrashDetail::MAX_MESSAGE_CHARS] = {};
+  CrashDialogFunction dialogFunction = nullptr;
 };
 
 SharedState&
@@ -76,7 +82,8 @@ getState()
 }
 
 constexpr const ANSICHAR* kTestKindNames[] = {
-    "access", "abort", "stackoverflow", "terminate", "exception", "divzero", "fatal", "job",
+    "access", "abort", "stackoverflow", "terminate", "exception",
+    "divzero", "fatal", "job", "check",
 };
 static_assert(sizeof(kTestKindNames) / sizeof(kTestKindNames[0]) ==
               static_cast<SIZE_T>(CrashTestKind::COUNT));
@@ -127,7 +134,7 @@ runCrashCommand(const ConsoleArguments& arguments)
 
 ConsoleCommand g_commandCrash("crash",
                               "<access|abort|stackoverflow|terminate|exception|divzero|fatal|"
-                              "job>",
+                              "job|check>",
                               "Crashes the program on purpose, to check the crash report.",
                               &runCrashCommand,
                               true);
@@ -278,6 +285,25 @@ formatTime(ANSICHAR* buffer,
     position += static_cast<SIZE_T>(width);
     buffer[position++] = separators[i];
   }
+}
+
+/*
+ */
+void
+showDialog(const ANSICHAR* folder) noexcept
+{
+  const CrashDialogFunction function = getState().dialogFunction;
+  if (function && g_cvarCrashShowDialog.get()) {
+    function(getState().applicationName, folder);
+  }
+}
+
+/*
+ */
+bool
+hasDialog() noexcept
+{
+  return getState().dialogFunction && g_cvarCrashShowDialog.get();
 }
 
 /*
@@ -463,6 +489,34 @@ CrashHandler::reportFatal(const ANSICHAR* message, const ANSICHAR* file, int32 l
 /*
  */
 void
+CrashHandler::reportCheckFailed(const ANSICHAR* condition,
+                                const ANSICHAR* file,
+                                int32 line,
+                                StringView message) noexcept
+{
+  SharedState& state = getState();
+  CrashReportWriter writer(state.checkMessage, sizeof(state.checkMessage) - 1);
+  writer.append("Check failed: ");
+  writer.append(condition);
+  if (!message.empty()) {
+    writer.append(": ");
+    writer.append(message);
+  }
+  state.checkMessage[writer.getText().size()] = '\0';
+  reportFatal(state.checkMessage, file, line);
+}
+
+/*
+ */
+void
+CrashHandler::setDialogFunction(CrashDialogFunction function) noexcept
+{
+  getState().dialogFunction = function;
+}
+
+/*
+ */
+void
 CrashHandler::crashForTest(CrashTestKind kind)
 {
   switch (kind) {
@@ -501,6 +555,9 @@ CrashHandler::crashForTest(CrashTestKind kind)
     }
     break;
   }
+  case CrashTestKind::Check:
+    CH_CHECK_MSG(g_zero == 1, "zero is {0} on purpose", static_cast<int32>(g_zero));
+    break;
   case CrashTestKind::COUNT:
     break;
   }

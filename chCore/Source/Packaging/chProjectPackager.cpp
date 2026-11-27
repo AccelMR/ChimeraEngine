@@ -36,7 +36,8 @@ enum class CopyKind : uint8
   Binary,
   Engine,
   Config,
-  Asset
+  Asset,
+  Symbols
 };
 
 struct FileCopy
@@ -204,6 +205,36 @@ addBinaries(const PackageDesc& desc, Vector<FileCopy>& outCopies, String& outErr
   return true;
 }
 
+/**
+ * The .pdb of every packaged program and library the build has, under their own names (the
+ * programs name them so), into desc.symbolsDirectory.
+ */
+void
+addSymbols(const PackageDesc& desc, Vector<FileCopy>& outCopies)
+{
+  if (desc.symbolsDirectory.empty()) {
+    return;
+  }
+  const SIZE_T binaryCount = outCopies.size();
+  for (SIZE_T i = 0; i < binaryCount; ++i) {
+    const FileCopy& copy = outCopies[i];
+    if (copy.kind != CopyKind::Binary) {
+      continue;
+    }
+    String symbolsName = copy.source.getFileName(false);
+    symbolsName += ".pdb";
+    const Path symbols = copy.source.getDirectory().join(Path(symbolsName));
+    if (!FileSystem::isFile(symbols)) {
+      continue;
+    }
+    const Path relative = FileSystem::relativePath(desc.outputDirectory,
+                                                   copy.destination.getDirectory());
+    outCopies.push_back({symbols,
+                         desc.symbolsDirectory.join(relative).join(Path(symbolsName)),
+                         CopyKind::Symbols});
+  }
+}
+
 void
 addConfig(const PackageDesc& desc, Vector<FileCopy>& outCopies)
 {
@@ -336,7 +367,11 @@ ProjectPackager::package(const PackageDesc& desc, PackageProgress* progress)
   // Listed first, so the progress knows the total and nothing is copied when a source is
   // wrong.
   Vector<FileCopy> copies;
-  if (!addBinaries(desc, copies, result.error) || !addAssets(desc, copies, result.error)) {
+  if (!addBinaries(desc, copies, result.error)) {
+    return result;
+  }
+  addSymbols(desc, copies);
+  if (!addAssets(desc, copies, result.error)) {
     return result;
   }
   addFolder(desc.engineContentDirectory,
@@ -456,6 +491,9 @@ ProjectPackager::package(const PackageDesc& desc, PackageProgress* progress)
     }
     else if (copy.kind == CopyKind::Asset) {
       ++result.assetFileCount;
+    }
+    else if (copy.kind == CopyKind::Symbols) {
+      ++result.symbolFileCount;
     }
     if (progress) {
       progress->copiedFiles.fetch_add(1, std::memory_order_relaxed);

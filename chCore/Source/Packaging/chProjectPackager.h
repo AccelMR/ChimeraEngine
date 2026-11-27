@@ -51,6 +51,9 @@ struct PackageDesc
   // Scripts are always compiled; this drops their line numbers (errors then lose their file
   // and line).
   bool bStripScriptDebugInfo = false;
+  // Gets the .pdb files of the packaged binaries, which never go into the package; with them
+  // a crash report or memory dump from a player shows functions and lines. Empty skips them.
+  Path symbolsDirectory{};
 };
 
 struct PackageResult
@@ -61,6 +64,7 @@ struct PackageResult
   String error;
   uint32 binaryFileCount = 0;
   uint32 assetFileCount = 0;
+  uint32 symbolFileCount = 0;
   AssetCookStats cookStats{};
 };
 

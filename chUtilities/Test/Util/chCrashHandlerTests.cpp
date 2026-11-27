@@ -49,7 +49,7 @@ TEST_CASE("chUtilities - Crash test kinds", "[Crash]")
   REQUIRE(CrashHandler::findTestKind("nothing") == CrashTestKind::COUNT);
 }
 
-#if USING(CH_PLATFORM_WIN32)
+#if USING(CH_PLATFORM_WIN32) || USING(CH_PLATFORM_LINUX)
 namespace {
 struct CrashRun
 {
@@ -78,11 +78,17 @@ runCrash(StringView kindName)
   }
   REQUIRE(FileSystem::createDirectory(reports));
 
+#if USING(CH_PLATFORM_WIN32)
   const String program = StringUtils::replaceAllChars(
       directory.join(Path("chCrashTest.exe")).toString(), '/', '\\');
   const String folder = StringUtils::replaceAllChars(reports.toString(), '/', '\\');
   // cmd drops the outer quotes, which keeps the quotes around each path.
   const String command = "\"\"" + program + "\" " + String(kindName) + " \"" + folder + "\"\"";
+#else
+  const String program = directory.join(Path("chCrashTest")).toString();
+  const String command = "'" + program + "' " + String(kindName) + " '" + reports.toString() +
+                         "' 2>/dev/null";
+#endif
 
   CrashRun run;
   run.exitCode = std::system(command.c_str());
@@ -117,14 +123,19 @@ TEST_CASE("chUtilities - Crash reports", "[Crash]")
     const ANSICHAR* thread;
   };
   const Expected expectedRuns[] = {
+#if USING(CH_ARCHITECTURE_ARM64) && USING(CH_PLATFORM_LINUX)
+      {"access", "Access violation at address 0x0000000000000000", "Thread: Main"},
+#else
       {"access", "Access violation writing 0x0000000000000000", "Thread: Main"},
+#endif
       {"abort", "abort() was called", "Thread: Main"},
       {"stackoverflow", "Stack overflow", "Thread: Main"},
       {"terminate", "std::terminate was called", "Thread: Main"},
       {"exception", "Exception thrown on purpose", "Thread: CrashTest"},
       {"divzero", "Integer divide by zero", "Thread: Main"},
       {"fatal", "Fatal error raised on purpose", "Thread: Main"},
-      {"job", "Access violation writing", "Thread: JobWorker"},
+      {"job", "Access violation", "Thread: JobWorker"},
+      {"check", "Check failed: g_zero == 1: zero is 0 on purpose", "Thread: Main"},
   };
 
   for (const Expected& expected : expectedRuns) {
@@ -137,12 +148,14 @@ TEST_CASE("chUtilities - Crash reports", "[Crash]")
       CHECK(contains(run.report, expected.reason));
       CHECK(contains(run.report, expected.thread));
       CHECK(contains(run.report, "Call stack:\n  #0"));
-      CHECK(contains(run.report, "Memory dump: CrashTest.dmp"));
       CHECK(contains(run.report, "Log: CrashTest.log\n"));
+#if USING(CH_PLATFORM_WIN32)
+      CHECK(contains(run.report, "Memory dump: CrashTest.dmp"));
       CHECK(run.bHasDump);
+#endif
       CHECK(contains(run.log, "Last line before the crash"));
       CHECK(contains(run.log, "The program crashed"));
     }
   }
 }
-#endif // USING(CH_PLATFORM_WIN32)
+#endif // USING(CH_PLATFORM_WIN32) || USING(CH_PLATFORM_LINUX)

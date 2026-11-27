@@ -238,6 +238,7 @@ BaseApplication::launch(int32 argc,
     CrashHandler::setReportDirectory(
         FileSystem::absolutePath(EnginePaths::getSavedDirectory()).join(Path("Crashes")));
     CH_PARAMETER_UNUSED(CrashHandler::addCallback(&appendEngineCrashInfo));
+    CrashHandler::setDialogFunction(&PlatformSystem::showCrashDialog);
 
     // After the paths, because the project decides which config files exist.
     EngineConfig::initialize();
@@ -296,6 +297,7 @@ BaseApplication::launch(int32 argc,
     }
   }
   CrashHandler::removeCallback(&appendEngineCrashInfo);
+  CrashHandler::setDialogFunction(nullptr);
   CrashHandler::uninstall();
   return exitCode;
 }

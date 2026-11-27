@@ -47,6 +47,7 @@ using SetThreadDescriptionFunction = HRESULT(WINAPI*)(HANDLE, PCWSTR);
 struct WindowsState
 {
   HANDLE requestEvent = nullptr;
+  HANDLE writtenEvent = nullptr;
   HANDLE doneEvent = nullptr;
   HANDLE thread = nullptr;
   DWORD crashThreadId = 0;
@@ -549,6 +550,8 @@ crashThreadMain(void* parameter)
     return 0;
   }
   writeCrashReport(state);
+  SetEvent(state.writtenEvent);
+  CrashDetail::showDialog(state.folderUtf8);
   SetEvent(state.doneEvent);
   return 0;
 }
@@ -573,7 +576,11 @@ onUnhandledException(EXCEPTION_POINTERS* info)
   state.exception = info;
   state.faultingThreadId = GetCurrentThreadId();
   SetEvent(state.requestEvent);
-  WaitForSingleObject(state.doneEvent, kCrashWaitMilliseconds);
+  // The dialog waits for the user as long as it takes; only writing the report has a limit.
+  if (WaitForSingleObject(state.writtenEvent, kCrashWaitMilliseconds) == WAIT_OBJECT_0 &&
+      CrashDetail::hasDialog()) {
+    WaitForSingleObject(state.doneEvent, INFINITE);
+  }
   TerminateProcess(GetCurrentProcess(), code);
   return EXCEPTION_EXECUTE_HANDLER;
 }
@@ -639,8 +646,9 @@ platformInstall()
 {
   WindowsState& state = getWindowsState();
   state.requestEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  state.writtenEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   state.doneEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-  if (!state.requestEvent || !state.doneEvent) {
+  if (!state.requestEvent || !state.writtenEvent || !state.doneEvent) {
     return false;
   }
   // Made now, so a crash needs no new thread: a crashed process may not be able to start one.
@@ -683,9 +691,11 @@ platformUninstall()
   WaitForSingleObject(state.thread, INFINITE);
   CloseHandle(state.thread);
   CloseHandle(state.requestEvent);
+  CloseHandle(state.writtenEvent);
   CloseHandle(state.doneEvent);
   state.thread = nullptr;
   state.requestEvent = nullptr;
+  state.writtenEvent = nullptr;
   state.doneEvent = nullptr;
   state.bStopping = false;
 }

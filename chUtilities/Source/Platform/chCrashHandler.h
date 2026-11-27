@@ -10,7 +10,6 @@
 /************************************************************************/
 #pragma once
 
-#include "chPath.h"
 #include "chPrerequisitesUtilities.h"
 
 namespace chEngineSDK {
@@ -65,6 +64,12 @@ class CH_UTILITY_EXPORT CrashReportWriter
 using CrashCallback = void (*)(CrashReportWriter& report);
 
 /**
+ * Tells the user once the report is written; folder is where it went. It runs on a crashed
+ * process, so it is a best effort.
+ */
+using CrashDialogFunction = void (*)(const ANSICHAR* applicationName, const ANSICHAR* folder);
+
+/**
  * Ways to crash on purpose, to check the crash handler (console command "crash", tests).
  */
 enum class CrashTestKind : uint32
@@ -77,6 +82,7 @@ enum class CrashTestKind : uint32
   DivideByZero = 5,
   Fatal = 6,
   Job = 7,
+  Check = 8,
   COUNT
 };
 
@@ -137,6 +143,22 @@ class CH_UTILITY_EXPORT CrashHandler
   [[noreturn]] static void
   reportFatal(const ANSICHAR* message, const ANSICHAR* file, int32 line) noexcept;
 
+  /**
+   * What CH_CHECK and CH_CHECK_MSG call when their condition is false.
+   */
+  [[noreturn]] static void
+  reportCheckFailed(const ANSICHAR* condition,
+                    const ANSICHAR* file,
+                    int32 line,
+                    StringView message = StringView()) noexcept;
+
+  /**
+   * Shown after the report is written while Crash.ShowDialog is on; null shows nothing.
+   * chUtilities has no window code, so the application gives it.
+   */
+  static void
+  setDialogFunction(CrashDialogFunction function) noexcept;
+
   [[noreturn]] static void
   crashForTest(CrashTestKind kind);
 
@@ -154,3 +176,24 @@ class CH_UTILITY_EXPORT CrashHandler
 };
 
 } // namespace chEngineSDK
+
+/**
+ * Checks that stay in every build, unlike CH_ASSERT: a false condition ends the program with a
+ * crash report. For cheap checks of things that must never happen. CH_CHECK_MSG formats its
+ * message with StringUtils::format, so the file must include chStringUtils.h; the message is
+ * only built when the check fails.
+ */
+#define CH_CHECK(condition)                                                                   \
+  do {                                                                                        \
+    if (!(condition)) [[unlikely]] {                                                          \
+      ::chEngineSDK::CrashHandler::reportCheckFailed(#condition, __FILE__, __LINE__);         \
+    }                                                                                         \
+  } while (false)
+
+#define CH_CHECK_MSG(condition, ...)                                                          \
+  do {                                                                                        \
+    if (!(condition)) [[unlikely]] {                                                          \
+      ::chEngineSDK::CrashHandler::reportCheckFailed(                                         \
+          #condition, __FILE__, __LINE__, ::chEngineSDK::StringUtils::format(__VA_ARGS__));   \
+    }                                                                                         \
+  } while (false)
